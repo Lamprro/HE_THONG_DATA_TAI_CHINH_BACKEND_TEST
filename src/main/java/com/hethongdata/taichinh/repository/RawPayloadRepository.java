@@ -67,7 +67,7 @@ public class RawPayloadRepository {
                 .param("payload", payload == null ? null : payload.toString())
                 .param("rawText", rawText)
                 .param("checksum", checksum)
-                .param("fetchedAt", response.fetchedAt())
+                .param("fetchedAt", Timestamp.from(response.fetchedAt()))
                 .query(UUID.class)
                 .single();
     }

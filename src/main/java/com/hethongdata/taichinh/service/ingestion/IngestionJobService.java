@@ -5,6 +5,7 @@ import com.hethongdata.taichinh.common.AppParams;
 import com.hethongdata.taichinh.dto.ingestion.CreateIngestionJobRequest;
 import com.hethongdata.taichinh.dto.ingestion.IngestionExecutionResponse;
 import com.hethongdata.taichinh.dto.ingestion.IngestionJobResponse;
+import com.hethongdata.taichinh.dto.ingestion.UpdateIngestionJobActivationRequest;
 import com.hethongdata.taichinh.entity.ingestion.IngestionJobEntity;
 import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
 import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaRepository;
@@ -67,6 +68,10 @@ public class IngestionJobService {
 
     public List<IngestionJobResponse> listActive() {
         return ingestionJobs.findActiveEntities().stream().map(IngestionJobResponse::from).toList();
+    }
+
+    public IngestionJobResponse setActive(UUID jobId, UpdateIngestionJobActivationRequest request) {
+        return IngestionJobResponse.from(ingestionJobs.setActive(jobId, request.active()));
     }
 
     /** Polls active jobs; cron evaluation uses the last recorded run in UTC. */

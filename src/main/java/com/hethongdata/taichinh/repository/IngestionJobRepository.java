@@ -82,11 +82,11 @@ public class IngestionJobRepository {
     }
 
     @Transactional
-    public void setActive(UUID id, boolean active) {
+    public IngestionJobEntity setActive(UUID id, boolean active) {
         IngestionJobEntity entity = ingestionJobs.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Ingestion job not found: " + id));
         entity.setActive(active);
-        ingestionJobs.save(entity);
+        return ingestionJobs.save(entity);
     }
 
 }

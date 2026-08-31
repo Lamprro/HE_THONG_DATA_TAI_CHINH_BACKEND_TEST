@@ -5,6 +5,8 @@ import com.hethongdata.taichinh.application.port.model.ExternalFetchRequest;
 import com.hethongdata.taichinh.application.port.model.ExternalFetchResponse;
 import com.hethongdata.taichinh.repository.IngestionRunRepository;
 import com.hethongdata.taichinh.repository.RawPayloadRepository;
+import com.hethongdata.taichinh.entity.ingestion.DataSourceEntity;
+import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,8 +26,8 @@ public class IngestionCompletionService {
 
     @Transactional
     public UUID persistSuccess(
-            UUID runId,
-            long dataSourceId,
+            IngestionRunEntity run,
+            DataSourceEntity source,
             ExternalFetchRequest request,
             ExternalFetchResponse response,
             JsonNode jsonBody,
@@ -33,8 +35,8 @@ public class IngestionCompletionService {
             String checksum,
             boolean duplicate) {
         UUID rawPayloadId = rawPayloadRepository.save(
-                runId, dataSourceId, request, response, jsonBody, textBody, checksum);
-        ingestionRunRepository.markSuccess(runId, response, jsonBody, textBody, duplicate);
+                run, source, request, response, jsonBody, textBody, checksum);
+        ingestionRunRepository.markSuccess(run, response, jsonBody, textBody, duplicate);
         return rawPayloadId;
     }
 }

@@ -22,9 +22,11 @@ public record ExternalFetchRequest(
         interval = normalizeOptional(interval);
         parameters = parameters == null ? Map.of() : Map.copyOf(parameters);
 
-        if ((operation == ExternalOperation.QUOTE || operation == ExternalOperation.OHLCV)
-                && symbol == null) {
+        if (requiresSymbol(operation) && symbol == null) {
             throw new IllegalArgumentException("symbol is required for " + operation);
+        }
+        if (requiresProvider(operation) && provider == null) {
+            throw new IllegalArgumentException("provider is required for " + operation);
         }
         if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
             throw new IllegalArgumentException("startDate must not be after endDate");
@@ -34,9 +36,25 @@ public record ExternalFetchRequest(
         }
     }
 
+    private static boolean requiresSymbol(ExternalOperation operation) {
+        return switch (operation) {
+            case QUOTE, OHLCV, COMPANY, FINANCIAL_STATEMENT, RATIO,
+                    MANAGEMENT, SUBSIDIARIES, NEWS, EVENTS, NEWS_COMPANY -> true;
+            default -> false;
+        };
+    }
+
+    private static boolean requiresProvider(ExternalOperation operation) {
+        return switch (operation) {
+            case HEALTH, PROVIDERS, NEWS_STATUS, NEWS_SITES, NEWS_LATEST, NEWS_HISTORY,
+                    NEWS_COMPANY, PROXY_PROVIDERS -> false;
+            default -> true;
+        };
+    }
+
     private static String normalizeProvider(String value) {
         String normalized = normalizeOptional(value);
-        return normalized == null ? "vnstock" : normalized.toLowerCase(Locale.ROOT);
+        return normalized == null ? null : normalized.toLowerCase(Locale.ROOT);
     }
 
     private static String normalizeSymbol(String value) {

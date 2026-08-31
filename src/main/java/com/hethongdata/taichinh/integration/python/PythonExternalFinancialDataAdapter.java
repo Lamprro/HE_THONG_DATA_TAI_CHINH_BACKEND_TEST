@@ -12,6 +12,8 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -22,6 +24,11 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 @Component
 public class PythonExternalFinancialDataAdapter implements ExternalFinancialDataPort {
+
+    private static final Set<String> EQUITY_PROVIDERS = Set.of("vnstock", "vndirect", "cafef");
+    private static final Set<String> FINANCIAL_PARAMETERS = Set.of("period", "fiscal_date", "report_type", "year");
+    private static final Set<String> NEWS_PARAMETERS = Set.of("limit");
+    private static final Set<String> NEWS_FEED_PARAMETERS = Set.of("site", "limit", "request_delay");
 
     private final RestClient restClient;
     private final PythonFinancialDataProperties properties;
@@ -38,17 +45,12 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
 
     @Override
     public URI resolveUri(ExternalFetchRequest request) {
-        String path = pathFor(request);
-        UriComponentsBuilder builder = UriComponentsBuilder.fromUri(properties.getBaseUrl()).path(path);
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUri(properties.getBaseUrl()).path(pathFor(request));
         if (request.operation() == ExternalOperation.OHLCV) {
-            if (request.startDate() != null) {
-                builder.queryParam("start", request.startDate());
-            }
-            if (request.endDate() != null) {
-                builder.queryParam("end", request.endDate());
-            }
+            addIfPresent(builder, "start", request.startDate());
+            addIfPresent(builder, "end", request.endDate());
         }
-        request.parameters().forEach(builder::queryParam);
+        allowedQueryParameters(request).forEach((name, value) -> builder.queryParam(name, value));
         return builder.build().encode().toUri();
     }
 
@@ -87,22 +89,110 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
     }
 
     private String pathFor(ExternalFetchRequest request) {
+        String provider = request.provider();
+        String symbol = request.symbol();
         return switch (request.operation()) {
             case HEALTH -> "/api/v1/health";
             case PROVIDERS -> "/api/v1/providers";
-            case QUOTE -> "/api/v1/" + supportedProvider(request.provider())
-                    + "/equities/" + request.symbol() + "/quote";
-            case OHLCV -> "/api/v1/" + supportedProvider(request.provider())
-                    + "/equities/" + request.symbol() + "/ohlcv";
+            case QUOTE -> equityPath(provider, symbol, "quote");
+            case OHLCV -> equityPath(provider, symbol, "ohlcv");
+            case COMPANY -> companyPath(provider, symbol);
+            case FINANCIAL_STATEMENT -> financialStatementPath(provider, symbol, requiredParameter(request, "statement"));
+            case RATIO -> ratioPath(provider, symbol);
+            case MANAGEMENT -> cafefPath(symbol, "management");
+            case SUBSIDIARIES -> cafefPath(symbol, "subsidiaries");
+            case NEWS -> cafefPath(symbol, "news");
+            case EVENTS -> cafefPath(symbol, "events");
+            case NEWS_STATUS -> "/api/v1/vnstock-news/status";
+            case NEWS_SITES -> "/api/v1/vnstock-news/sites";
+            case NEWS_LATEST -> "/api/v1/vnstock-news/latest";
+            case NEWS_HISTORY -> "/api/v1/vnstock-news/history";
+            case NEWS_COMPANY -> "/api/v1/vnstock-news/company/" + symbol;
+            case PROXY_PROVIDERS -> "/api/v1/proxy/providers";
+            case RAW_PROXY -> rawProxyPath(provider, requiredParameter(request, "upstream_path"));
         };
     }
 
-    private String supportedProvider(String provider) {
-        String normalized = provider.toLowerCase(Locale.ROOT);
-        if (!normalized.equals("vnstock") && !normalized.equals("vndirect") && !normalized.equals("cafef")) {
-            throw new IllegalArgumentException("Unsupported provider for quote/OHLCV: " + provider);
+    private String equityPath(String provider, String symbol, String dataset) {
+        return "/api/v1/" + equityProvider(provider) + "/equities/" + symbol + "/" + dataset;
+    }
+
+    private String companyPath(String provider, String symbol) {
+        String normalizedProvider = equityProvider(provider);
+        if (normalizedProvider.equals("vnstock")) {
+            return "/api/v1/vnstock/companies/" + symbol;
         }
-        return normalized;
+        return equityPath(normalizedProvider, symbol, "company");
+    }
+
+    private String financialStatementPath(String provider, String symbol, String statement) {
+        String normalizedProvider = equityProvider(provider);
+        return equityPath(normalizedProvider, symbol, "financials/" + normalizeStatement(normalizedProvider, statement));
+    }
+
+    private String ratioPath(String provider, String symbol) {
+        String normalizedProvider = equityProvider(provider);
+        if (normalizedProvider.equals("cafef")) {
+            throw new IllegalArgumentException("CafeF does not expose a ratios route in the current API contract");
+        }
+        return equityPath(normalizedProvider, symbol, normalizedProvider.equals("vndirect") ? "ratios" : "ratio");
+    }
+
+    private String cafefPath(String symbol, String dataset) {
+        return equityPath("cafef", symbol, dataset);
+    }
+
+    private String rawProxyPath(String provider, String upstreamPath) {
+        if (!Set.of("vndirect", "cafef", "cafef-financial").contains(provider)) {
+            throw new IllegalArgumentException("Unsupported raw proxy provider: " + provider);
+        }
+        if (upstreamPath.isBlank() || upstreamPath.startsWith("/") || upstreamPath.contains("..")) {
+            throw new IllegalArgumentException("upstream_path must be a safe relative path");
+        }
+        return "/api/v1/proxy/" + provider + "/" + upstreamPath;
+    }
+
+    private Map<String, String> allowedQueryParameters(ExternalFetchRequest request) {
+        Set<String> allowed = switch (request.operation()) {
+            case FINANCIAL_STATEMENT -> FINANCIAL_PARAMETERS;
+            case NEWS, EVENTS -> NEWS_PARAMETERS;
+            case NEWS_LATEST, NEWS_HISTORY -> NEWS_FEED_PARAMETERS;
+            case RAW_PROXY -> request.parameters().keySet();
+            default -> Set.of();
+        };
+        return request.parameters().entrySet().stream()
+                .filter(entry -> allowed.contains(entry.getKey()))
+                .filter(entry -> !entry.getKey().equals("statement") && !entry.getKey().equals("upstream_path"))
+                .collect(java.util.stream.Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));
+    }
+
+    private String equityProvider(String provider) {
+        if (provider == null || !EQUITY_PROVIDERS.contains(provider)) {
+            throw new IllegalArgumentException("Unsupported equity provider: " + provider);
+        }
+        return provider;
+    }
+
+    private String requiredParameter(ExternalFetchRequest request, String name) {
+        String value = request.parameters().get(name);
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(name + " is required for " + request.operation());
+        }
+        return value.trim();
+    }
+
+    private String normalizeStatement(String provider, String statement) {
+        String normalized = statement.trim().toLowerCase(Locale.ROOT).replace('-', '_');
+        if (!Set.of("balance_sheet", "income_statement", "cash_flow").contains(normalized)) {
+            throw new IllegalArgumentException("Unsupported statement: " + statement);
+        }
+        return provider.equals("vnstock") ? normalized : normalized.replace('_', '-');
+    }
+
+    private void addIfPresent(UriComponentsBuilder builder, String name, Object value) {
+        if (value != null) {
+            builder.queryParam(name, value);
+        }
     }
 
     private String readBody(java.io.InputStream body) throws IOException {

@@ -8,6 +8,7 @@ import com.hethongdata.taichinh.application.port.model.ExternalOperation;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -32,13 +33,13 @@ public class ExternalFinancialDataController {
     @GetMapping("/health")
     public ResponseEntity<String> health() {
         return passthrough(new ExternalFetchRequest(
-                ExternalOperation.HEALTH, "vnstock", null, null, null, null, Map.of()));
+                ExternalOperation.HEALTH, null, null, null, null, null, Map.of()));
     }
 
     @GetMapping("/providers")
     public ResponseEntity<String> providers() {
         return passthrough(new ExternalFetchRequest(
-                ExternalOperation.PROVIDERS, "vnstock", null, null, null, null, Map.of()));
+                ExternalOperation.PROVIDERS, null, null, null, null, null, Map.of()));
     }
 
     @GetMapping("/{provider}/equities/{symbol}/quote")
@@ -55,6 +56,22 @@ public class ExternalFinancialDataController {
             @RequestParam(required = false) LocalDate end) {
         return passthrough(new ExternalFetchRequest(
                 ExternalOperation.OHLCV, provider, symbol, start, end, null, Map.of()));
+    }
+
+    @GetMapping("/fetch")
+    public ResponseEntity<String> fetch(
+            @RequestParam ExternalOperation operation,
+            @RequestParam(required = false) String provider,
+            @RequestParam(required = false) String symbol,
+            @RequestParam(required = false) LocalDate start,
+            @RequestParam(required = false) LocalDate end,
+            @RequestParam(required = false) String interval,
+            @RequestParam Map<String, String> parameters) {
+        Map<String, String> providerParameters = parameters.entrySet().stream()
+                .filter(entry -> !FRAMEWORK_PARAMETERS.contains(entry.getKey()))
+                .collect(java.util.stream.Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));
+        return passthrough(new ExternalFetchRequest(
+                operation, provider, symbol, start, end, interval, providerParameters));
     }
 
     private ResponseEntity<String> passthrough(ExternalFetchRequest request) {
@@ -94,4 +111,7 @@ public class ExternalFinancialDataController {
             Integer upstreamStatus,
             String message) {
     }
+
+    private static final Set<String> FRAMEWORK_PARAMETERS = Set.of(
+            "operation", "provider", "symbol", "start", "end", "interval");
 }

@@ -4,30 +4,38 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hethongdata.taichinh.application.port.model.ExternalFetchRequest;
 import com.hethongdata.taichinh.application.port.model.ExternalFetchResponse;
-import com.hethongdata.taichinh.domain.ingestion.IngestionRun;
-import com.hethongdata.taichinh.domain.ingestion.IngestionStatus;
+import com.hethongdata.taichinh.entity.ingestion.DataSourceEntity;
+import com.hethongdata.taichinh.entity.ingestion.IngestionJobEntity;
+import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
+import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaRepository;
 import java.net.URI;
-import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 public class IngestionRunRepository {
 
-    private final JdbcClient jdbcClient;
+    private final IngestionRunJpaRepository ingestionRuns;
     private final ObjectMapper objectMapper;
 
-    public IngestionRunRepository(JdbcClient jdbcClient, ObjectMapper objectMapper) {
-        this.jdbcClient = jdbcClient;
+    public IngestionRunRepository(IngestionRunJpaRepository ingestionRuns, ObjectMapper objectMapper) {
+        this.ingestionRuns = ingestionRuns;
         this.objectMapper = objectMapper;
     }
 
-    public UUID start(long dataSourceId, ExternalFetchRequest request, URI requestUri) {
+    @Transactional
+    public IngestionRunEntity start(
+            DataSourceEntity source,
+            IngestionJobEntity job,
+            String triggerType,
+            ExternalFetchRequest request,
+            URI requestUri) {
         Map<String, Object> query = Map.of(
                 "operation", request.operation().name(),
                 "provider", request.provider(),
@@ -36,138 +44,67 @@ public class IngestionRunRepository {
                 "endDate", request.endDate() == null ? "" : request.endDate().toString(),
                 "interval", request.interval() == null ? "" : request.interval(),
                 "parameters", request.parameters());
-
-        return jdbcClient.sql("""
-                        INSERT INTO ingestion_runs (
-                            data_source_id, trigger_type, status, started_at,
-                            request_query_params, request_method, request_url,
-                            request_headers, response_headers, metadata
-                        ) VALUES (
-                            :dataSourceId, 'MANUAL', 'RUNNING', NOW(),
-                            CAST(:query AS jsonb), 'GET', :requestUrl,
-                            '{}'::jsonb, '{}'::jsonb, CAST(:metadata AS jsonb)
-                        )
-                        RETURNING id
-                        """)
-                .param("dataSourceId", dataSourceId)
-                .param("query", JsonDatabaseSupport.write(objectMapper, query))
-                .param("requestUrl", requestUri.toString())
-                .param("metadata", JsonDatabaseSupport.write(objectMapper, Map.of("phase", 1)))
-                .query(UUID.class)
-                .single();
+        JsonNode emptyObject = objectMapper.createObjectNode();
+        IngestionRunEntity entity = IngestionRunEntity.start(
+                source,
+                job,
+                triggerType,
+                objectMapper.valueToTree(query),
+                requestUri,
+                emptyObject,
+                Instant.now());
+        return ingestionRuns.save(entity);
     }
 
+    @Transactional
     public void markSuccess(
-            UUID runId,
+            IngestionRunEntity run,
             ExternalFetchResponse response,
             JsonNode responseJson,
             String responseText,
             boolean duplicate) {
-        jdbcClient.sql("""
-                        UPDATE ingestion_runs
-                        SET status = 'SUCCESS', finished_at = NOW(),
-                            fetched_count = 1, inserted_count = 1,
-                            response_http_status = :status,
-                            response_content_type = :contentType,
-                            response_headers = CAST(:headers AS jsonb),
-                            response_snapshot = CAST(:responseJson AS jsonb),
-                            response_text = :responseText,
-                            metadata = metadata || CAST(:metadata AS jsonb)
-                        WHERE id = :runId
-                        """)
-                .param("status", response.httpStatus())
-                .param("contentType", response.contentType())
-                .param("headers", JsonDatabaseSupport.write(objectMapper, response.responseHeaders()))
-                .param("responseJson", responseJson == null ? null : responseJson.toString())
-                .param("responseText", responseText)
-                .param("metadata", JsonDatabaseSupport.write(objectMapper, Map.of("duplicateChecksum", duplicate)))
-                .param("runId", runId)
-                .update();
+        run.markSuccess(
+                response.httpStatus(), response.contentType(), objectMapper.valueToTree(response.responseHeaders()),
+                responseJson, responseText, objectMapper.valueToTree(Map.of("phase", 1, "duplicateChecksum", duplicate)),
+                Instant.now());
+        ingestionRuns.save(run);
     }
 
-    public void markFailed(UUID runId, String category, Integer upstreamStatus, String message) {
-        jdbcClient.sql("""
-                        UPDATE ingestion_runs
-                        SET status = 'FAILED', finished_at = NOW(), error_count = 1,
-                            error_message = :message,
-                            response_http_status = :upstreamStatus,
-                            metadata = metadata || CAST(:metadata AS jsonb)
-                        WHERE id = :runId
-                        """)
-                .param("message", abbreviate(message, 4000))
-                .param("upstreamStatus", upstreamStatus)
-                .param("metadata", JsonDatabaseSupport.write(objectMapper, Map.of("errorCategory", category)))
-                .param("runId", runId)
-                .update();
+    @Transactional
+    public void markFailed(IngestionRunEntity run, String category, Integer upstreamStatus, String message) {
+        run.markFailed(
+                upstreamStatus == null ? 0 : upstreamStatus,
+                null,
+                objectMapper.createObjectNode(),
+                null,
+                null,
+                abbreviate(message, 4000),
+                objectMapper.valueToTree(Map.of("phase", 1, "errorCategory", category)),
+                Instant.now());
+        ingestionRuns.save(run);
     }
 
+    @Transactional
     public void markFailedResponse(
-            UUID runId,
+            IngestionRunEntity run,
             String category,
             ExternalFetchResponse response,
             JsonNode responseJson,
             String responseText,
             String message) {
-        jdbcClient.sql("""
-                        UPDATE ingestion_runs
-                        SET status = 'FAILED', finished_at = NOW(), error_count = 1,
-                            error_message = :message,
-                            response_http_status = :status,
-                            response_content_type = :contentType,
-                            response_headers = CAST(:headers AS jsonb),
-                            response_snapshot = CAST(:responseJson AS jsonb),
-                            response_text = :responseText,
-                            metadata = metadata || CAST(:metadata AS jsonb)
-                        WHERE id = :runId
-                        """)
-                .param("message", abbreviate(message, 4000))
-                .param("status", response.httpStatus())
-                .param("contentType", response.contentType())
-                .param("headers", JsonDatabaseSupport.write(objectMapper, response.responseHeaders()))
-                .param("responseJson", responseJson == null ? null : responseJson.toString())
-                .param("responseText", responseText)
-                .param("metadata", JsonDatabaseSupport.write(objectMapper, Map.of("errorCategory", category)))
-                .param("runId", runId)
-                .update();
+        run.markFailed(
+                response.httpStatus(), response.contentType(), objectMapper.valueToTree(response.responseHeaders()),
+                responseJson, responseText, abbreviate(message, 4000),
+                objectMapper.valueToTree(Map.of("phase", 1, "errorCategory", category)), Instant.now());
+        ingestionRuns.save(run);
     }
 
-    public Optional<IngestionRun> findById(UUID id) {
-        return jdbcClient.sql(BASE_SELECT + " WHERE id = :id")
-                .param("id", id)
-                .query(this::mapRow)
-                .optional();
+    public Optional<IngestionRunEntity> findById(UUID id) {
+        return ingestionRuns.findById(id);
     }
 
-    public List<IngestionRun> findLatest(int limit) {
-        return jdbcClient.sql(BASE_SELECT + " ORDER BY started_at DESC LIMIT :limit")
-                .param("limit", limit)
-                .query(this::mapRow)
-                .list();
-    }
-
-    private IngestionRun mapRow(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
-        Timestamp finishedAt = rs.getTimestamp("finished_at");
-        Timestamp createdAt = rs.getTimestamp("created_at");
-        return new IngestionRun(
-                rs.getObject("id", UUID.class),
-                rs.getLong("data_source_id"),
-                rs.getString("trigger_type"),
-                IngestionStatus.valueOf(rs.getString("status")),
-                rs.getTimestamp("started_at").toInstant(),
-                finishedAt == null ? null : finishedAt.toInstant(),
-                JsonDatabaseSupport.read(objectMapper, rs.getString("request_query_params")),
-                rs.getInt("fetched_count"),
-                rs.getInt("inserted_count"),
-                rs.getInt("updated_count"),
-                rs.getInt("rejected_count"),
-                rs.getInt("error_count"),
-                rs.getString("error_message"),
-                JsonDatabaseSupport.read(objectMapper, rs.getString("metadata")),
-                rs.getString("request_method"),
-                rs.getString("request_url"),
-                (Integer) rs.getObject("response_http_status"),
-                rs.getString("response_content_type"),
-                createdAt == null ? Instant.EPOCH : createdAt.toInstant());
+    public List<IngestionRunEntity> findLatest(int limit) {
+        return ingestionRuns.findAllByOrderByStartedAtDesc(PageRequest.of(0, limit));
     }
 
     private static String abbreviate(String value, int maxLength) {
@@ -176,12 +113,4 @@ public class IngestionRunRepository {
         }
         return value.substring(0, maxLength);
     }
-
-    private static final String BASE_SELECT = """
-            SELECT id, data_source_id, trigger_type, status, started_at, finished_at,
-                   request_query_params, fetched_count, inserted_count, updated_count,
-                   rejected_count, error_count, error_message, metadata, request_method,
-                   request_url, response_http_status, response_content_type, created_at
-            FROM ingestion_runs
-            """;
 }

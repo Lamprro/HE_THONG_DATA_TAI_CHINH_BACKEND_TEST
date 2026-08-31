@@ -12,3 +12,7 @@ financial.python-service.read-timeout=45s
 
 # Raw bodies remain hidden from diagnostic APIs unless explicitly enabled locally.
 financial.raw-diagnostics.include-body-enabled=false
+
+# Set true only after ingestion_jobs have been reviewed and activated.
+financial.ingestion.scheduler.enabled=false
+financial.ingestion.scheduler.poll-interval=60000

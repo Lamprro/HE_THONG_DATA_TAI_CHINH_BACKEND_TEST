@@ -1,36 +1,42 @@
 package com.hethongdata.taichinh.repository;
 
-import com.hethongdata.taichinh.domain.ingestion.DataSourceConfig;
+import com.hethongdata.taichinh.entity.ingestion.DataSourceEntity;
+import com.hethongdata.taichinh.repository.jpa.ingestion.DataSourceJpaRepository;
 import java.util.Optional;
-import org.springframework.jdbc.core.simple.JdbcClient;
+import java.util.List;
 import org.springframework.stereotype.Repository;
 
 @Repository
 public class DataSourceRepository {
 
-    private final JdbcClient jdbcClient;
+    private final DataSourceJpaRepository dataSources;
 
-    public DataSourceRepository(JdbcClient jdbcClient) {
-        this.jdbcClient = jdbcClient;
+    public DataSourceRepository(DataSourceJpaRepository dataSources) {
+        this.dataSources = dataSources;
     }
 
-    public Optional<DataSourceConfig> findActiveByProvider(String provider) {
-        return jdbcClient.sql("""
-                        SELECT id, code, name, provider, base_url, is_active
-                        FROM data_sources
-                        WHERE is_active = TRUE
-                          AND (UPPER(code) = UPPER(:provider) OR UPPER(provider) = UPPER(:provider))
-                        ORDER BY CASE WHEN UPPER(code) = UPPER(:provider) THEN 0 ELSE 1 END, priority, id
-                        LIMIT 1
-                        """)
-                .param("provider", provider)
-                .query((rs, rowNum) -> new DataSourceConfig(
-                        rs.getLong("id"),
-                        rs.getString("code"),
-                        rs.getString("name"),
-                        rs.getString("provider"),
-                        rs.getString("base_url"),
-                        rs.getBoolean("is_active")))
-                .optional();
+    public Optional<DataSourceEntity> findEntityActiveByProvider(String provider) {
+        return dataSources.findActiveByProvider(provider);
+    }
+
+    public List<DataSourceEntity> findAllEntities() {
+        return dataSources.findAll();
+    }
+
+    @org.springframework.transaction.annotation.Transactional
+    public DataSourceEntity upsert(
+            String code,
+            String name,
+            String sourceType,
+            String baseUrl,
+            String provider,
+            boolean official,
+            String licenseStatus,
+            boolean active) {
+        DataSourceEntity entity = dataSources.findByCodeIgnoreCase(code)
+                .orElseGet(() -> DataSourceEntity.create(
+                        code, name, sourceType, baseUrl, provider, official, licenseStatus));
+        entity.update(name, baseUrl, provider, active);
+        return dataSources.save(entity);
     }
 }

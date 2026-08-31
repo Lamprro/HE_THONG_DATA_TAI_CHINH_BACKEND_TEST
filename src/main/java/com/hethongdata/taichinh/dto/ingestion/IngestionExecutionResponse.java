@@ -1,8 +1,8 @@
-package com.hethongdata.taichinh.service.ingestion;
+package com.hethongdata.taichinh.dto.ingestion;
 
 import java.util.UUID;
 
-public record IngestionResult(
+public record IngestionExecutionResponse(
         UUID runId,
         UUID rawPayloadId,
         String status,

@@ -84,7 +84,8 @@ public class RawPayloadEntity {
             JsonNode payload,
             String rawText,
             String checksumSha256,
-            Instant fetchedAt) {
+            Instant fetchedAt,
+            UUID securityId) {
         RawPayloadEntity entity = new RawPayloadEntity();
         entity.ingestionRun = ingestionRun;
         entity.dataSource = dataSource;
@@ -97,6 +98,7 @@ public class RawPayloadEntity {
         entity.rawText = rawText;
         entity.checksumSha256 = checksumSha256;
         entity.fetchedAt = fetchedAt;
+        entity.securityId = securityId;
         entity.createdAt = Instant.now();
         return entity;
     }

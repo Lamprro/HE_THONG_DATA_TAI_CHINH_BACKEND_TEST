@@ -4,10 +4,16 @@ import com.hethongdata.taichinh.entity.ingestion.DataSourceEntity;
 import com.hethongdata.taichinh.entity.ingestion.IngestionJobEntity;
 import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
 import com.hethongdata.taichinh.entity.ingestion.RawPayloadEntity;
+import com.hethongdata.taichinh.entity.master.CompanyAliasEntity;
+import com.hethongdata.taichinh.entity.master.CompanyEntity;
+import com.hethongdata.taichinh.entity.master.SecurityEntity;
 import com.hethongdata.taichinh.repository.jpa.ingestion.DataSourceJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionJobJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.RawPayloadJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.master.CompanyAliasJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.master.CompanyJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.master.SecurityJpaRepository;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
@@ -18,9 +24,11 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
  */
 @Configuration
 @EntityScan(basePackageClasses = {
-        DataSourceEntity.class, IngestionJobEntity.class, IngestionRunEntity.class, RawPayloadEntity.class})
+        DataSourceEntity.class, IngestionJobEntity.class, IngestionRunEntity.class, RawPayloadEntity.class,
+        CompanyEntity.class, CompanyAliasEntity.class, SecurityEntity.class})
 @EnableJpaRepositories(basePackageClasses = {
         DataSourceJpaRepository.class, IngestionJobJpaRepository.class,
-        IngestionRunJpaRepository.class, RawPayloadJpaRepository.class})
+        IngestionRunJpaRepository.class, RawPayloadJpaRepository.class,
+        CompanyJpaRepository.class, CompanyAliasJpaRepository.class, SecurityJpaRepository.class})
 public class PhaseOneJpaConfiguration {
 }

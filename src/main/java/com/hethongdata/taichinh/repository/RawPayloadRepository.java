@@ -35,13 +35,14 @@ public class RawPayloadRepository {
             ExternalFetchResponse response,
             JsonNode payload,
             String rawText,
-            String checksum) {
+            String checksum,
+            UUID securityId) {
         String externalKey = request.provider() + ":" + request.operation().name().toLowerCase()
                 + ":" + (request.symbol() == null ? "system" : request.symbol());
         RawPayloadEntity entity = RawPayloadEntity.create(
                 run, source, externalKey, request.operation().name(), request.symbol(),
                 response.sourceUri().toString(), response.contentType(), payload,
-                rawText, checksum, response.fetchedAt());
+                rawText, checksum, response.fetchedAt(), securityId);
         return rawPayloads.save(entity).getId();
     }
 

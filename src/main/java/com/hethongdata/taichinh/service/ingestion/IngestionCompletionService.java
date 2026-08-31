@@ -33,9 +33,10 @@ public class IngestionCompletionService {
             JsonNode jsonBody,
             String textBody,
             String checksum,
-            boolean duplicate) {
+            boolean duplicate,
+            UUID securityId) {
         UUID rawPayloadId = rawPayloadRepository.save(
-                run, source, request, response, jsonBody, textBody, checksum);
+                run, source, request, response, jsonBody, textBody, checksum, securityId);
         ingestionRunRepository.markSuccess(run, response, jsonBody, textBody, duplicate);
         return rawPayloadId;
     }

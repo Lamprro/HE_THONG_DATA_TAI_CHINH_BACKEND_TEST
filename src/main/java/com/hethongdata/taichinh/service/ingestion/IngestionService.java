@@ -100,7 +100,8 @@ public class IngestionService {
             String checksum = checksumService.sha256(response.rawBody());
             boolean duplicate = rawPayloadRepository.findLatestByChecksum(source.getId(), checksum).isPresent();
             UUID rawId = completionService.persistSuccess(
-                    run, source, request, response, parsedBody.json(), parsedBody.text(), checksum, duplicate);
+                    run, source, request, response, parsedBody.json(), parsedBody.text(), checksum, duplicate,
+                    securityIdFromJob(job));
 
             return new IngestionExecutionResponse(
                     runId, rawId, "SUCCESS", response.httpStatus(), response.contentType(), checksum, duplicate);
@@ -170,6 +171,13 @@ public class IngestionService {
 
     private LocalDate parseDate(String value) {
         return value == null ? null : LocalDate.parse(value);
+    }
+
+    /** Manual fetches deliberately remain unlinked; provisioned security jobs carry their immutable security id. */
+    private UUID securityIdFromJob(IngestionJobEntity job) {
+        if (job == null) return null;
+        String securityId = optionalText(job.getParameters(), "securityId");
+        return securityId == null ? null : UUID.fromString(securityId);
     }
 
     private Integer optionalPositiveInt(JsonNode node, String field) {

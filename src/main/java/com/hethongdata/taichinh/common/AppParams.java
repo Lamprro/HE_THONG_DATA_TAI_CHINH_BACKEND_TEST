@@ -24,6 +24,10 @@ public final class AppParams {
     public static final Set<String> INGESTION_DATASET_TYPES = Set.of(
             "COMPANY", "SECURITY", "FINANCIAL_STATEMENT", "FINANCIAL_METRIC",
             "MARKET_PRICE", "MARKET_INDEX", "NEWS", "MACRO", "OTHER");
+    public static final Set<String> COMPANY_ALIAS_TYPES = Set.of(
+            "SHORT_NAME", "FORMER_NAME", "ENGLISH_NAME", "NEWS_ALIAS", "OTHER");
+    public static final Set<String> SECURITY_TYPES = Set.of("STOCK", "ETF", "FUND", "BOND", "WARRANT", "OTHER");
+    public static final Set<String> SECURITY_EXCHANGES = Set.of("HOSE", "HNX", "UPCOM", "OTC", "OTHER");
 
     private AppParams() {
     }

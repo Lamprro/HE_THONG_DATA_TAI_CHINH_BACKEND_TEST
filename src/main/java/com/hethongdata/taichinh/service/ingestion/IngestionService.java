@@ -55,10 +55,13 @@ public class IngestionService {
         try {
             ExternalFetchResponse response = externalFinancialDataPort.fetch(request);
             if (!response.isSuccessful()) {
-                throw new ExternalFetchException(
-                        classifyStatus(response.httpStatus()),
-                        response.httpStatus(),
-                        "Upstream returned HTTP " + response.httpStatus());
+                ExternalErrorCategory category = classifyStatus(response.httpStatus());
+                ParsedBody errorBody = parseDiagnosticBody(response);
+                String message = "Upstream returned HTTP " + response.httpStatus();
+                ingestionRunRepository.markFailedResponse(
+                        runId, category.name(), response, errorBody.json(), errorBody.text(), message);
+                throw new IngestionExecutionException(
+                        runId, category, response.httpStatus(), message, null);
             }
 
             ParsedBody parsedBody = parseBody(response);
@@ -82,6 +85,8 @@ public class IngestionService {
                     response.contentType(),
                     checksum,
                     duplicate);
+        } catch (IngestionExecutionException exception) {
+            throw exception;
         } catch (ExternalFetchException exception) {
             ingestionRunRepository.markFailed(
                     runId, exception.category().name(), exception.upstreamStatus(), exception.getMessage());
@@ -116,6 +121,17 @@ public class IngestionService {
                     response.httpStatus(),
                     "Upstream declared JSON but returned malformed content",
                     exception);
+        }
+    }
+
+    private ParsedBody parseDiagnosticBody(ExternalFetchResponse response) {
+        if (!response.contentType().toLowerCase(Locale.ROOT).contains("json")) {
+            return new ParsedBody(null, response.rawBody());
+        }
+        try {
+            return new ParsedBody(objectMapper.readTree(response.rawBody()), null);
+        } catch (JsonProcessingException exception) {
+            return new ParsedBody(null, response.rawBody());
         }
     }
 

@@ -101,6 +101,36 @@ public class IngestionRunRepository {
                 .update();
     }
 
+    public void markFailedResponse(
+            UUID runId,
+            String category,
+            ExternalFetchResponse response,
+            JsonNode responseJson,
+            String responseText,
+            String message) {
+        jdbcClient.sql("""
+                        UPDATE ingestion_runs
+                        SET status = 'FAILED', finished_at = NOW(), error_count = 1,
+                            error_message = :message,
+                            response_http_status = :status,
+                            response_content_type = :contentType,
+                            response_headers = CAST(:headers AS jsonb),
+                            response_snapshot = CAST(:responseJson AS jsonb),
+                            response_text = :responseText,
+                            metadata = metadata || CAST(:metadata AS jsonb)
+                        WHERE id = :runId
+                        """)
+                .param("message", abbreviate(message, 4000))
+                .param("status", response.httpStatus())
+                .param("contentType", response.contentType())
+                .param("headers", JsonDatabaseSupport.write(objectMapper, response.responseHeaders()))
+                .param("responseJson", responseJson == null ? null : responseJson.toString())
+                .param("responseText", responseText)
+                .param("metadata", JsonDatabaseSupport.write(objectMapper, Map.of("errorCategory", category)))
+                .param("runId", runId)
+                .update();
+    }
+
     public Optional<IngestionRun> findById(UUID id) {
         return jdbcClient.sql(BASE_SELECT + " WHERE id = :id")
                 .param("id", id)

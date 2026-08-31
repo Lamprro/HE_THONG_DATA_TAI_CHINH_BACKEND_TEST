@@ -5,6 +5,7 @@ import com.hethongdata.taichinh.repository.RawPayloadRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -17,9 +18,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class RawPayloadController {
 
     private final RawPayloadRepository rawPayloadRepository;
+    private final boolean bodyAccessEnabled;
 
-    public RawPayloadController(RawPayloadRepository rawPayloadRepository) {
+    public RawPayloadController(
+            RawPayloadRepository rawPayloadRepository,
+            @Value("${financial.raw-diagnostics.include-body-enabled:false}") boolean bodyAccessEnabled) {
         this.rawPayloadRepository = rawPayloadRepository;
+        this.bodyAccessEnabled = bodyAccessEnabled;
     }
 
     @GetMapping("/{rawPayloadId}")
@@ -27,7 +32,8 @@ public class RawPayloadController {
             @PathVariable UUID rawPayloadId,
             @RequestParam(defaultValue = "false") boolean includeBody) {
         return rawPayloadRepository.findById(rawPayloadId)
-                .map(payload -> ResponseEntity.ok(RawPayloadView.from(payload, includeBody)))
+                .map(payload -> ResponseEntity.ok(RawPayloadView.from(
+                        payload, includeBody && bodyAccessEnabled)))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
@@ -36,7 +42,7 @@ public class RawPayloadController {
             @RequestParam UUID runId,
             @RequestParam(defaultValue = "false") boolean includeBody) {
         return rawPayloadRepository.findByRunId(runId).stream()
-                .map(payload -> RawPayloadView.from(payload, includeBody))
+                .map(payload -> RawPayloadView.from(payload, includeBody && bodyAccessEnabled))
                 .toList();
     }
 

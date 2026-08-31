@@ -4,3 +4,11 @@ spring.datasource.username=your_username
 spring.datasource.password=your_password
 spring.datasource.driver-class-name=org.postgresql.Driver
 spring.datasource.hikari.connection-timeout=5000
+
+# External financial data service used by Phase 1 raw ingestion.
+financial.python-service.base-url=https://he-thong-data-tai-chinh-test.vercel.app
+financial.python-service.connect-timeout=5s
+financial.python-service.read-timeout=45s
+
+# Raw bodies remain hidden from diagnostic APIs unless explicitly enabled locally.
+financial.raw-diagnostics.include-body-enabled=false

@@ -89,4 +89,19 @@ public class IngestionJobRepository {
         return ingestionJobs.save(entity);
     }
 
+    /** Keeps historical runs immutable while preventing retired definitions from being scheduled again. */
+    @Transactional
+    public int deactivateByCodes(List<String> codes) {
+        int changed = 0;
+        for (String code : codes) {
+            Optional<IngestionJobEntity> job = ingestionJobs.findByCodeIgnoreCase(code);
+            if (job.isPresent() && job.get().isActive()) {
+                job.get().setActive(false);
+                ingestionJobs.save(job.get());
+                changed++;
+            }
+        }
+        return changed;
+    }
+
 }

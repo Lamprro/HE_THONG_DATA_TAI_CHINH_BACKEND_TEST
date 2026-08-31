@@ -17,6 +17,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class IngestionJobCatalogService {
+    private static final List<String> RETIRED_PAID_NEWS_JOB_CODES = List.of(
+            "VNSTOCK_NEWS_STATUS_DAILY", "VNSTOCK_NEWS_SITES_DAILY", "VNSTOCK_NEWS_FPT_30M");
     private static final String EVERY_15_MINUTES = "0 */15 * * * *";
     private static final String EVERY_30_MINUTES = "0 */30 * * * *";
     private static final String WEEKDAY_AFTER_MARKET_CLOSE_UTC = "0 15 9 * * MON-FRI";
@@ -37,6 +39,8 @@ public class IngestionJobCatalogService {
     @Transactional
     public int seed() {
         seedSources();
+        // VnStock News requires a paid/API-key integration and is deliberately outside the free Phase 1 catalog.
+        ingestionJobs.deactivateByCodes(RETIRED_PAID_NEWS_JOB_CODES);
         List<JobDefinition> definitions = definitions();
         definitions.forEach(this::upsert);
         return definitions.size();
@@ -48,7 +52,7 @@ public class IngestionJobCatalogService {
         source("VNSTOCK", "VnStock", "vnstock");
         source("VNDIRECT", "VNDirect", "vndirect");
         source("CAFEF", "CafeF", "cafef");
-        source("VNSTOCK_NEWS", "VnStock News", "vnstock-news");
+        // VNSTOCK_NEWS source remains in data_sources because existing run/raw history references it.
     }
 
     private void source(String code, String name, String provider) {
@@ -74,12 +78,6 @@ public class IngestionJobCatalogService {
         equityJobs(jobs, "VNDIRECT", "vndirect", true, true);
         cafeFJobs(jobs);
 
-        jobs.add(job("VNSTOCK_NEWS_STATUS_DAILY", "VnStock News package status", "VNSTOCK_NEWS", "NEWS",
-                DAILY_UTC, "NEWS_STATUS", null, null, null, Map.of()));
-        jobs.add(job("VNSTOCK_NEWS_SITES_DAILY", "VnStock News sites", "VNSTOCK_NEWS", "NEWS",
-                DAILY_UTC, "NEWS_SITES", null, null, null, Map.of()));
-        jobs.add(job("VNSTOCK_NEWS_FPT_30M", "VnStock News for FPT", "VNSTOCK_NEWS", "NEWS",
-                EVERY_30_MINUTES, "NEWS_COMPANY", null, "FPT", null, Map.of("limit", "50")));
         return List.copyOf(jobs);
     }
 

@@ -15,10 +15,14 @@ import com.hethongdata.taichinh.repository.RawPayloadRepository;
 import java.net.URI;
 import java.util.Locale;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 @Service
 public class IngestionService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(IngestionService.class);
 
     private final ExternalFinancialDataPort externalFinancialDataPort;
     private final DataSourceRepository dataSourceRepository;
@@ -97,13 +101,15 @@ public class IngestionService {
                     exception.getMessage(),
                     exception);
         } catch (RuntimeException exception) {
+            LOGGER.error("Ingestion run {} failed during internal processing", runId, exception);
+            String safeMessage = "Internal ingestion processing failed";
             ingestionRunRepository.markFailed(
-                    runId, ExternalErrorCategory.PROTOCOL.name(), null, exception.getMessage());
+                    runId, ExternalErrorCategory.PROTOCOL.name(), null, safeMessage);
             throw new IngestionExecutionException(
                     runId,
                     ExternalErrorCategory.PROTOCOL,
                     null,
-                    "Unable to complete ingestion: " + exception.getMessage(),
+                    safeMessage,
                     exception);
         }
     }

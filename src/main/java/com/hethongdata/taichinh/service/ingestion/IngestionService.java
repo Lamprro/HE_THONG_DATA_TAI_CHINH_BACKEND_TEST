@@ -20,6 +20,7 @@ import com.hethongdata.taichinh.repository.IngestionRunRepository;
 import com.hethongdata.taichinh.repository.RawPayloadRepository;
 import java.net.URI;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
@@ -136,12 +137,20 @@ public class IngestionService {
         Map<String, String> parameters = nestedParameters.isObject()
                 ? objectMapper.convertValue(nestedParameters, STRING_MAP)
                 : Map.of();
+        LocalDate startDate = parseDate(optionalText(config, "startDate"));
+        LocalDate endDate = parseDate(optionalText(config, "endDate"));
+        Integer lookbackDays = optionalPositiveInt(config, "lookbackDays");
+        if (lookbackDays != null) {
+            // A scheduled price job needs a moving window, not fixed calendar dates from its seed definition.
+            endDate = LocalDate.now(ZoneOffset.UTC);
+            startDate = endDate.minusDays(lookbackDays);
+        }
         return new ExternalFetchRequest(
                 operation,
                 provider,
                 optionalText(config, "symbol"),
-                parseDate(optionalText(config, "startDate")),
-                parseDate(optionalText(config, "endDate")),
+                startDate,
+                endDate,
                 optionalText(config, "interval"),
                 parameters);
     }
@@ -161,6 +170,18 @@ public class IngestionService {
 
     private LocalDate parseDate(String value) {
         return value == null ? null : LocalDate.parse(value);
+    }
+
+    private Integer optionalPositiveInt(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        int result = value.asInt(-1);
+        if (result < 1 || result > 3650) {
+            throw new IllegalArgumentException(field + " must be between 1 and 3650");
+        }
+        return result;
     }
 
     private ParsedBody parseBody(ExternalFetchResponse response) {

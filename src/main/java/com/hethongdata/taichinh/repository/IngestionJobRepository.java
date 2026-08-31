@@ -44,6 +44,30 @@ public class IngestionJobRepository {
         return ingestionJobs.save(entity);
     }
 
+    /** Idempotent write used by the versioned job catalog during controlled seeding. */
+    @Transactional
+    public IngestionJobEntity upsert(
+            String dataSourceCode,
+            String code,
+            String name,
+            String datasetType,
+            String cronExpression,
+            JsonNode parameters,
+            short maxRetries,
+            int timeoutSeconds,
+            boolean active) {
+        DataSourceEntity source = dataSources.findByCodeIgnoreCase(dataSourceCode)
+                .filter(DataSourceEntity::isActive)
+                .orElseThrow(() -> new IllegalArgumentException("No active data source with code " + dataSourceCode));
+        IngestionJobEntity entity = ingestionJobs.findByCodeIgnoreCase(code)
+                .orElseGet(() -> IngestionJobEntity.create(
+                        source, code, name, datasetType, cronExpression, parameters,
+                        maxRetries, timeoutSeconds, active));
+        entity.refreshDefinition(source, name, datasetType, cronExpression, parameters,
+                maxRetries, timeoutSeconds, active);
+        return ingestionJobs.save(entity);
+    }
+
     @Transactional(readOnly = true)
     public Optional<IngestionJobEntity> findById(UUID id) {
         return ingestionJobs.findById(id);

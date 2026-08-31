@@ -155,7 +155,7 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
     private Map<String, String> allowedQueryParameters(ExternalFetchRequest request) {
         Set<String> allowed = switch (request.operation()) {
             case FINANCIAL_STATEMENT -> FINANCIAL_PARAMETERS;
-            case NEWS, EVENTS -> NEWS_PARAMETERS;
+            case NEWS, EVENTS, NEWS_COMPANY -> NEWS_PARAMETERS;
             case NEWS_LATEST, NEWS_HISTORY -> NEWS_FEED_PARAMETERS;
             case RAW_PROXY -> request.parameters().keySet();
             default -> Set.of();

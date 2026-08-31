@@ -92,6 +92,27 @@ public class IngestionJobEntity {
         this.updatedAt = Instant.now();
     }
 
+    /** Refreshes a code-owned job definition without changing its primary key or run history. */
+    public void refreshDefinition(
+            DataSourceEntity dataSource,
+            String name,
+            String datasetType,
+            String cronExpression,
+            JsonNode parameters,
+            short maxRetries,
+            int timeoutSeconds,
+            boolean active) {
+        this.dataSource = dataSource;
+        this.name = name;
+        this.datasetType = datasetType;
+        this.cronExpression = cronExpression;
+        this.parameters = parameters;
+        this.maxRetries = maxRetries;
+        this.timeoutSeconds = timeoutSeconds;
+        this.active = active;
+        this.updatedAt = Instant.now();
+    }
+
 }
 
 

@@ -1,6 +1,7 @@
 package com.hethongdata.taichinh.service.ingestion;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.hethongdata.taichinh.common.AppParams;
 import com.hethongdata.taichinh.dto.ingestion.CreateIngestionJobRequest;
 import com.hethongdata.taichinh.dto.ingestion.IngestionExecutionResponse;
 import com.hethongdata.taichinh.dto.ingestion.IngestionJobResponse;
@@ -11,7 +12,6 @@ import com.hethongdata.taichinh.repository.IngestionJobRepository;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -39,18 +39,18 @@ public class IngestionJobService {
 
     public IngestionJobResponse create(CreateIngestionJobRequest request) {
         validateCron(request.cronExpression());
-        String datasetType = requiredUpper(request.datasetType(), "datasetType");
+        String datasetType = AppParams.requiredUpper(request.datasetType(), "datasetType");
         validateDatasetType(datasetType);
         if (request.parameters() == null || !request.parameters().isObject()) {
             throw new IllegalArgumentException("parameters must be a JSON object");
         }
-        short maxRetries = request.maxRetries() == null ? 0 : request.maxRetries();
-        int timeoutSeconds = request.timeoutSeconds() == null ? 120 : request.timeoutSeconds();
+        short maxRetries = request.maxRetries() == null ? AppParams.DEFAULT_MAX_RETRIES : request.maxRetries();
+        int timeoutSeconds = request.timeoutSeconds() == null ? AppParams.DEFAULT_INGESTION_TIMEOUT_SECONDS : request.timeoutSeconds();
         if (maxRetries < 0 || timeoutSeconds <= 0) {
             throw new IllegalArgumentException("maxRetries must be non-negative and timeoutSeconds must be positive");
         }
-        IngestionJobEntity entity = ingestionJobs.create(requiredUpper(request.dataSourceCode(), "dataSourceCode"),
-                requiredUpper(request.code(), "code"), required(request.name(), "name"), datasetType,
+        IngestionJobEntity entity = ingestionJobs.create(AppParams.requiredUpper(request.dataSourceCode(), "dataSourceCode"),
+                AppParams.requiredUpper(request.code(), "code"), AppParams.requiredTrimmed(request.name(), "name"), datasetType,
                 request.cronExpression(), request.parameters(), maxRetries, timeoutSeconds,
                 request.active() == null || request.active());
         return IngestionJobResponse.from(entity);
@@ -69,6 +69,7 @@ public class IngestionJobService {
         return ingestionJobs.findActiveEntities().stream().map(IngestionJobResponse::from).toList();
     }
 
+    /** Polls active jobs; cron evaluation uses the last recorded run in UTC. */
     public void executeDueJobs() {
         Instant now = Instant.now();
         for (IngestionJobEntity job : ingestionJobs.findActiveEntities()) {
@@ -116,19 +117,9 @@ public class IngestionJobService {
     }
 
     private void validateDatasetType(String datasetType) {
-        if (!java.util.Set.of(
-                "COMPANY", "SECURITY", "FINANCIAL_STATEMENT", "FINANCIAL_METRIC",
-                "MARKET_PRICE", "MARKET_INDEX", "NEWS", "MACRO", "OTHER").contains(datasetType)) {
+        if (!AppParams.INGESTION_DATASET_TYPES.contains(datasetType)) {
             throw new IllegalArgumentException("Unsupported datasetType: " + datasetType);
         }
     }
 
-    private static String required(String value, String field) {
-        if (value == null || value.isBlank()) throw new IllegalArgumentException(field + " is required");
-        return value.trim();
-    }
-
-    private static String requiredUpper(String value, String field) {
-        return required(value, field).toUpperCase(Locale.ROOT);
-    }
 }

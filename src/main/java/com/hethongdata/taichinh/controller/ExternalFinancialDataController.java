@@ -1,19 +1,15 @@
 package com.hethongdata.taichinh.controller;
 
 import com.hethongdata.taichinh.application.port.ExternalFinancialDataPort;
-import com.hethongdata.taichinh.application.port.error.ExternalFetchException;
 import com.hethongdata.taichinh.application.port.model.ExternalFetchRequest;
 import com.hethongdata.taichinh.application.port.model.ExternalFetchResponse;
 import com.hethongdata.taichinh.application.port.model.ExternalOperation;
-import java.time.Instant;
+import com.hethongdata.taichinh.common.AppParams;
 import java.time.LocalDate;
 import java.util.Map;
-import java.util.Set;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -68,12 +64,13 @@ public class ExternalFinancialDataController {
             @RequestParam(required = false) String interval,
             @RequestParam Map<String, String> parameters) {
         Map<String, String> providerParameters = parameters.entrySet().stream()
-                .filter(entry -> !FRAMEWORK_PARAMETERS.contains(entry.getKey()))
+                .filter(entry -> !AppParams.EXTERNAL_FRAMEWORK_QUERY_PARAMS.contains(entry.getKey()))
                 .collect(java.util.stream.Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));
         return passthrough(new ExternalFetchRequest(
                 operation, provider, symbol, start, end, interval, providerParameters));
     }
 
+    /** The adapter owns provider URLs; this controller only writes the upstream response to HTTP. */
     private ResponseEntity<String> passthrough(ExternalFetchRequest request) {
         ExternalFetchResponse response = externalFinancialDataPort.fetch(request);
         MediaType mediaType;
@@ -87,31 +84,4 @@ public class ExternalFinancialDataController {
                 .body(response.rawBody());
     }
 
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<GatewayError> invalidRequest(IllegalArgumentException exception) {
-        return ResponseEntity.badRequest().body(new GatewayError(
-                Instant.now(), "VALIDATION", null, exception.getMessage()));
-    }
-
-    @ExceptionHandler(ExternalFetchException.class)
-    public ResponseEntity<GatewayError> externalError(ExternalFetchException exception) {
-        HttpStatus status = exception.upstreamStatus() == null
-                ? HttpStatus.BAD_GATEWAY
-                : HttpStatus.resolve(exception.upstreamStatus());
-        if (status == null) {
-            status = HttpStatus.BAD_GATEWAY;
-        }
-        return ResponseEntity.status(status).body(new GatewayError(
-                Instant.now(), exception.category().name(), exception.upstreamStatus(), exception.getMessage()));
-    }
-
-    public record GatewayError(
-            Instant timestamp,
-            String category,
-            Integer upstreamStatus,
-            String message) {
-    }
-
-    private static final Set<String> FRAMEWORK_PARAMETERS = Set.of(
-            "operation", "provider", "symbol", "start", "end", "interval");
 }

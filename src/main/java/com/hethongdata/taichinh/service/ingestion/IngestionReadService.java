@@ -1,5 +1,6 @@
 package com.hethongdata.taichinh.service.ingestion;
 
+import com.hethongdata.taichinh.common.AppParams;
 import com.hethongdata.taichinh.dto.ingestion.IngestionRunResponse;
 import com.hethongdata.taichinh.dto.ingestion.RawPayloadResponse;
 import com.hethongdata.taichinh.repository.IngestionRunRepository;
@@ -20,7 +21,8 @@ public class IngestionReadService {
     @Transactional(readOnly = true)
     public Optional<IngestionRunResponse> findRun(UUID id) { return ingestionRuns.findById(id).map(IngestionRunResponse::from); }
     @Transactional(readOnly = true)
-    public List<IngestionRunResponse> latestRuns(int limit) { return ingestionRuns.findLatest(Math.clamp(limit, 1, 100)).stream().map(IngestionRunResponse::from).toList(); }
+    /** Bounds list requests to prevent an accidental unbounded database read. */
+    public List<IngestionRunResponse> latestRuns(int limit) { return ingestionRuns.findLatest(AppParams.pageLimit(limit)).stream().map(IngestionRunResponse::from).toList(); }
     @Transactional(readOnly = true)
     public Optional<RawPayloadResponse> findPayload(UUID id, boolean includeBody) { return rawPayloads.findById(id).map(entity -> RawPayloadResponse.from(entity, includeBody)); }
     @Transactional(readOnly = true)

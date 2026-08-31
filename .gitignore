@@ -1,0 +1,24 @@
+target/
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+.factorypath
+
+# Build and runtime files
+*.log
+logs/
+out/
+*.md
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+application-local.properties
+application-dev.properties
+application-prod.properties

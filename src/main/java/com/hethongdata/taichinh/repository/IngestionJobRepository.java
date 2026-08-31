@@ -1,6 +1,7 @@
 package com.hethongdata.taichinh.repository;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.hethongdata.taichinh.common.AppParams;
 import com.hethongdata.taichinh.entity.ingestion.DataSourceEntity;
 import com.hethongdata.taichinh.entity.ingestion.IngestionJobEntity;
 import com.hethongdata.taichinh.repository.jpa.ingestion.DataSourceJpaRepository;
@@ -85,8 +86,29 @@ public class IngestionJobRepository {
     public IngestionJobEntity setActive(UUID id, boolean active) {
         IngestionJobEntity entity = ingestionJobs.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Ingestion job not found: " + id));
+        // A manually re-enabled job must start with a fresh durable budget after automatic disablement.
+        if (active && entity.getMaxRetries() == 0) {
+            entity.setMaxRetries(AppParams.DEFAULT_MAX_RETRIES);
+        }
         entity.setActive(active);
         return ingestionJobs.save(entity);
+    }
+
+    @Transactional
+    public void disableAfterRetryBudgetExhausted(UUID id) {
+        IngestionJobEntity entity = ingestionJobs.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Ingestion job not found: " + id));
+        entity.disableAfterRetryBudgetExhausted();
+        ingestionJobs.save(entity);
+    }
+
+    /** One-time initialization of every definition; inactive jobs retain their inactive status. */
+    @Transactional
+    public int initializeAllRetryBudgets(short maxRetries) {
+        List<IngestionJobEntity> jobs = ingestionJobs.findAll();
+        jobs.forEach(job -> job.setMaxRetries(maxRetries));
+        ingestionJobs.saveAll(jobs);
+        return jobs.size();
     }
 
     /** Keeps historical runs immutable while preventing retired definitions from being scheduled again. */

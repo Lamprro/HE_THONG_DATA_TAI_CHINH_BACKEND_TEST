@@ -1,0 +1,13 @@
+services:
+  redis:
+    image: redis:7.4-alpine
+    container_name: financial-data-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - financial_data_redis:/data
+
+volumes:
+  financial_data_redis:

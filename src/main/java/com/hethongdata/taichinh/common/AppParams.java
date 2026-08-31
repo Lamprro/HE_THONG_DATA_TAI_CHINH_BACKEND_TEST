@@ -11,7 +11,8 @@ public final class AppParams {
     public static final int DEFAULT_PAGE_LIMIT = 20;
     public static final int MAX_PAGE_LIMIT = 100;
     public static final int DEFAULT_INGESTION_TIMEOUT_SECONDS = 120;
-    public static final short DEFAULT_MAX_RETRIES = 0;
+    /** Number of failed job executions allowed before the Redis retry budget disables the job. */
+    public static final short DEFAULT_MAX_RETRIES = 10;
 
     /** Query keys owned by this API, never forwarded to an upstream provider. */
     public static final Set<String> EXTERNAL_FRAMEWORK_QUERY_PARAMS = Set.of(

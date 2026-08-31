@@ -28,14 +28,17 @@ public class IngestionJobService {
     private final IngestionJobRepository ingestionJobs;
     private final IngestionRunJpaRepository ingestionRuns;
     private final IngestionService ingestionService;
+    private final RetryBudgetService retryBudgetService;
 
     public IngestionJobService(
             IngestionJobRepository ingestionJobs,
             IngestionRunJpaRepository ingestionRuns,
-            IngestionService ingestionService) {
+            IngestionService ingestionService,
+            RetryBudgetService retryBudgetService) {
         this.ingestionJobs = ingestionJobs;
         this.ingestionRuns = ingestionRuns;
         this.ingestionService = ingestionService;
+        this.retryBudgetService = retryBudgetService;
     }
 
     public IngestionJobResponse create(CreateIngestionJobRequest request) {
@@ -46,6 +49,9 @@ public class IngestionJobService {
             throw new IllegalArgumentException("parameters must be a JSON object");
         }
         short maxRetries = request.maxRetries() == null ? AppParams.DEFAULT_MAX_RETRIES : request.maxRetries();
+        if (maxRetries != AppParams.DEFAULT_MAX_RETRIES) {
+            throw new IllegalArgumentException("maxRetries must be " + AppParams.DEFAULT_MAX_RETRIES + " for this retry policy");
+        }
         int timeoutSeconds = request.timeoutSeconds() == null ? AppParams.DEFAULT_INGESTION_TIMEOUT_SECONDS : request.timeoutSeconds();
         if (maxRetries < 0 || timeoutSeconds <= 0) {
             throw new IllegalArgumentException("maxRetries must be non-negative and timeoutSeconds must be positive");
@@ -63,7 +69,7 @@ public class IngestionJobService {
         if (!job.isActive()) {
             throw new IllegalArgumentException("Ingestion job is inactive: " + jobId);
         }
-        return executeWithRetry(job, "MANUAL");
+        return executeWithBudget(job, "MANUAL");
     }
 
     public List<IngestionJobResponse> listActive() {
@@ -71,7 +77,11 @@ public class IngestionJobService {
     }
 
     public IngestionJobResponse setActive(UUID jobId, UpdateIngestionJobActivationRequest request) {
-        return IngestionJobResponse.from(ingestionJobs.setActive(jobId, request.active()));
+        IngestionJobEntity job = ingestionJobs.setActive(jobId, request.active());
+        if (request.active()) {
+            retryBudgetService.resetAfterSuccess(job);
+        }
+        return IngestionJobResponse.from(job);
     }
 
     /** Polls active jobs; cron evaluation uses the last recorded run in UTC. */
@@ -82,23 +92,27 @@ public class IngestionJobService {
                 continue;
             }
             try {
-                executeWithRetry(job, "SCHEDULED");
+                executeWithBudget(job, "SCHEDULED");
             } catch (RuntimeException exception) {
                 LOGGER.warn("Scheduled ingestion job {} failed: {}", job.getCode(), exception.getMessage());
             }
         }
     }
 
-    private IngestionExecutionResponse executeWithRetry(IngestionJobEntity job, String initialTrigger) {
-        IngestionExecutionException lastFailure = null;
-        for (int attempt = 0; attempt <= job.getMaxRetries(); attempt++) {
-            try {
-                return ingestionService.ingestJob(job, attempt == 0 ? initialTrigger : "RETRY");
-            } catch (IngestionExecutionException exception) {
-                lastFailure = exception;
+    /** One invocation makes one transport call. Failure is budgeted across later scheduled/manual invocations. */
+    private IngestionExecutionResponse executeWithBudget(IngestionJobEntity job, String triggerType) {
+        try {
+            IngestionExecutionResponse response = ingestionService.ingestJob(job, triggerType);
+            retryBudgetService.resetAfterSuccess(job);
+            return response;
+        } catch (IngestionExecutionException exception) {
+            Long remaining = retryBudgetService.consumeFailedAttempt(job);
+            if (remaining != null && remaining <= 0) {
+                ingestionJobs.disableAfterRetryBudgetExhausted(job.getId());
+                LOGGER.warn("Disabled ingestion job {} after exhausting its Redis retry budget", job.getCode());
             }
+            throw exception;
         }
-        throw lastFailure;
     }
 
     private boolean isDue(IngestionJobEntity job, Instant now) {

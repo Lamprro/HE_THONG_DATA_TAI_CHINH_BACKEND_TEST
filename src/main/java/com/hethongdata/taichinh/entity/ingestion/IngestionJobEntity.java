@@ -92,6 +92,18 @@ public class IngestionJobEntity {
         this.updatedAt = Instant.now();
     }
 
+    /** Stops future scheduling after the retry budget is exhausted; run history is preserved. */
+    public void disableAfterRetryBudgetExhausted() {
+        this.maxRetries = 0;
+        this.active = false;
+        this.updatedAt = Instant.now();
+    }
+
+    public void setMaxRetries(short maxRetries) {
+        this.maxRetries = maxRetries;
+        this.updatedAt = Instant.now();
+    }
+
     /** Refreshes a code-owned job definition without changing its primary key or run history. */
     public void refreshDefinition(
             DataSourceEntity dataSource,

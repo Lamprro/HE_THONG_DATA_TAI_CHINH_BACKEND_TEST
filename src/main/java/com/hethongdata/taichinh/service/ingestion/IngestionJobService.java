@@ -9,7 +9,7 @@ import com.hethongdata.taichinh.dto.ingestion.UpdateIngestionJobActivationReques
 import com.hethongdata.taichinh.entity.ingestion.IngestionJobEntity;
 import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
 import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaRepository;
-import com.hethongdata.taichinh.repository.IngestionJobRepository;
+import com.hethongdata.taichinh.repository.ingestion.IngestionJobRepository;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;

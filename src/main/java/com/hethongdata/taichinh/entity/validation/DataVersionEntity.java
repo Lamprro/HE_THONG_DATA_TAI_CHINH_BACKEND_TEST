@@ -1,4 +1,4 @@
-package com.hethongdata.taichinh.entity;
+package com.hethongdata.taichinh.entity.validation;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -60,5 +60,14 @@ public class DataVersionEntity {
 
     @Column(name = "activated_at")
     private Instant activatedAt;
+
+    public static DataVersionEntity accepted(String dataDomain, String versionCode, UUID ingestionRunId, String checksum) {
+        DataVersionEntity entity = new DataVersionEntity();
+        entity.dataDomain = dataDomain; entity.versionCode = versionCode; entity.status = "ACTIVE";
+        entity.ingestionRunId = ingestionRunId; entity.rowCount = 1L; entity.checksumSha256 = checksum;
+        entity.effectiveFrom = Instant.now(); entity.createdAt = entity.effectiveFrom; entity.activatedAt = entity.effectiveFrom;
+        entity.notes = "Created after Phase 2 validation passed";
+        return entity;
+    }
 
 }

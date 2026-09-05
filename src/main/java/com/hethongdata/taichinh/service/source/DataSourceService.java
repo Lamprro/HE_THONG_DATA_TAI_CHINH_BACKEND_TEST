@@ -3,7 +3,7 @@ package com.hethongdata.taichinh.service.source;
 import com.hethongdata.taichinh.common.AppParams;
 import com.hethongdata.taichinh.dto.source.DataSourceRequest;
 import com.hethongdata.taichinh.dto.source.DataSourceResponse;
-import com.hethongdata.taichinh.repository.DataSourceRepository;
+import com.hethongdata.taichinh.repository.ingestion.DataSourceRepository;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

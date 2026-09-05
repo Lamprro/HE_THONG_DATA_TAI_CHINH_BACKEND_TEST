@@ -1,4 +1,4 @@
-package com.hethongdata.taichinh.entity;
+package com.hethongdata.taichinh.entity.validation;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -54,5 +54,15 @@ public class ValidationResultEntity {
 
     @Column(name = "raw_payload_id")
     private UUID rawPayloadId;
+
+    public static ValidationResultEntity create(Long ruleId, UUID ingestionRunId, UUID rawPayloadId,
+            String entityType, String entityKey, String status, String observedValue, String expectedValue, String message) {
+        ValidationResultEntity entity = new ValidationResultEntity();
+        entity.validationRuleId = ruleId; entity.ingestionRunId = ingestionRunId; entity.rawPayloadId = rawPayloadId;
+        entity.entityType = entityType; entity.entityKey = entityKey; entity.status = status;
+        entity.observedValue = observedValue; entity.expectedValue = expectedValue; entity.message = message;
+        entity.checkedAt = Instant.now();
+        return entity;
+    }
 
 }

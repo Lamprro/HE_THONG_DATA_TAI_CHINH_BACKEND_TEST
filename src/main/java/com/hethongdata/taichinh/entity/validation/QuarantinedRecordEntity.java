@@ -1,4 +1,4 @@
-package com.hethongdata.taichinh.entity;
+package com.hethongdata.taichinh.entity.validation;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.persistence.Column;
@@ -67,5 +67,14 @@ public class QuarantinedRecordEntity {
 
     @Column(name = "created_at")
     private Instant createdAt;
+
+    public static QuarantinedRecordEntity open(UUID ingestionRunId, UUID rawPayloadId, String entityType,
+            String entityKey, String reasonCode, String reasonDetail, String severity, JsonNode payloadSnapshot) {
+        QuarantinedRecordEntity entity = new QuarantinedRecordEntity();
+        entity.ingestionRunId = ingestionRunId; entity.rawPayloadId = rawPayloadId; entity.entityType = entityType;
+        entity.entityKey = entityKey; entity.reasonCode = reasonCode; entity.reasonDetail = reasonDetail;
+        entity.severity = severity; entity.payloadSnapshot = payloadSnapshot; entity.status = "OPEN"; entity.createdAt = Instant.now();
+        return entity;
+    }
 
 }

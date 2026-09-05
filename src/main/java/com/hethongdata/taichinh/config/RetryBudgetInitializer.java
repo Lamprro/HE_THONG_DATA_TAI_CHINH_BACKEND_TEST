@@ -1,7 +1,7 @@
 package com.hethongdata.taichinh.config;
 
 import com.hethongdata.taichinh.common.AppParams;
-import com.hethongdata.taichinh.repository.IngestionJobRepository;
+import com.hethongdata.taichinh.repository.ingestion.IngestionJobRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;

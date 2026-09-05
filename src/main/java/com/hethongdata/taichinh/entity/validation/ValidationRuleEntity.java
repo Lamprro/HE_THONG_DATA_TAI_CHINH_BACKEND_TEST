@@ -1,8 +1,10 @@
-package com.hethongdata.taichinh.entity;
+package com.hethongdata.taichinh.entity.validation;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
@@ -19,6 +21,7 @@ import org.hibernate.type.SqlTypes;
 public class ValidationRuleEntity {
 
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "id")
     private Long id;
 
@@ -55,5 +58,21 @@ public class ValidationRuleEntity {
 
     @Column(name = "executor_key")
     private String executorKey;
+
+    public static ValidationRuleEntity create(String code, String name, String dataDomain, String severity,
+            String ruleType, JsonNode ruleConfig, String description, String executorKey) {
+        ValidationRuleEntity entity = new ValidationRuleEntity();
+        entity.code = code; entity.name = name; entity.dataDomain = dataDomain; entity.severity = severity;
+        entity.ruleType = ruleType; entity.ruleConfig = ruleConfig; entity.description = description;
+        entity.executorKey = executorKey; entity.isActive = true; entity.createdAt = Instant.now(); entity.updatedAt = entity.createdAt;
+        return entity;
+    }
+
+    public void refresh(String name, String dataDomain, String severity, String ruleType, JsonNode ruleConfig,
+            String description, String executorKey) {
+        this.name = name; this.dataDomain = dataDomain; this.severity = severity; this.ruleType = ruleType;
+        this.ruleConfig = ruleConfig; this.description = description; this.executorKey = executorKey;
+        this.isActive = true; this.updatedAt = Instant.now();
+    }
 
 }

@@ -1,4 +1,4 @@
-package com.hethongdata.taichinh.repository;
+package com.hethongdata.taichinh.repository.ingestion;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;

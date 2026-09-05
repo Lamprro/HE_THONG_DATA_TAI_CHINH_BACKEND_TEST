@@ -1,4 +1,4 @@
-package com.hethongdata.taichinh.repository;
+package com.hethongdata.taichinh.repository.ingestion;
 
 import com.hethongdata.taichinh.entity.ingestion.DataSourceEntity;
 import com.hethongdata.taichinh.repository.jpa.ingestion.DataSourceJpaRepository;

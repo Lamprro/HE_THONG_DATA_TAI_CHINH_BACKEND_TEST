@@ -1,6 +1,5 @@
 package com.hethongdata.taichinh.service.ingestion;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.hethongdata.taichinh.common.AppParams;
 import com.hethongdata.taichinh.dto.ingestion.CreateIngestionJobRequest;
 import com.hethongdata.taichinh.dto.ingestion.IngestionExecutionResponse;
@@ -8,17 +7,19 @@ import com.hethongdata.taichinh.dto.ingestion.IngestionJobResponse;
 import com.hethongdata.taichinh.dto.ingestion.UpdateIngestionJobActivationRequest;
 import com.hethongdata.taichinh.entity.ingestion.IngestionJobEntity;
 import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
-import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaRepository;
 import com.hethongdata.taichinh.repository.ingestion.IngestionJobRepository;
+import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaRepository;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.support.CronExpression;
+import org.springframework.stereotype.Service;
+
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.support.CronExpression;
-import org.springframework.stereotype.Service;
 
 @Service
 public class IngestionJobService {
@@ -42,30 +43,52 @@ public class IngestionJobService {
     }
 
     public IngestionJobResponse create(CreateIngestionJobRequest request) {
-        validateCron(request.cronExpression());
-        String datasetType = AppParams.requiredUpper(request.datasetType(), "datasetType");
+        validateCron(request.getCronExpression());
+        String datasetType = AppParams.requiredUpper(request.getDatasetType(), "datasetType");
         validateDatasetType(datasetType);
-        if (request.parameters() == null || !request.parameters().isObject()) {
+        if (request.getParameters() == null || !request.getParameters().isObject()) {
             throw new IllegalArgumentException("parameters must be a JSON object");
         }
-        short maxRetries = request.maxRetries() == null ? AppParams.DEFAULT_MAX_RETRIES : request.maxRetries();
+        short maxRetries =
+                request.getMaxRetries() == null
+                        ? AppParams.DEFAULT_MAX_RETRIES
+                        : request.getMaxRetries();
         if (maxRetries != AppParams.DEFAULT_MAX_RETRIES) {
-            throw new IllegalArgumentException("maxRetries must be " + AppParams.DEFAULT_MAX_RETRIES + " for this retry policy");
+            throw new IllegalArgumentException(
+                    "maxRetries must be "
+                            + AppParams.DEFAULT_MAX_RETRIES
+                            + " for this retry policy");
         }
-        int timeoutSeconds = request.timeoutSeconds() == null ? AppParams.DEFAULT_INGESTION_TIMEOUT_SECONDS : request.timeoutSeconds();
+        int timeoutSeconds =
+                request.getTimeoutSeconds() == null
+                        ? AppParams.DEFAULT_INGESTION_TIMEOUT_SECONDS
+                        : request.getTimeoutSeconds();
         if (maxRetries < 0 || timeoutSeconds <= 0) {
-            throw new IllegalArgumentException("maxRetries must be non-negative and timeoutSeconds must be positive");
+            throw new IllegalArgumentException(
+                    "maxRetries must be non-negative and timeoutSeconds must be positive");
         }
-        IngestionJobEntity entity = ingestionJobs.create(AppParams.requiredUpper(request.dataSourceCode(), "dataSourceCode"),
-                AppParams.requiredUpper(request.code(), "code"), AppParams.requiredTrimmed(request.name(), "name"), datasetType,
-                request.cronExpression(), request.parameters(), maxRetries, timeoutSeconds,
-                request.active() == null || request.active());
+        IngestionJobEntity entity =
+                ingestionJobs.create(
+                        AppParams.requiredUpper(request.getDataSourceCode(), "dataSourceCode"),
+                        AppParams.requiredUpper(request.getCode(), "code"),
+                        AppParams.requiredTrimmed(request.getName(), "name"),
+                        datasetType,
+                        request.getCronExpression(),
+                        request.getParameters(),
+                        maxRetries,
+                        timeoutSeconds,
+                        request.getActive() == null || request.getActive());
         return IngestionJobResponse.from(entity);
     }
 
     public IngestionExecutionResponse runNow(UUID jobId) {
-        IngestionJobEntity job = ingestionJobs.findEntityById(jobId)
-                .orElseThrow(() -> new IllegalArgumentException("Ingestion job not found: " + jobId));
+        IngestionJobEntity job =
+                ingestionJobs
+                        .findEntityById(jobId)
+                        .orElseThrow(
+                                () ->
+                                        new IllegalArgumentException(
+                                                "Ingestion job not found: " + jobId));
         if (!job.isActive()) {
             throw new IllegalArgumentException("Ingestion job is inactive: " + jobId);
         }
@@ -77,8 +100,8 @@ public class IngestionJobService {
     }
 
     public IngestionJobResponse setActive(UUID jobId, UpdateIngestionJobActivationRequest request) {
-        IngestionJobEntity job = ingestionJobs.setActive(jobId, request.active());
-        if (request.active()) {
+        IngestionJobEntity job = ingestionJobs.setActive(jobId, request.getActive());
+        if (request.getActive()) {
             retryBudgetService.resetAfterSuccess(job);
         }
         return IngestionJobResponse.from(job);
@@ -94,13 +117,20 @@ public class IngestionJobService {
             try {
                 executeWithBudget(job, "SCHEDULED");
             } catch (RuntimeException exception) {
-                LOGGER.warn("Scheduled ingestion job {} failed: {}", job.getCode(), exception.getMessage());
+                LOGGER.warn(
+                        "Scheduled ingestion job {} failed: {}",
+                        job.getCode(),
+                        exception.getMessage());
             }
         }
     }
 
-    /** One invocation makes one transport call. Failure is budgeted across later scheduled/manual invocations. */
-    private IngestionExecutionResponse executeWithBudget(IngestionJobEntity job, String triggerType) {
+    /**
+     * One invocation makes one transport call. Failure is budgeted across later scheduled/manual
+     * invocations.
+     */
+    private IngestionExecutionResponse executeWithBudget(
+            IngestionJobEntity job, String triggerType) {
         try {
             IngestionExecutionResponse response = ingestionService.ingestJob(job, triggerType);
             retryBudgetService.resetAfterSuccess(job);
@@ -109,7 +139,9 @@ public class IngestionJobService {
             Long remaining = retryBudgetService.consumeFailedAttempt(job);
             if (remaining != null && remaining <= 0) {
                 ingestionJobs.disableAfterRetryBudgetExhausted(job.getId());
-                LOGGER.warn("Disabled ingestion job {} after exhausting its Redis retry budget", job.getCode());
+                LOGGER.warn(
+                        "Disabled ingestion job {} after exhausting its Redis retry budget",
+                        job.getCode());
             }
             throw exception;
         }
@@ -120,7 +152,8 @@ public class IngestionJobService {
             return false;
         }
         CronExpression cron = CronExpression.parse(job.getCronExpression());
-        Optional<IngestionRunEntity> latest = ingestionRuns.findTopByIngestionJobIdOrderByStartedAtDesc(job.getId());
+        Optional<IngestionRunEntity> latest =
+                ingestionRuns.findTopByIngestionJobIdOrderByStartedAtDesc(job.getId());
         Instant reference = latest.map(IngestionRunEntity::getStartedAt).orElse(job.getCreatedAt());
         Instant next = cron.next(reference.atZone(ZoneOffset.UTC)).toInstant();
         return !next.isAfter(now);
@@ -140,5 +173,4 @@ public class IngestionJobService {
             throw new IllegalArgumentException("Unsupported datasetType: " + datasetType);
         }
     }
-
 }

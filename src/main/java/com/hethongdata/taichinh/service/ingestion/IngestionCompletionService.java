@@ -3,13 +3,15 @@ package com.hethongdata.taichinh.service.ingestion;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hethongdata.taichinh.application.port.model.ExternalFetchRequest;
 import com.hethongdata.taichinh.application.port.model.ExternalFetchResponse;
-import com.hethongdata.taichinh.repository.ingestion.IngestionRunRepository;
-import com.hethongdata.taichinh.repository.ingestion.RawPayloadRepository;
 import com.hethongdata.taichinh.entity.ingestion.DataSourceEntity;
 import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
-import java.util.UUID;
+import com.hethongdata.taichinh.repository.ingestion.IngestionRunRepository;
+import com.hethongdata.taichinh.repository.ingestion.RawPayloadRepository;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.UUID;
 
 @Service
 public class IngestionCompletionService {
@@ -35,8 +37,9 @@ public class IngestionCompletionService {
             String checksum,
             boolean duplicate,
             UUID securityId) {
-        UUID rawPayloadId = rawPayloadRepository.save(
-                run, source, request, response, jsonBody, textBody, checksum, securityId);
+        UUID rawPayloadId =
+                rawPayloadRepository.save(
+                        run, source, request, response, jsonBody, textBody, checksum, securityId);
         ingestionRunRepository.markSuccess(run, response, jsonBody, textBody, duplicate);
         return rawPayloadId;
     }

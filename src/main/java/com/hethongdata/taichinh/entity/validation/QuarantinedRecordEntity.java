@@ -1,18 +1,22 @@
 package com.hethongdata.taichinh.entity.validation;
 
 import com.fasterxml.jackson.databind.JsonNode;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import java.time.Instant;
-import java.util.UUID;
+
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UuidGenerator;
 import org.hibernate.type.SqlTypes;
+
+import java.time.Instant;
+import java.util.UUID;
 
 @Entity
 @Table(name = "quarantined_records")
@@ -68,13 +72,26 @@ public class QuarantinedRecordEntity {
     @Column(name = "created_at")
     private Instant createdAt;
 
-    public static QuarantinedRecordEntity open(UUID ingestionRunId, UUID rawPayloadId, String entityType,
-            String entityKey, String reasonCode, String reasonDetail, String severity, JsonNode payloadSnapshot) {
+    public static QuarantinedRecordEntity open(
+            UUID ingestionRunId,
+            UUID rawPayloadId,
+            String entityType,
+            String entityKey,
+            String reasonCode,
+            String reasonDetail,
+            String severity,
+            JsonNode payloadSnapshot) {
         QuarantinedRecordEntity entity = new QuarantinedRecordEntity();
-        entity.ingestionRunId = ingestionRunId; entity.rawPayloadId = rawPayloadId; entity.entityType = entityType;
-        entity.entityKey = entityKey; entity.reasonCode = reasonCode; entity.reasonDetail = reasonDetail;
-        entity.severity = severity; entity.payloadSnapshot = payloadSnapshot; entity.status = "OPEN"; entity.createdAt = Instant.now();
+        entity.ingestionRunId = ingestionRunId;
+        entity.rawPayloadId = rawPayloadId;
+        entity.entityType = entityType;
+        entity.entityKey = entityKey;
+        entity.reasonCode = reasonCode;
+        entity.reasonDetail = reasonDetail;
+        entity.severity = severity;
+        entity.payloadSnapshot = payloadSnapshot;
+        entity.status = "OPEN";
+        entity.createdAt = Instant.now();
         return entity;
     }
-
 }

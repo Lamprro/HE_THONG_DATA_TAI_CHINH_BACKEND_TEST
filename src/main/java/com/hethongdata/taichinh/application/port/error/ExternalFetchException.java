@@ -15,7 +15,8 @@ public class ExternalFetchException extends RuntimeException {
         this.upstreamStatus = upstreamStatus;
     }
 
-    public ExternalFetchException(ExternalErrorCategory category, Integer upstreamStatus, String message) {
+    public ExternalFetchException(
+            ExternalErrorCategory category, Integer upstreamStatus, String message) {
         this(category, upstreamStatus, message, null);
     }
 

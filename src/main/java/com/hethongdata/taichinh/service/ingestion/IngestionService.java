@@ -10,29 +10,35 @@ import com.hethongdata.taichinh.application.port.error.ExternalFetchException;
 import com.hethongdata.taichinh.application.port.model.ExternalFetchRequest;
 import com.hethongdata.taichinh.application.port.model.ExternalFetchResponse;
 import com.hethongdata.taichinh.application.port.model.ExternalOperation;
+import com.hethongdata.taichinh.dto.ingestion.IngestionExecutionResponse;
+import com.hethongdata.taichinh.dto.ingestion.ManualIngestionRequest;
 import com.hethongdata.taichinh.entity.ingestion.DataSourceEntity;
 import com.hethongdata.taichinh.entity.ingestion.IngestionJobEntity;
 import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
-import com.hethongdata.taichinh.dto.ingestion.IngestionExecutionResponse;
-import com.hethongdata.taichinh.dto.ingestion.ManualIngestionRequest;
 import com.hethongdata.taichinh.repository.ingestion.DataSourceRepository;
 import com.hethongdata.taichinh.repository.ingestion.IngestionRunRepository;
 import com.hethongdata.taichinh.repository.ingestion.RawPayloadRepository;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
 import java.net.URI;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
 
+/**
+ * Coordinates a fetch run: resolve the source, call the external port, parse the response, persist
+ * raw data on success, and record failures against the ingestion run.
+ */
 @Service
 public class IngestionService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(IngestionService.class);
-    private static final TypeReference<Map<String, String>> STRING_MAP = new TypeReference<>() { };
+    private static final TypeReference<Map<String, String>> STRING_MAP = new TypeReference<>() {};
 
     private final ExternalFinancialDataPort externalFinancialDataPort;
     private final DataSourceRepository dataSourceRepository;
@@ -60,13 +66,23 @@ public class IngestionService {
     }
 
     public IngestionExecutionResponse ingest(ManualIngestionRequest manualRequest) {
-        ExternalFetchRequest request = new ExternalFetchRequest(
-                manualRequest.operation(), manualRequest.provider(), manualRequest.symbol(),
-                manualRequest.startDate(), manualRequest.endDate(), manualRequest.interval(),
-                manualRequest.safeParameters());
-        DataSourceEntity source = dataSourceRepository.findEntityActiveByProvider(request.provider())
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "No active data source configured for provider " + request.provider()));
+        ExternalFetchRequest request =
+                new ExternalFetchRequest(
+                        manualRequest.getOperation(),
+                        manualRequest.getProvider(),
+                        manualRequest.getSymbol(),
+                        manualRequest.getStartDate(),
+                        manualRequest.getEndDate(),
+                        manualRequest.getInterval(),
+                        manualRequest.safeParameters());
+        DataSourceEntity source =
+                dataSourceRepository
+                        .findEntityActiveByProvider(request.provider())
+                        .orElseThrow(
+                                () ->
+                                        new IllegalArgumentException(
+                                                "No active data source configured for provider "
+                                                        + request.provider()));
         return execute(request, source, null, "MANUAL");
     }
 
@@ -81,7 +97,8 @@ public class IngestionService {
             IngestionJobEntity job,
             String triggerType) {
         URI requestUri = externalFinancialDataPort.resolveUri(request);
-        IngestionRunEntity run = ingestionRunRepository.start(source, job, triggerType, request, requestUri);
+        IngestionRunEntity run =
+                ingestionRunRepository.start(source, job, triggerType, request, requestUri);
         UUID runId = run.getId();
 
         try {
@@ -91,31 +108,59 @@ public class IngestionService {
                 ParsedBody errorBody = parseDiagnosticBody(response);
                 String message = "Upstream returned HTTP " + response.httpStatus();
                 ingestionRunRepository.markFailedResponse(
-                        run, category.name(), response, errorBody.json(), errorBody.text(), message);
+                        run,
+                        category.name(),
+                        response,
+                        errorBody.json(),
+                        errorBody.text(),
+                        message);
                 throw new IngestionExecutionException(
                         runId, category, response.httpStatus(), message, null);
             }
 
             ParsedBody parsedBody = parseBody(response);
             String checksum = checksumService.sha256(response.rawBody());
-            boolean duplicate = rawPayloadRepository.findLatestByChecksum(source.getId(), checksum).isPresent();
-            UUID rawId = completionService.persistSuccess(
-                    run, source, request, response, parsedBody.json(), parsedBody.text(), checksum, duplicate,
-                    securityIdFromJob(job));
+            boolean duplicate =
+                    rawPayloadRepository.findLatestByChecksum(source.getId(), checksum).isPresent();
+            UUID rawId =
+                    completionService.persistSuccess(
+                            run,
+                            source,
+                            request,
+                            response,
+                            parsedBody.json(),
+                            parsedBody.text(),
+                            checksum,
+                            duplicate,
+                            securityIdFromJob(job));
 
             return new IngestionExecutionResponse(
-                    runId, rawId, "SUCCESS", response.httpStatus(), response.contentType(), checksum, duplicate);
+                    runId,
+                    rawId,
+                    "SUCCESS",
+                    response.httpStatus(),
+                    response.contentType(),
+                    checksum,
+                    duplicate);
         } catch (IngestionExecutionException exception) {
             throw exception;
         } catch (ExternalFetchException exception) {
             ingestionRunRepository.markFailed(
-                    run, exception.category().name(), exception.upstreamStatus(), exception.getMessage());
+                    run,
+                    exception.category().name(),
+                    exception.upstreamStatus(),
+                    exception.getMessage());
             throw new IngestionExecutionException(
-                    runId, exception.category(), exception.upstreamStatus(), exception.getMessage(), exception);
+                    runId,
+                    exception.category(),
+                    exception.upstreamStatus(),
+                    exception.getMessage(),
+                    exception);
         } catch (RuntimeException exception) {
             LOGGER.error("Ingestion run {} failed during internal processing", runId, exception);
             String safeMessage = "Internal ingestion processing failed";
-            ingestionRunRepository.markFailed(run, ExternalErrorCategory.PROTOCOL.name(), null, safeMessage);
+            ingestionRunRepository.markFailed(
+                    run, ExternalErrorCategory.PROTOCOL.name(), null, safeMessage);
             throw new IngestionExecutionException(
                     runId, ExternalErrorCategory.PROTOCOL, null, safeMessage, exception);
         }
@@ -128,21 +173,24 @@ public class IngestionService {
         try {
             operation = ExternalOperation.valueOf(operationValue.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException exception) {
-            throw new IllegalArgumentException("Unsupported job operation: " + operationValue, exception);
+            throw new IllegalArgumentException(
+                    "Unsupported job operation: " + operationValue, exception);
         }
         String provider = optionalText(config, "provider");
         if (provider == null && job.getDataSource().getProvider() != null) {
             provider = job.getDataSource().getProvider();
         }
         JsonNode nestedParameters = config.path("parameters");
-        Map<String, String> parameters = nestedParameters.isObject()
-                ? objectMapper.convertValue(nestedParameters, STRING_MAP)
-                : Map.of();
+        Map<String, String> parameters =
+                nestedParameters.isObject()
+                        ? objectMapper.convertValue(nestedParameters, STRING_MAP)
+                        : Map.of();
         LocalDate startDate = parseDate(optionalText(config, "startDate"));
         LocalDate endDate = parseDate(optionalText(config, "endDate"));
         Integer lookbackDays = optionalPositiveInt(config, "lookbackDays");
         if (lookbackDays != null) {
-            // A scheduled price job needs a moving window, not fixed calendar dates from its seed definition.
+            // A scheduled price job needs a moving window, not fixed calendar dates from its seed
+            // definition.
             endDate = LocalDate.now(ZoneOffset.UTC);
             startDate = endDate.minusDays(lookbackDays);
         }
@@ -166,14 +214,19 @@ public class IngestionService {
 
     private String optionalText(JsonNode node, String field) {
         JsonNode value = node.get(field);
-        return value == null || value.isNull() || value.asText().isBlank() ? null : value.asText().trim();
+        return value == null || value.isNull() || value.asText().isBlank()
+                ? null
+                : value.asText().trim();
     }
 
     private LocalDate parseDate(String value) {
         return value == null ? null : LocalDate.parse(value);
     }
 
-    /** Manual fetches deliberately remain unlinked; provisioned security jobs carry their immutable security id. */
+    /**
+     * Manual fetches deliberately remain unlinked; provisioned security jobs carry their immutable
+     * security id.
+     */
     private UUID securityIdFromJob(IngestionJobEntity job) {
         if (job == null) return null;
         String securityId = optionalText(job.getParameters(), "securityId");
@@ -229,6 +282,5 @@ public class IngestionService {
         return ExternalErrorCategory.UPSTREAM_SERVER;
     }
 
-    private record ParsedBody(JsonNode json, String text) {
-    }
+    private record ParsedBody(JsonNode json, String text) {}
 }

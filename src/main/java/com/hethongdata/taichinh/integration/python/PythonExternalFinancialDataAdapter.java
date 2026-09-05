@@ -6,14 +6,7 @@ import com.hethongdata.taichinh.application.port.error.ExternalFetchException;
 import com.hethongdata.taichinh.application.port.model.ExternalFetchRequest;
 import com.hethongdata.taichinh.application.port.model.ExternalFetchResponse;
 import com.hethongdata.taichinh.application.port.model.ExternalOperation;
-import java.io.IOException;
-import java.net.SocketTimeoutException;
-import java.net.URI;
-import java.nio.charset.StandardCharsets;
-import java.time.Instant;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
+
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -22,13 +15,24 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.io.IOException;
+import java.net.SocketTimeoutException;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+
 @Component
 public class PythonExternalFinancialDataAdapter implements ExternalFinancialDataPort {
 
     private static final Set<String> EQUITY_PROVIDERS = Set.of("vnstock", "vndirect", "cafef");
-    private static final Set<String> FINANCIAL_PARAMETERS = Set.of("period", "fiscal_date", "report_type", "year");
+    private static final Set<String> FINANCIAL_PARAMETERS =
+            Set.of("period", "fiscal_date", "report_type", "year");
     private static final Set<String> NEWS_PARAMETERS = Set.of("limit");
-    private static final Set<String> NEWS_FEED_PARAMETERS = Set.of("site", "limit", "request_delay");
+    private static final Set<String> NEWS_FEED_PARAMETERS =
+            Set.of("site", "limit", "request_delay");
 
     private final RestClient restClient;
     private final PythonFinancialDataProperties properties;
@@ -45,7 +49,8 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
 
     @Override
     public URI resolveUri(ExternalFetchRequest request) {
-        UriComponentsBuilder builder = UriComponentsBuilder.fromUri(properties.getBaseUrl()).path(pathFor(request));
+        UriComponentsBuilder builder =
+                UriComponentsBuilder.fromUri(properties.getBaseUrl()).path(pathFor(request));
         if (request.operation() == ExternalOperation.OHLCV) {
             addIfPresent(builder, "start", request.startDate());
             addIfPresent(builder, "end", request.endDate());
@@ -58,33 +63,47 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
     public ExternalFetchResponse fetch(ExternalFetchRequest request) {
         URI uri = resolveUri(request);
         try {
-            ExternalFetchResponse response = restClient.get()
-                    .uri(uri)
-                    .accept(MediaType.APPLICATION_JSON)
-                    .exchange((httpRequest, httpResponse) -> new ExternalFetchResponse(
-                            request.operation(),
-                            request.provider(),
-                            uri,
-                            httpResponse.getStatusCode().value(),
-                            httpResponse.getHeaders().getContentType() == null
-                                    ? null
-                                    : httpResponse.getHeaders().getContentType().toString(),
-                            headerSanitizer.sanitize(httpResponse.getHeaders()),
-                            readBody(httpResponse.getBody()),
-                            Instant.now()));
+            ExternalFetchResponse response =
+                    restClient
+                            .get()
+                            .uri(uri)
+                            .accept(MediaType.APPLICATION_JSON)
+                            .exchange(
+                                    (httpRequest, httpResponse) ->
+                                            new ExternalFetchResponse(
+                                                    request.operation(),
+                                                    request.provider(),
+                                                    uri,
+                                                    httpResponse.getStatusCode().value(),
+                                                    httpResponse.getHeaders().getContentType()
+                                                                    == null
+                                                            ? null
+                                                            : httpResponse
+                                                                    .getHeaders()
+                                                                    .getContentType()
+                                                                    .toString(),
+                                                    headerSanitizer.sanitize(
+                                                            httpResponse.getHeaders()),
+                                                    readBody(httpResponse.getBody()),
+                                                    Instant.now()));
             if (response == null) {
                 throw new ExternalFetchException(
                         ExternalErrorCategory.PROTOCOL, null, "Upstream returned no response");
             }
             return response;
         } catch (ResourceAccessException exception) {
-            ExternalErrorCategory category = causedByTimeout(exception)
-                    ? ExternalErrorCategory.TIMEOUT
-                    : ExternalErrorCategory.TRANSPORT;
-            throw new ExternalFetchException(category, null, safeTransportMessage(category), exception);
+            ExternalErrorCategory category =
+                    causedByTimeout(exception)
+                            ? ExternalErrorCategory.TIMEOUT
+                            : ExternalErrorCategory.TRANSPORT;
+            throw new ExternalFetchException(
+                    category, null, safeTransportMessage(category), exception);
         } catch (RestClientException exception) {
             throw new ExternalFetchException(
-                    ExternalErrorCategory.TRANSPORT, null, "Unable to call financial data service", exception);
+                    ExternalErrorCategory.TRANSPORT,
+                    null,
+                    "Unable to call financial data service",
+                    exception);
         }
     }
 
@@ -97,7 +116,9 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
             case QUOTE -> equityPath(provider, symbol, "quote");
             case OHLCV -> equityPath(provider, symbol, "ohlcv");
             case COMPANY -> companyPath(provider, symbol);
-            case FINANCIAL_STATEMENT -> financialStatementPath(provider, symbol, requiredParameter(request, "statement"));
+            case FINANCIAL_STATEMENT ->
+                    financialStatementPath(
+                            provider, symbol, requiredParameter(request, "statement"));
             case RATIO -> ratioPath(provider, symbol);
             case MANAGEMENT -> cafefPath(symbol, "management");
             case SUBSIDIARIES -> cafefPath(symbol, "subsidiaries");
@@ -127,15 +148,22 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
 
     private String financialStatementPath(String provider, String symbol, String statement) {
         String normalizedProvider = equityProvider(provider);
-        return equityPath(normalizedProvider, symbol, "financials/" + normalizeStatement(normalizedProvider, statement));
+        return equityPath(
+                normalizedProvider,
+                symbol,
+                "financials/" + normalizeStatement(normalizedProvider, statement));
     }
 
     private String ratioPath(String provider, String symbol) {
         String normalizedProvider = equityProvider(provider);
         if (normalizedProvider.equals("cafef")) {
-            throw new IllegalArgumentException("CafeF does not expose a ratios route in the current API contract");
+            throw new IllegalArgumentException(
+                    "CafeF does not expose a ratios route in the current API contract");
         }
-        return equityPath(normalizedProvider, symbol, normalizedProvider.equals("vndirect") ? "ratios" : "ratio");
+        return equityPath(
+                normalizedProvider,
+                symbol,
+                normalizedProvider.equals("vndirect") ? "ratios" : "ratio");
     }
 
     private String cafefPath(String symbol, String dataset) {
@@ -153,17 +181,23 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
     }
 
     private Map<String, String> allowedQueryParameters(ExternalFetchRequest request) {
-        Set<String> allowed = switch (request.operation()) {
-            case FINANCIAL_STATEMENT -> FINANCIAL_PARAMETERS;
-            case NEWS, EVENTS, NEWS_COMPANY -> NEWS_PARAMETERS;
-            case NEWS_LATEST, NEWS_HISTORY -> NEWS_FEED_PARAMETERS;
-            case RAW_PROXY -> request.parameters().keySet();
-            default -> Set.of();
-        };
+        Set<String> allowed =
+                switch (request.operation()) {
+                    case FINANCIAL_STATEMENT -> FINANCIAL_PARAMETERS;
+                    case NEWS, EVENTS, NEWS_COMPANY -> NEWS_PARAMETERS;
+                    case NEWS_LATEST, NEWS_HISTORY -> NEWS_FEED_PARAMETERS;
+                    case RAW_PROXY -> request.parameters().keySet();
+                    default -> Set.of();
+                };
         return request.parameters().entrySet().stream()
                 .filter(entry -> allowed.contains(entry.getKey()))
-                .filter(entry -> !entry.getKey().equals("statement") && !entry.getKey().equals("upstream_path"))
-                .collect(java.util.stream.Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));
+                .filter(
+                        entry ->
+                                !entry.getKey().equals("statement")
+                                        && !entry.getKey().equals("upstream_path"))
+                .collect(
+                        java.util.stream.Collectors.toUnmodifiableMap(
+                                Map.Entry::getKey, Map.Entry::getValue));
     }
 
     private String equityProvider(String provider) {

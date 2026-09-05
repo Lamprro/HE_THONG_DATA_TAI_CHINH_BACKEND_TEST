@@ -1,10 +1,11 @@
-package com.hethongdata.taichinh.controller;
+package com.hethongdata.taichinh.controller.source;
 
 import com.hethongdata.taichinh.dto.source.DataSourceRequest;
 import com.hethongdata.taichinh.dto.source.DataSourceResponse;
 import com.hethongdata.taichinh.service.source.DataSourceService;
+
 import jakarta.validation.Valid;
-import java.util.List;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -12,6 +13,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/data-sources")
@@ -29,7 +32,8 @@ public class DataSourceController {
     }
 
     @PostMapping
-    public ResponseEntity<DataSourceResponse> upsert(@Valid @RequestBody DataSourceRequest request) {
+    public ResponseEntity<DataSourceResponse> upsert(
+            @Valid @RequestBody DataSourceRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(dataSourceService.upsert(request));
     }
 }

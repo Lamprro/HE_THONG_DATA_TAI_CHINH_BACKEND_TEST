@@ -4,13 +4,16 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.util.UUID;
+
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+
 import org.hibernate.annotations.UuidGenerator;
+
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.UUID;
 
 @Entity
 @Table(name = "companies")
@@ -72,31 +75,93 @@ public class CompanyEntity {
     private Instant updatedAt;
 
     public static CompanyEntity create(
-            String taxCode, String companyCode, String legalName, String shortName, String englishName,
-            String industryCode, String industryName, String sectorName, String website, String headquarters,
-            LocalDate foundedDate, String listingStatus, String description, boolean active) {
+            String taxCode,
+            String companyCode,
+            String legalName,
+            String shortName,
+            String englishName,
+            String industryCode,
+            String industryName,
+            String sectorName,
+            String website,
+            String headquarters,
+            LocalDate foundedDate,
+            String listingStatus,
+            String description,
+            boolean active) {
         CompanyEntity entity = new CompanyEntity();
-        entity.apply(taxCode, companyCode, legalName, shortName, englishName, industryCode, industryName,
-                sectorName, website, headquarters, foundedDate, listingStatus, description, active);
+        entity.apply(
+                taxCode,
+                companyCode,
+                legalName,
+                shortName,
+                englishName,
+                industryCode,
+                industryName,
+                sectorName,
+                website,
+                headquarters,
+                foundedDate,
+                listingStatus,
+                description,
+                active);
         entity.createdAt = Instant.now();
         entity.updatedAt = entity.createdAt;
         return entity;
     }
 
-    /** Updates only the company master record; aliases and securities are managed by their own services. */
+    /**
+     * Updates only the company master record; aliases and securities are managed by their own
+     * services.
+     */
     public void update(
-            String taxCode, String companyCode, String legalName, String shortName, String englishName,
-            String industryCode, String industryName, String sectorName, String website, String headquarters,
-            LocalDate foundedDate, String listingStatus, String description, boolean active) {
-        apply(taxCode, companyCode, legalName, shortName, englishName, industryCode, industryName,
-                sectorName, website, headquarters, foundedDate, listingStatus, description, active);
+            String taxCode,
+            String companyCode,
+            String legalName,
+            String shortName,
+            String englishName,
+            String industryCode,
+            String industryName,
+            String sectorName,
+            String website,
+            String headquarters,
+            LocalDate foundedDate,
+            String listingStatus,
+            String description,
+            boolean active) {
+        apply(
+                taxCode,
+                companyCode,
+                legalName,
+                shortName,
+                englishName,
+                industryCode,
+                industryName,
+                sectorName,
+                website,
+                headquarters,
+                foundedDate,
+                listingStatus,
+                description,
+                active);
         updatedAt = Instant.now();
     }
 
     private void apply(
-            String taxCode, String companyCode, String legalName, String shortName, String englishName,
-            String industryCode, String industryName, String sectorName, String website, String headquarters,
-            LocalDate foundedDate, String listingStatus, String description, boolean active) {
+            String taxCode,
+            String companyCode,
+            String legalName,
+            String shortName,
+            String englishName,
+            String industryCode,
+            String industryName,
+            String sectorName,
+            String website,
+            String headquarters,
+            LocalDate foundedDate,
+            String listingStatus,
+            String description,
+            boolean active) {
         this.taxCode = taxCode;
         this.companyCode = companyCode;
         this.legalName = legalName;
@@ -112,5 +177,4 @@ public class CompanyEntity {
         this.description = description;
         this.isActive = active;
     }
-
 }

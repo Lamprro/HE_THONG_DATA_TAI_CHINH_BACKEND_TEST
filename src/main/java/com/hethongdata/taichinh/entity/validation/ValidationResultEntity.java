@@ -4,12 +4,15 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import java.time.Instant;
-import java.util.UUID;
+
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+
 import org.hibernate.annotations.UuidGenerator;
+
+import java.time.Instant;
+import java.util.UUID;
 
 @Entity
 @Table(name = "validation_results")
@@ -55,14 +58,27 @@ public class ValidationResultEntity {
     @Column(name = "raw_payload_id")
     private UUID rawPayloadId;
 
-    public static ValidationResultEntity create(Long ruleId, UUID ingestionRunId, UUID rawPayloadId,
-            String entityType, String entityKey, String status, String observedValue, String expectedValue, String message) {
+    public static ValidationResultEntity create(
+            Long ruleId,
+            UUID ingestionRunId,
+            UUID rawPayloadId,
+            String entityType,
+            String entityKey,
+            String status,
+            String observedValue,
+            String expectedValue,
+            String message) {
         ValidationResultEntity entity = new ValidationResultEntity();
-        entity.validationRuleId = ruleId; entity.ingestionRunId = ingestionRunId; entity.rawPayloadId = rawPayloadId;
-        entity.entityType = entityType; entity.entityKey = entityKey; entity.status = status;
-        entity.observedValue = observedValue; entity.expectedValue = expectedValue; entity.message = message;
+        entity.validationRuleId = ruleId;
+        entity.ingestionRunId = ingestionRunId;
+        entity.rawPayloadId = rawPayloadId;
+        entity.entityType = entityType;
+        entity.entityKey = entityKey;
+        entity.status = status;
+        entity.observedValue = observedValue;
+        entity.expectedValue = expectedValue;
+        entity.message = message;
         entity.checkedAt = Instant.now();
         return entity;
     }
-
 }

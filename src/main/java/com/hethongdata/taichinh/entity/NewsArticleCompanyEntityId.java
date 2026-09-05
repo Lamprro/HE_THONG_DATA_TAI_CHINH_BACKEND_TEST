@@ -1,10 +1,11 @@
 package com.hethongdata.taichinh.entity;
 
-import java.io.Serializable;
-import java.util.UUID;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+
+import java.io.Serializable;
+import java.util.UUID;
 
 @Getter
 @EqualsAndHashCode
@@ -14,5 +15,4 @@ public class NewsArticleCompanyEntityId implements Serializable {
     private UUID newsArticleId;
 
     private UUID companyId;
-
 }

@@ -4,16 +4,19 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.annotations.UuidGenerator;
+import org.hibernate.type.SqlTypes;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
-import lombok.AccessLevel;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import org.hibernate.annotations.UuidGenerator;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "securities")
@@ -70,23 +73,63 @@ public class SecurityEntity {
     private Instant updatedAt;
 
     public static SecurityEntity create(
-            UUID companyId, String symbol, String exchange, String securityType, String isin, String currency,
-            LocalDate listedDate, LocalDate delistedDate, BigDecimal sharesOutstanding, BigDecimal parValue,
-            boolean primary, boolean active) {
+            UUID companyId,
+            String symbol,
+            String exchange,
+            String securityType,
+            String isin,
+            String currency,
+            LocalDate listedDate,
+            LocalDate delistedDate,
+            BigDecimal sharesOutstanding,
+            BigDecimal parValue,
+            boolean primary,
+            boolean active) {
         SecurityEntity entity = new SecurityEntity();
-        entity.apply(companyId, symbol, exchange, securityType, isin, currency, listedDate, delistedDate,
-                sharesOutstanding, parValue, primary, active);
+        entity.apply(
+                companyId,
+                symbol,
+                exchange,
+                securityType,
+                isin,
+                currency,
+                listedDate,
+                delistedDate,
+                sharesOutstanding,
+                parValue,
+                primary,
+                active);
         entity.createdAt = Instant.now();
         entity.updatedAt = entity.createdAt;
         return entity;
     }
 
     public void update(
-            UUID companyId, String symbol, String exchange, String securityType, String isin, String currency,
-            LocalDate listedDate, LocalDate delistedDate, BigDecimal sharesOutstanding, BigDecimal parValue,
-            boolean primary, boolean active) {
-        apply(companyId, symbol, exchange, securityType, isin, currency, listedDate, delistedDate,
-                sharesOutstanding, parValue, primary, active);
+            UUID companyId,
+            String symbol,
+            String exchange,
+            String securityType,
+            String isin,
+            String currency,
+            LocalDate listedDate,
+            LocalDate delistedDate,
+            BigDecimal sharesOutstanding,
+            BigDecimal parValue,
+            boolean primary,
+            boolean active) {
+        apply(
+                companyId,
+                symbol,
+                exchange,
+                securityType,
+                isin,
+                currency,
+                listedDate,
+                delistedDate,
+                sharesOutstanding,
+                parValue,
+                primary,
+                active);
         updatedAt = Instant.now();
     }
 
@@ -96,9 +139,18 @@ public class SecurityEntity {
     }
 
     private void apply(
-            UUID companyId, String symbol, String exchange, String securityType, String isin, String currency,
-            LocalDate listedDate, LocalDate delistedDate, BigDecimal sharesOutstanding, BigDecimal parValue,
-            boolean primary, boolean active) {
+            UUID companyId,
+            String symbol,
+            String exchange,
+            String securityType,
+            String isin,
+            String currency,
+            LocalDate listedDate,
+            LocalDate delistedDate,
+            BigDecimal sharesOutstanding,
+            BigDecimal parValue,
+            boolean primary,
+            boolean active) {
         this.companyId = companyId;
         this.symbol = symbol;
         this.exchange = exchange;
@@ -112,5 +164,4 @@ public class SecurityEntity {
         this.isPrimary = primary;
         this.isActive = active;
     }
-
 }

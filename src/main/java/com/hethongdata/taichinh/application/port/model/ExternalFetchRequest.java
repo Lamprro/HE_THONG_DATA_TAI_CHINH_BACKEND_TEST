@@ -4,6 +4,10 @@ import java.time.LocalDate;
 import java.util.Locale;
 import java.util.Map;
 
+/**
+ * Immutable provider-neutral fetch parameters. Construction normalizes identifiers and validates
+ * required fields and date ranges; it does not validate financial payload quality.
+ */
 public record ExternalFetchRequest(
         ExternalOperation operation,
         String provider,
@@ -38,16 +42,32 @@ public record ExternalFetchRequest(
 
     private static boolean requiresSymbol(ExternalOperation operation) {
         return switch (operation) {
-            case QUOTE, OHLCV, COMPANY, FINANCIAL_STATEMENT, RATIO,
-                    MANAGEMENT, SUBSIDIARIES, NEWS, EVENTS, NEWS_COMPANY -> true;
+            case QUOTE,
+                            OHLCV,
+                            COMPANY,
+                            FINANCIAL_STATEMENT,
+                            RATIO,
+                            MANAGEMENT,
+                            SUBSIDIARIES,
+                            NEWS,
+                            EVENTS,
+                            NEWS_COMPANY ->
+                    true;
             default -> false;
         };
     }
 
     private static boolean requiresProvider(ExternalOperation operation) {
         return switch (operation) {
-            case HEALTH, PROVIDERS, NEWS_STATUS, NEWS_SITES, NEWS_LATEST, NEWS_HISTORY,
-                    NEWS_COMPANY, PROXY_PROVIDERS -> false;
+            case HEALTH,
+                            PROVIDERS,
+                            NEWS_STATUS,
+                            NEWS_SITES,
+                            NEWS_LATEST,
+                            NEWS_HISTORY,
+                            NEWS_COMPANY,
+                            PROXY_PROVIDERS ->
+                    false;
             default -> true;
         };
     }

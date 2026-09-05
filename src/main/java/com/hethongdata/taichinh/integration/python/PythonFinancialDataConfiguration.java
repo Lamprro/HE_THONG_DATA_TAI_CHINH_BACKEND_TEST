@@ -14,13 +14,11 @@ public class PythonFinancialDataConfiguration {
     @Bean
     @Qualifier("pythonFinancialRestClient")
     RestClient pythonFinancialRestClient(
-            RestClient.Builder builder,
-            PythonFinancialDataProperties properties) {
+            RestClient.Builder builder, PythonFinancialDataProperties properties) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(properties.getConnectTimeout());
         requestFactory.setReadTimeout(properties.getReadTimeout());
-        return builder
-                .baseUrl(properties.getBaseUrl().toString())
+        return builder.baseUrl(properties.getBaseUrl().toString())
                 .requestFactory(requestFactory)
                 .defaultHeader("User-Agent", "financial-data-api/phase-1")
                 .build();

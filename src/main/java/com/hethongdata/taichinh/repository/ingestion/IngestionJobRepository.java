@@ -6,11 +6,13 @@ import com.hethongdata.taichinh.entity.ingestion.DataSourceEntity;
 import com.hethongdata.taichinh.entity.ingestion.IngestionJobEntity;
 import com.hethongdata.taichinh.repository.jpa.ingestion.DataSourceJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionJobJpaRepository;
+
+import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
+
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import org.springframework.stereotype.Repository;
-import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 public class IngestionJobRepository {
@@ -19,8 +21,7 @@ public class IngestionJobRepository {
     private final DataSourceJpaRepository dataSources;
 
     public IngestionJobRepository(
-            IngestionJobJpaRepository ingestionJobs,
-            DataSourceJpaRepository dataSources) {
+            IngestionJobJpaRepository ingestionJobs, DataSourceJpaRepository dataSources) {
         this.ingestionJobs = ingestionJobs;
         this.dataSources = dataSources;
     }
@@ -36,12 +37,26 @@ public class IngestionJobRepository {
             short maxRetries,
             int timeoutSeconds,
             boolean active) {
-        DataSourceEntity source = dataSources.findByCodeIgnoreCase(dataSourceCode)
-                .filter(DataSourceEntity::isActive)
-                .orElseThrow(() -> new IllegalArgumentException("No active data source with code " + dataSourceCode));
-        IngestionJobEntity entity = IngestionJobEntity.create(
-                source, code, name, datasetType, cronExpression, parameters,
-                maxRetries, timeoutSeconds, active);
+        DataSourceEntity source =
+                dataSources
+                        .findByCodeIgnoreCase(dataSourceCode)
+                        .filter(DataSourceEntity::isActive)
+                        .orElseThrow(
+                                () ->
+                                        new IllegalArgumentException(
+                                                "No active data source with code "
+                                                        + dataSourceCode));
+        IngestionJobEntity entity =
+                IngestionJobEntity.create(
+                        source,
+                        code,
+                        name,
+                        datasetType,
+                        cronExpression,
+                        parameters,
+                        maxRetries,
+                        timeoutSeconds,
+                        active);
         return ingestionJobs.save(entity);
     }
 
@@ -57,15 +72,39 @@ public class IngestionJobRepository {
             short maxRetries,
             int timeoutSeconds,
             boolean active) {
-        DataSourceEntity source = dataSources.findByCodeIgnoreCase(dataSourceCode)
-                .filter(DataSourceEntity::isActive)
-                .orElseThrow(() -> new IllegalArgumentException("No active data source with code " + dataSourceCode));
-        IngestionJobEntity entity = ingestionJobs.findByCodeIgnoreCase(code)
-                .orElseGet(() -> IngestionJobEntity.create(
-                        source, code, name, datasetType, cronExpression, parameters,
-                        maxRetries, timeoutSeconds, active));
-        entity.refreshDefinition(source, name, datasetType, cronExpression, parameters,
-                maxRetries, timeoutSeconds, active);
+        DataSourceEntity source =
+                dataSources
+                        .findByCodeIgnoreCase(dataSourceCode)
+                        .filter(DataSourceEntity::isActive)
+                        .orElseThrow(
+                                () ->
+                                        new IllegalArgumentException(
+                                                "No active data source with code "
+                                                        + dataSourceCode));
+        IngestionJobEntity entity =
+                ingestionJobs
+                        .findByCodeIgnoreCase(code)
+                        .orElseGet(
+                                () ->
+                                        IngestionJobEntity.create(
+                                                source,
+                                                code,
+                                                name,
+                                                datasetType,
+                                                cronExpression,
+                                                parameters,
+                                                maxRetries,
+                                                timeoutSeconds,
+                                                active));
+        entity.refreshDefinition(
+                source,
+                name,
+                datasetType,
+                cronExpression,
+                parameters,
+                maxRetries,
+                timeoutSeconds,
+                active);
         return ingestionJobs.save(entity);
     }
 
@@ -84,9 +123,15 @@ public class IngestionJobRepository {
 
     @Transactional
     public IngestionJobEntity setActive(UUID id, boolean active) {
-        IngestionJobEntity entity = ingestionJobs.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Ingestion job not found: " + id));
-        // A manually re-enabled job must start with a fresh durable budget after automatic disablement.
+        IngestionJobEntity entity =
+                ingestionJobs
+                        .findById(id)
+                        .orElseThrow(
+                                () ->
+                                        new IllegalArgumentException(
+                                                "Ingestion job not found: " + id));
+        // A manually re-enabled job must start with a fresh durable budget after automatic
+        // disablement.
         if (active && entity.getMaxRetries() == 0) {
             entity.setMaxRetries(AppParams.DEFAULT_MAX_RETRIES);
         }
@@ -96,8 +141,13 @@ public class IngestionJobRepository {
 
     @Transactional
     public void disableAfterRetryBudgetExhausted(UUID id) {
-        IngestionJobEntity entity = ingestionJobs.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Ingestion job not found: " + id));
+        IngestionJobEntity entity =
+                ingestionJobs
+                        .findById(id)
+                        .orElseThrow(
+                                () ->
+                                        new IllegalArgumentException(
+                                                "Ingestion job not found: " + id));
         entity.disableAfterRetryBudgetExhausted();
         ingestionJobs.save(entity);
     }
@@ -111,7 +161,10 @@ public class IngestionJobRepository {
         return jobs.size();
     }
 
-    /** Keeps historical runs immutable while preventing retired definitions from being scheduled again. */
+    /**
+     * Keeps historical runs immutable while preventing retired definitions from being scheduled
+     * again.
+     */
     @Transactional
     public int deactivateByCodes(List<String> codes) {
         int changed = 0;
@@ -125,5 +178,4 @@ public class IngestionJobRepository {
         }
         return changed;
     }
-
 }

@@ -2,5 +2,16 @@ package com.hethongdata.taichinh.dto.master;
 
 import jakarta.validation.constraints.NotBlank;
 
-public record CompanyAliasRequest(@NotBlank String alias, @NotBlank String aliasType) {
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public final class CompanyAliasRequest {
+
+    @NotBlank private String alias;
+
+    @NotBlank private String aliasType;
 }

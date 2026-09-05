@@ -1,6 +1,7 @@
 package com.hethongdata.taichinh.service.ingestion;
 
 import com.hethongdata.taichinh.application.port.error.ExternalErrorCategory;
+
 import java.util.UUID;
 
 public class IngestionExecutionException extends RuntimeException {

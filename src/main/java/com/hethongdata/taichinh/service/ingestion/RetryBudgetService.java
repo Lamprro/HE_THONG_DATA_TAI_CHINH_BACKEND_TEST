@@ -1,7 +1,7 @@
 package com.hethongdata.taichinh.service.ingestion;
 
 import com.hethongdata.taichinh.entity.ingestion.IngestionJobEntity;
-import java.time.Duration;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -9,9 +9,11 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+
 /**
- * Transient, per-job retry budget. Redis operations are atomic at the decrement step;
- * the database remains the durable source for an exhausted/disabled job.
+ * Transient, per-job retry budget. Redis operations are atomic at the decrement step; the database
+ * remains the durable source for an exhausted/disabled job.
  */
 @Service
 public class RetryBudgetService {
@@ -20,15 +22,19 @@ public class RetryBudgetService {
     private final String keyPrefix;
     private final Duration ttl;
 
-    public RetryBudgetService(StringRedisTemplate redis,
-                              @Value("${financial.ingestion.retry-budget.key-prefix}") String keyPrefix,
-                              @Value("${financial.ingestion.retry-budget.ttl}") Duration ttl) {
+    public RetryBudgetService(
+            StringRedisTemplate redis,
+            @Value("${financial.ingestion.retry-budget.key-prefix}") String keyPrefix,
+            @Value("${financial.ingestion.retry-budget.ttl}") Duration ttl) {
         this.redis = redis;
         this.keyPrefix = keyPrefix;
         this.ttl = ttl;
     }
 
-    /** Returns the remaining attempts, or null when Redis is unavailable and no destructive decision is made. */
+    /**
+     * Returns the remaining attempts, or null when Redis is unavailable and no destructive decision
+     * is made.
+     */
     public Long consumeFailedAttempt(IngestionJobEntity job) {
         try {
             String key = key(job);
@@ -37,12 +43,16 @@ public class RetryBudgetService {
             redis.expire(key, ttl);
             return remaining;
         } catch (DataAccessException exception) {
-            LOGGER.error("Redis retry budget is unavailable for ingestion job {}; preserving its active state", job.getCode());
+            LOGGER.error(
+                    "Redis retry budget is unavailable for ingestion job {}; preserving its active state",
+                    job.getCode());
             return null;
         }
     }
 
-    /** A successful source call starts a fresh failure budget for subsequent independent incidents. */
+    /**
+     * A successful source call starts a fresh failure budget for subsequent independent incidents.
+     */
     public void resetAfterSuccess(IngestionJobEntity job) {
         try {
             redis.delete(key(job));
@@ -51,5 +61,7 @@ public class RetryBudgetService {
         }
     }
 
-    private String key(IngestionJobEntity job) { return keyPrefix + job.getId(); }
+    private String key(IngestionJobEntity job) {
+        return keyPrefix + job.getId();
+    }
 }

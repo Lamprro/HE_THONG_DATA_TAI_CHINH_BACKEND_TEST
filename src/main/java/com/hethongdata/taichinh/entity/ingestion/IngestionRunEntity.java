@@ -2,6 +2,7 @@ package com.hethongdata.taichinh.entity.ingestion;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hethongdata.taichinh.entity.enums.IngestionRunStatus;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -11,15 +12,18 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
-import java.time.Instant;
-import java.net.URI;
-import java.util.UUID;
+
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UuidGenerator;
 import org.hibernate.type.SqlTypes;
+
+import java.net.URI;
+import java.time.Instant;
+import java.util.UUID;
 
 @Entity
 @Table(name = "ingestion_runs")
@@ -27,9 +31,7 @@ import org.hibernate.type.SqlTypes;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class IngestionRunEntity {
 
-    @Id
-    @UuidGenerator
-    private UUID id;
+    @Id @UuidGenerator private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "ingestion_job_id")
@@ -176,7 +178,4 @@ public class IngestionRunEntity {
         this.responseText = responseText;
         this.metadata = metadata;
     }
-
 }
-
-

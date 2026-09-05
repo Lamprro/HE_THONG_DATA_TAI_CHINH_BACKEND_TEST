@@ -4,12 +4,15 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import java.time.LocalDate;
-import java.util.UUID;
+
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+
 import org.hibernate.annotations.UuidGenerator;
+
+import java.time.LocalDate;
+import java.util.UUID;
 
 @Entity
 @Table(name = "financial_periods")
@@ -39,5 +42,4 @@ public class FinancialPeriodEntity {
 
     @Column(name = "is_audited_period")
     private Boolean isAuditedPeriod;
-
 }

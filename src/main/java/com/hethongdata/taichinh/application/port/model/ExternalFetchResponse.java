@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
+/** Immutable fetch metadata and raw response body, before persistence or business validation. */
 public record ExternalFetchResponse(
         ExternalOperation operation,
         String provider,

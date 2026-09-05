@@ -1,8 +1,9 @@
 package com.hethongdata.taichinh.integration.python;
 
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
 import java.net.URI;
 import java.time.Duration;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "financial.python-service")
 public class PythonFinancialDataProperties {

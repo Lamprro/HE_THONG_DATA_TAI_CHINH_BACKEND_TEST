@@ -66,6 +66,11 @@ public class IngestionService {
     }
 
     public IngestionExecutionResponse ingest(ManualIngestionRequest manualRequest) {
+        LOGGER.info(
+                "Triggering manual ingestion: provider={}, operation={}, symbol={}",
+                manualRequest.getProvider(),
+                manualRequest.getOperation(),
+                manualRequest.getSymbol());
         ExternalFetchRequest request =
                 new ExternalFetchRequest(
                         manualRequest.getOperation(),
@@ -87,6 +92,7 @@ public class IngestionService {
     }
 
     public IngestionExecutionResponse ingestJob(IngestionJobEntity job, String triggerType) {
+        LOGGER.info("Triggering job ingestion: jobCode={}, triggerType={}", job.getCode(), triggerType);
         ExternalFetchRequest request = requestFromJob(job);
         return execute(request, job.getDataSource(), job, triggerType);
     }
@@ -101,12 +107,27 @@ public class IngestionService {
                 ingestionRunRepository.start(source, job, triggerType, request, requestUri);
         UUID runId = run.getId();
 
+        LOGGER.info(
+                "Starting ingestion execution: runId={}, provider={}, operation={}, symbol={}, triggerType={}, uri={}",
+                runId,
+                request.provider(),
+                request.operation(),
+                request.symbol(),
+                triggerType,
+                requestUri);
+
         try {
             ExternalFetchResponse response = externalFinancialDataPort.fetch(request);
             if (!response.isSuccessful()) {
                 ExternalErrorCategory category = classifyStatus(response.httpStatus());
                 ParsedBody errorBody = parseDiagnosticBody(response);
                 String message = "Upstream returned HTTP " + response.httpStatus();
+                LOGGER.warn(
+                        "Ingestion run {} upstream rejected: status={}, category={}, message={}",
+                        runId,
+                        response.httpStatus(),
+                        category,
+                        message);
                 ingestionRunRepository.markFailedResponse(
                         run,
                         category.name(),
@@ -134,6 +155,14 @@ public class IngestionService {
                             duplicate,
                             securityIdFromJob(job));
 
+            LOGGER.info(
+                    "Ingestion run {} succeeded: rawId={}, status={}, duplicate={}, checksum={}",
+                    runId,
+                    rawId,
+                    response.httpStatus(),
+                    duplicate,
+                    checksum);
+
             return new IngestionExecutionResponse(
                     runId,
                     rawId,
@@ -145,6 +174,12 @@ public class IngestionService {
         } catch (IngestionExecutionException exception) {
             throw exception;
         } catch (ExternalFetchException exception) {
+            LOGGER.warn(
+                    "Ingestion run {} external fetch failure: category={}, upstreamStatus={}, message={}",
+                    runId,
+                    exception.category(),
+                    exception.upstreamStatus(),
+                    exception.getMessage());
             ingestionRunRepository.markFailed(
                     run,
                     exception.category().name(),

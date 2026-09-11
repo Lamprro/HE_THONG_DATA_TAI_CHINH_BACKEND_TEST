@@ -12,6 +12,8 @@ import com.hethongdata.taichinh.entity.master.CompanyEntity;
 import com.hethongdata.taichinh.entity.master.SecurityEntity;
 import com.hethongdata.taichinh.repository.master.MasterDataRepository;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,6 +23,8 @@ import java.util.UUID;
 /** Application service for admin-managed company/security masters and their job lifecycle. */
 @Service
 public class MasterDataService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(MasterDataService.class);
+
     private final MasterDataRepository masterData;
     private final SecurityJobProvisioningService jobProvisioning;
 
@@ -35,7 +39,7 @@ public class MasterDataService {
         String code = AppParams.requiredUpper(request.getCompanyCode(), "companyCode");
         if (masterData.findCompanyByCode(code).isPresent())
             throw new IllegalArgumentException("companyCode already exists: " + code);
-        return CompanyResponse.from(
+        CompanyEntity entity =
                 masterData.saveCompany(
                         CompanyEntity.create(
                                 normalize(request.getTaxCode()),
@@ -51,7 +55,9 @@ public class MasterDataService {
                                 request.getFoundedDate(),
                                 normalize(request.getListingStatus()),
                                 normalize(request.getDescription()),
-                                request.getActive() == null || request.getActive())));
+                                request.getActive() == null || request.getActive()));
+        LOGGER.info("Created new company: code={}, name={}, id={}", code, entity.getLegalName(), entity.getId());
+        return CompanyResponse.from(entity);
     }
 
     @Transactional
@@ -72,7 +78,9 @@ public class MasterDataService {
                 normalize(request.getListingStatus()),
                 normalize(request.getDescription()),
                 request.getActive() == null || request.getActive());
-        return CompanyResponse.from(masterData.saveCompany(company));
+        CompanyEntity updated = masterData.saveCompany(company);
+        LOGGER.info("Updated company: id={}, code={}", companyId, updated.getCompanyCode());
+        return CompanyResponse.from(updated);
     }
 
     @Transactional(readOnly = true)
@@ -90,8 +98,9 @@ public class MasterDataService {
         if (!AppParams.COMPANY_ALIAS_TYPES.contains(aliasType)) {
             throw new IllegalArgumentException("Unsupported aliasType: " + aliasType);
         }
-        return CompanyAliasResponse.from(
-                masterData.saveAlias(CompanyAliasEntity.create(companyId, alias, aliasType)));
+        CompanyAliasEntity saved = masterData.saveAlias(CompanyAliasEntity.create(companyId, alias, aliasType));
+        LOGGER.info("Added alias for company {}: alias={}, type={}", companyId, alias, aliasType);
+        return CompanyAliasResponse.from(saved);
     }
 
     @Transactional(readOnly = true)
@@ -124,7 +133,8 @@ public class MasterDataService {
                                 request.getParValue(),
                                 request.getPrimary() == null || request.getPrimary(),
                                 request.getActive() == null || request.getActive()));
-        jobProvisioning.provision(security);
+        int provisionedJobs = jobProvisioning.provision(security);
+        LOGGER.info("Created security: symbol={}, exchange={}, type={}, provisionedJobs={}", symbol, exchange, securityType, provisionedJobs);
         return SecurityResponse.from(security);
     }
 
@@ -149,7 +159,8 @@ public class MasterDataService {
                 request.getPrimary() == null || request.getPrimary(),
                 request.getActive() == null || request.getActive());
         masterData.saveSecurity(security);
-        jobProvisioning.provision(security);
+        int provisionedJobs = jobProvisioning.provision(security);
+        LOGGER.info("Updated security: id={}, symbol={}, provisionedJobs={}", securityId, security.getSymbol(), provisionedJobs);
         return SecurityResponse.from(security);
     }
 
@@ -158,20 +169,27 @@ public class MasterDataService {
         SecurityEntity security = security(securityId);
         security.setActive(active);
         masterData.saveSecurity(security);
-        jobProvisioning.provision(security);
+        int changedJobs = jobProvisioning.provision(security);
+        LOGGER.info("Updated security active state: id={}, symbol={}, active={}, affectedJobs={}", securityId, security.getSymbol(), active, changedJobs);
         return SecurityResponse.from(security);
     }
 
     @Transactional
     public int provisionSecurity(UUID securityId) {
-        return jobProvisioning.provision(security(securityId));
+        LOGGER.info("Manually provisioning jobs for security id: {}", securityId);
+        int count = jobProvisioning.provision(security(securityId));
+        LOGGER.info("Provisioned {} jobs for security id: {}", count, securityId);
+        return count;
     }
 
     @Transactional
     public int reconcileActiveSecurities() {
-        return masterData.findActiveSecurities().stream()
+        LOGGER.info("Starting reconciliation of all active securities");
+        int count = masterData.findActiveSecurities().stream()
                 .mapToInt(jobProvisioning::provision)
                 .sum();
+        LOGGER.info("Reconciliation completed: synchronized {} jobs across active securities", count);
+        return count;
     }
 
     @Transactional(readOnly = true)

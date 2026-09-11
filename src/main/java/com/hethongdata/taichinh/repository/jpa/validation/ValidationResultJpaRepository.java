@@ -16,4 +16,7 @@ public interface ValidationResultJpaRepository extends JpaRepository<ValidationR
     List<ValidationResultEntity> findByRawPayloadIdOrderByCheckedAtAsc(UUID rawPayloadId);
 
     List<ValidationResultEntity> findAllByOrderByCheckedAtDesc(Pageable pageable);
+
+    List<ValidationResultEntity> findByStatusAndHandlingStatusOrderByCheckedAtDesc(
+            String status, String handlingStatus, Pageable pageable);
 }

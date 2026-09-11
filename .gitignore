@@ -13,7 +13,6 @@ target/
 *.log
 logs/
 out/
-*.md
 
 # Local configuration and credentials
 .env

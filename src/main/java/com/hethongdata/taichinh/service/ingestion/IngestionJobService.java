@@ -78,6 +78,12 @@ public class IngestionJobService {
                         maxRetries,
                         timeoutSeconds,
                         request.getActive() == null || request.getActive());
+        LOGGER.info(
+                "Created new ingestion job: code={}, dataSource={}, datasetType={}, cron={}",
+                entity.getCode(),
+                entity.getDataSource().getCode(),
+                datasetType,
+                entity.getCronExpression());
         return IngestionJobResponse.from(entity);
     }
 
@@ -92,6 +98,7 @@ public class IngestionJobService {
         if (!job.isActive()) {
             throw new IllegalArgumentException("Ingestion job is inactive: " + jobId);
         }
+        LOGGER.info("Executing ingestion job manually: id={}, code={}", job.getId(), job.getCode());
         return executeWithBudget(job, "MANUAL");
     }
 
@@ -101,6 +108,7 @@ public class IngestionJobService {
 
     public IngestionJobResponse setActive(UUID jobId, UpdateIngestionJobActivationRequest request) {
         IngestionJobEntity job = ingestionJobs.setActive(jobId, request.getActive());
+        LOGGER.info("Updated ingestion job activation: id={}, code={}, active={}", jobId, job.getCode(), request.getActive());
         if (request.getActive()) {
             retryBudgetService.resetAfterSuccess(job);
         }
@@ -110,11 +118,16 @@ public class IngestionJobService {
     /** Polls active jobs; cron evaluation uses the last recorded run in UTC. */
     public void executeDueJobs() {
         Instant now = Instant.now();
-        for (IngestionJobEntity job : ingestionJobs.findActiveEntities()) {
+        List<IngestionJobEntity> activeJobs = ingestionJobs.findActiveEntities();
+        int dueCount = 0;
+        for (IngestionJobEntity job : activeJobs) {
+
             if (!isDue(job, now)) {
                 continue;
             }
+            dueCount++;
             try {
+                LOGGER.info("Executing due scheduled job: code={}, cron={}", job.getCode(), job.getCronExpression());
                 executeWithBudget(job, "SCHEDULED");
             } catch (RuntimeException exception) {
                 LOGGER.warn(
@@ -122,6 +135,9 @@ public class IngestionJobService {
                         job.getCode(),
                         exception.getMessage());
             }
+        }
+        if (dueCount > 0) {
+            LOGGER.info("Scheduled ingestion sweep completed: executed {} due jobs out of {} active", dueCount, activeJobs.size());
         }
     }
 

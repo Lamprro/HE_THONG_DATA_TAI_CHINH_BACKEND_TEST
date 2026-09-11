@@ -8,7 +8,6 @@ import com.hethongdata.taichinh.entity.master.CompanyAliasEntity;
 import com.hethongdata.taichinh.entity.master.CompanyEntity;
 import com.hethongdata.taichinh.entity.master.SecurityEntity;
 import com.hethongdata.taichinh.entity.validation.DataVersionEntity;
-import com.hethongdata.taichinh.entity.validation.QuarantinedRecordEntity;
 import com.hethongdata.taichinh.entity.validation.ValidationResultEntity;
 import com.hethongdata.taichinh.entity.validation.ValidationRuleEntity;
 import com.hethongdata.taichinh.repository.jpa.ingestion.DataSourceJpaRepository;
@@ -19,7 +18,6 @@ import com.hethongdata.taichinh.repository.jpa.master.CompanyAliasJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.master.CompanyJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.master.SecurityJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.validation.DataVersionJpaRepository;
-import com.hethongdata.taichinh.repository.jpa.validation.QuarantinedRecordJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.validation.ValidationResultJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.validation.ValidationRuleJpaRepository;
 
@@ -37,7 +35,6 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
             DataSourceEntity.class, IngestionJobEntity.class, IngestionRunEntity.class,
                     RawPayloadEntity.class,
             ValidationRuleEntity.class, ValidationResultEntity.class, DataVersionEntity.class,
-                    QuarantinedRecordEntity.class,
             CompanyEntity.class, CompanyAliasEntity.class, SecurityEntity.class
         })
 @EnableJpaRepositories(
@@ -45,7 +42,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
             DataSourceJpaRepository.class, IngestionJobJpaRepository.class,
                     IngestionRunJpaRepository.class, RawPayloadJpaRepository.class,
             ValidationRuleJpaRepository.class, ValidationResultJpaRepository.class,
-                    DataVersionJpaRepository.class, QuarantinedRecordJpaRepository.class,
+                    DataVersionJpaRepository.class,
             CompanyJpaRepository.class, CompanyAliasJpaRepository.class, SecurityJpaRepository.class
         })
 public class PersistenceConfiguration {}

@@ -7,6 +7,8 @@ import com.hethongdata.taichinh.application.port.model.ExternalFetchRequest;
 import com.hethongdata.taichinh.application.port.model.ExternalFetchResponse;
 import com.hethongdata.taichinh.application.port.model.ExternalOperation;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -27,6 +29,7 @@ import java.util.Set;
 @Component
 public class PythonExternalFinancialDataAdapter implements ExternalFinancialDataPort {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(PythonExternalFinancialDataAdapter.class);
     private static final Set<String> EQUITY_PROVIDERS = Set.of("vnstock", "vndirect", "cafef");
     private static final Set<String> FINANCIAL_PARAMETERS =
             Set.of("period", "fiscal_date", "report_type", "year");
@@ -62,6 +65,13 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
     @Override
     public ExternalFetchResponse fetch(ExternalFetchRequest request) {
         URI uri = resolveUri(request);
+        long startTime = System.currentTimeMillis();
+        LOGGER.debug(
+                "Calling external financial data adapter: operation={}, provider={}, symbol={}, uri={}",
+                request.operation(),
+                request.provider(),
+                request.symbol(),
+                uri);
         try {
             ExternalFetchResponse response =
                     restClient
@@ -87,18 +97,46 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
                                                     readBody(httpResponse.getBody()),
                                                     Instant.now()));
             if (response == null) {
+                LOGGER.error("External financial data adapter received null response for URI: {}", uri);
                 throw new ExternalFetchException(
                         ExternalErrorCategory.PROTOCOL, null, "Upstream returned no response");
             }
+            long durationMs = System.currentTimeMillis() - startTime;
+            LOGGER.info(
+                    "External financial data adapter completed: operation={}, provider={}, symbol={}, status={}, duration={}ms",
+                    request.operation(),
+                    request.provider(),
+                    request.symbol(),
+                    response.httpStatus(),
+                    durationMs);
             return response;
         } catch (ResourceAccessException exception) {
+            long durationMs = System.currentTimeMillis() - startTime;
             ExternalErrorCategory category =
                     causedByTimeout(exception)
                             ? ExternalErrorCategory.TIMEOUT
                             : ExternalErrorCategory.TRANSPORT;
+            LOGGER.error(
+                    "External financial data adapter network failure: operation={}, provider={}, symbol={}, uri={}, category={}, duration={}ms, error={}",
+                    request.operation(),
+                    request.provider(),
+                    request.symbol(),
+                    uri,
+                    category,
+                    durationMs,
+                    exception.getMessage());
             throw new ExternalFetchException(
                     category, null, safeTransportMessage(category), exception);
         } catch (RestClientException exception) {
+            long durationMs = System.currentTimeMillis() - startTime;
+            LOGGER.error(
+                    "External financial data adapter client failure: operation={}, provider={}, symbol={}, uri={}, duration={}ms, error={}",
+                    request.operation(),
+                    request.provider(),
+                    request.symbol(),
+                    uri,
+                    durationMs,
+                    exception.getMessage());
             throw new ExternalFetchException(
                     ExternalErrorCategory.TRANSPORT,
                     null,

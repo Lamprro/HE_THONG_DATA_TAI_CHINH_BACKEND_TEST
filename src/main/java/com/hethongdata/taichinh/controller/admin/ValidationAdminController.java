@@ -2,11 +2,9 @@ package com.hethongdata.taichinh.controller.admin;
 
 import com.hethongdata.taichinh.dto.validation.ValidationExecutionResponse;
 import com.hethongdata.taichinh.entity.validation.DataVersionEntity;
-import com.hethongdata.taichinh.entity.validation.QuarantinedRecordEntity;
 import com.hethongdata.taichinh.entity.validation.ValidationResultEntity;
 import com.hethongdata.taichinh.entity.validation.ValidationRuleEntity;
 import com.hethongdata.taichinh.repository.jpa.validation.DataVersionJpaRepository;
-import com.hethongdata.taichinh.repository.jpa.validation.QuarantinedRecordJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.validation.ValidationResultJpaRepository;
 import com.hethongdata.taichinh.service.validation.ValidationJobService;
 import com.hethongdata.taichinh.service.validation.ValidationRuleCatalogService;
@@ -30,19 +28,16 @@ public class ValidationAdminController {
     private final ValidationRuleCatalogService rules;
     private final ValidationResultJpaRepository results;
     private final DataVersionJpaRepository versions;
-    private final QuarantinedRecordJpaRepository quarantines;
 
     public ValidationAdminController(
             ValidationJobService jobs,
             ValidationRuleCatalogService rules,
             ValidationResultJpaRepository results,
-            DataVersionJpaRepository versions,
-            QuarantinedRecordJpaRepository quarantines) {
+            DataVersionJpaRepository versions) {
         this.jobs = jobs;
         this.rules = rules;
         this.results = results;
         this.versions = versions;
-        this.quarantines = quarantines;
     }
 
     @PostMapping("/rules/seed")
@@ -72,15 +67,17 @@ public class ValidationAdminController {
                 PageRequest.of(0, Math.max(1, Math.min(limit, 100))));
     }
 
+    @GetMapping("/results/open")
+    public List<ValidationResultEntity> openFailures(
+            @RequestParam(defaultValue = "50") int limit) {
+        return results.findByStatusAndHandlingStatusOrderByCheckedAtDesc(
+                "FAIL", "OPEN", PageRequest.of(0, Math.max(1, Math.min(limit, 100))));
+    }
+
     @GetMapping("/data-versions")
     public List<DataVersionEntity> versions(@RequestParam(defaultValue = "50") int limit) {
         return versions.findAllByOrderByCreatedAtDesc(
                 PageRequest.of(0, Math.max(1, Math.min(limit, 100))));
     }
 
-    @GetMapping("/quarantined-records")
-    public List<QuarantinedRecordEntity> quarantines(@RequestParam(defaultValue = "50") int limit) {
-        return quarantines.findAllByOrderByCreatedAtDesc(
-                PageRequest.of(0, Math.max(1, Math.min(limit, 100))));
-    }
 }

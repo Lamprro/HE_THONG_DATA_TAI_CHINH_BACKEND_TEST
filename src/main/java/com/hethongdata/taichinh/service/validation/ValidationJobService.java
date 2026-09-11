@@ -4,15 +4,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.hethongdata.taichinh.dto.validation.ValidationExecutionResponse;
 import com.hethongdata.taichinh.entity.ingestion.RawPayloadEntity;
 import com.hethongdata.taichinh.entity.validation.DataVersionEntity;
-import com.hethongdata.taichinh.entity.validation.QuarantinedRecordEntity;
 import com.hethongdata.taichinh.entity.validation.ValidationResultEntity;
 import com.hethongdata.taichinh.entity.validation.ValidationRuleEntity;
 import com.hethongdata.taichinh.repository.jpa.ingestion.RawPayloadJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.validation.DataVersionJpaRepository;
-import com.hethongdata.taichinh.repository.jpa.validation.QuarantinedRecordJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.validation.ValidationResultJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.validation.ValidationRuleJpaRepository;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,23 +26,22 @@ import java.util.UUID;
 
 @Service
 public class ValidationJobService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(ValidationJobService.class);
+
     private final RawPayloadJpaRepository rawPayloads;
     private final ValidationRuleJpaRepository rules;
     private final ValidationResultJpaRepository results;
     private final DataVersionJpaRepository versions;
-    private final QuarantinedRecordJpaRepository quarantines;
 
     public ValidationJobService(
             RawPayloadJpaRepository rawPayloads,
             ValidationRuleJpaRepository rules,
             ValidationResultJpaRepository results,
-            DataVersionJpaRepository versions,
-            QuarantinedRecordJpaRepository quarantines) {
+            DataVersionJpaRepository versions) {
         this.rawPayloads = rawPayloads;
         this.rules = rules;
         this.results = results;
         this.versions = versions;
-        this.quarantines = quarantines;
     }
 
     @Transactional
@@ -52,9 +51,15 @@ public class ValidationJobService {
                         .findById(rawPayloadId)
                         .orElseThrow(
                                 () -> new IllegalArgumentException("Raw payload was not found"));
-        if (results.existsByRawPayloadId(rawPayloadId)) return existing(raw);
+        if (results.existsByRawPayloadId(rawPayloadId)) {
+            LOGGER.debug("Payload {} has already been validated, returning existing result", rawPayloadId);
+            return existing(raw);
+        }
+
+        LOGGER.info("Starting payload validation: rawPayloadId={}, entityType={}, key={}",
+                rawPayloadId, raw.getEntityType(), raw.getExternalKey());
+
         int passed = 0, failed = 0, skipped = 0;
-        UUID quarantineId = null;
         boolean blockingFailure = false;
         boolean duplicate = false;
         for (ValidationRuleEntity rule : rules.findByIsActiveTrueOrderByIdAsc()) {
@@ -63,10 +68,10 @@ public class ValidationJobService {
             results.save(
                     ValidationResultEntity.create(
                             rule.getId(),
+                            rule.getCode(),
+                            rule.getSeverity(),
                             raw.getIngestionRun().getId(),
                             raw.getId(),
-                            raw.getEntityType(),
-                            raw.getExternalKey(),
                             outcome.status,
                             outcome.observed,
                             outcome.expected,
@@ -78,27 +83,19 @@ public class ValidationJobService {
                 boolean critical = "CRITICAL".equals(rule.getSeverity());
                 blockingFailure |= critical || "ERROR".equals(rule.getSeverity());
                 duplicate |= "NEWS_DUPLICATE_HASH".equals(rule.getCode());
-                if (critical
-                        && !quarantines.existsByRawPayloadIdAndReasonCode(
-                                raw.getId(), rule.getCode())) {
-                    quarantineId =
-                            quarantines
-                                    .save(
-                                            QuarantinedRecordEntity.open(
-                                                    raw.getIngestionRun().getId(),
-                                                    raw.getId(),
-                                                    raw.getEntityType(),
-                                                    raw.getExternalKey(),
-                                                    rule.getCode(),
-                                                    outcome.message,
-                                                    rule.getSeverity(),
-                                                    raw.getPayload()))
-                                    .getId();
-                }
+
+                LOGGER.warn(
+                        "Validation rule {} failed for rawPayloadId={}: severity={}, observed='{}', expected='{}', message='{}'",
+                        rule.getCode(),
+                        raw.getId(),
+                        rule.getSeverity(),
+                        outcome.observed,
+                        outcome.expected,
+                        outcome.message);
             }
         }
         UUID versionId = null;
-        if (!blockingFailure && !duplicate)
+        if (!blockingFailure && !duplicate) {
             versionId =
                     versions.findByIngestionRunId(raw.getIngestionRun().getId())
                             .orElseGet(
@@ -110,25 +107,40 @@ public class ValidationJobService {
                                                             raw.getIngestionRun().getId(),
                                                             raw.getChecksumSha256())))
                             .getId();
+            LOGGER.info("Data version {} accepted for rawPayloadId={}, domain={}",
+                    versionId, raw.getId(), domain(raw));
+        }
+
+        String finalStatus = duplicate ? "DUPLICATE" : (blockingFailure ? "REJECTED" : "ACCEPTED");
+        LOGGER.info(
+                "Completed validation for rawPayloadId={}: status={}, passed={}, failed={}, skipped={}, versionId={}",
+                raw.getId(),
+                finalStatus,
+                passed,
+                failed,
+                skipped,
+                versionId);
+
         return new ValidationExecutionResponse(
                 raw.getId(),
                 raw.getIngestionRun().getId(),
-                duplicate ? "DUPLICATE" : (blockingFailure ? "REJECTED" : "ACCEPTED"),
+                finalStatus,
                 passed,
                 failed,
                 skipped,
                 versionId,
-                quarantineId,
                 false);
     }
 
     @Transactional
     public List<ValidationExecutionResponse> validatePending(int limit) {
-        return rawPayloads
-                .findUnvalidated(PageRequest.of(0, Math.max(1, Math.min(limit, 100))))
-                .stream()
+        var unvalidated = rawPayloads.findUnvalidated(PageRequest.of(0, Math.max(1, Math.min(limit, 100))));
+        LOGGER.info("Executing batch validation for {} pending payloads (requested limit={})", unvalidated.size(), limit);
+        List<ValidationExecutionResponse> list = unvalidated.stream()
                 .map(raw -> validate(raw.getId()))
                 .toList();
+        LOGGER.info("Batch validation completed: processed {} payloads", list.size());
+        return list;
     }
 
     private ValidationExecutionResponse existing(RawPayloadEntity raw) {
@@ -151,7 +163,6 @@ public class ValidationJobService {
                 fail,
                 skip,
                 version,
-                null,
                 true);
     }
 

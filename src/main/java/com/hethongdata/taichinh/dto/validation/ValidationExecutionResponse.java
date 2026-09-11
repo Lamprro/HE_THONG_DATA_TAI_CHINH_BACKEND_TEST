@@ -27,7 +27,5 @@ public final class ValidationExecutionResponse {
 
     private final UUID dataVersionId;
 
-    private final UUID quarantinedRecordId;
-
     private final boolean alreadyProcessed;
 }

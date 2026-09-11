@@ -7,6 +7,8 @@ import com.hethongdata.taichinh.entity.master.SecurityEntity;
 import com.hethongdata.taichinh.repository.ingestion.DataSourceRepository;
 import com.hethongdata.taichinh.repository.ingestion.IngestionJobRepository;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +22,7 @@ import java.util.Map;
  */
 @Service
 public class SecurityJobProvisioningService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(SecurityJobProvisioningService.class);
     private static final String EVERY_15_MINUTES = "0 */15 * * * *";
     private static final String EVERY_30_MINUTES = "0 */30 * * * *";
     private static final String WEEKDAY_AFTER_MARKET_CLOSE_UTC = "0 15 9 * * MON-FRI";
@@ -44,8 +47,10 @@ public class SecurityJobProvisioningService {
         ensureSources();
         List<JobDefinition> definitions = definitions(security);
         if (!Boolean.TRUE.equals(security.getIsActive())) {
-            return ingestionJobs.deactivateByCodes(
+            int count = ingestionJobs.deactivateByCodes(
                     definitions.stream().map(JobDefinition::code).toList());
+            LOGGER.info("Deactivated {} ingestion jobs for inactive security {}", count, security.getSymbol());
+            return count;
         }
         definitions.forEach(
                 definition ->
@@ -59,6 +64,7 @@ public class SecurityJobProvisioningService {
                                 AppParams.DEFAULT_MAX_RETRIES,
                                 AppParams.DEFAULT_INGESTION_TIMEOUT_SECONDS,
                                 true));
+        LOGGER.info("Provisioned/synchronized {} ingestion jobs for active security {}", definitions.size(), security.getSymbol());
         return definitions.size();
     }
 

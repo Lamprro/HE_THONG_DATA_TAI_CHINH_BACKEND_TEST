@@ -1,7 +1,7 @@
-# Copy this file to application-local.properties and provide your own values.
-spring.datasource.url=jdbc:postgresql://localhost:5432/your_database?currentSchema=public
-spring.datasource.username=your_username
-spring.datasource.password=your_password
+# application-local.properties
+spring.datasource.url=jdbc:postgresql://192.168.50.12:5432/postgres?currentSchema=public
+spring.datasource.username=postgres
+spring.datasource.password=rootpassword123
 spring.datasource.driver-class-name=org.postgresql.Driver
 spring.datasource.hikari.connection-timeout=5000
 

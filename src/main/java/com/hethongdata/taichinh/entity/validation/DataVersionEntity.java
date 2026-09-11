@@ -64,19 +64,25 @@ public class DataVersionEntity {
     @Column(name = "activated_at")
     private Instant activatedAt;
 
-    public static DataVersionEntity accepted(
-            String dataDomain, String versionCode, UUID ingestionRunId, String checksum) {
+    /**
+     * Creates the single accepted clean-data version for a fully validated ingestion run.
+     *
+     * <p>The checksum represents the ordered collection of raw payloads in the run, not one raw
+     * payload.
+     */
+    public static DataVersionEntity acceptedForRun(
+            String dataDomain, UUID ingestionRunId, long rawPayloadCount, String checksum) {
         DataVersionEntity entity = new DataVersionEntity();
         entity.dataDomain = dataDomain;
-        entity.versionCode = versionCode;
+        entity.versionCode = "RUN-" + ingestionRunId;
         entity.status = "ACTIVE";
         entity.ingestionRunId = ingestionRunId;
-        entity.rowCount = 1L;
+        entity.rowCount = rawPayloadCount;
         entity.checksumSha256 = checksum;
         entity.effectiveFrom = Instant.now();
         entity.createdAt = entity.effectiveFrom;
         entity.activatedAt = entity.effectiveFrom;
-        entity.notes = "Created after Phase 2 validation passed";
+        entity.notes = "Created after all raw payloads in the ingestion run passed validation";
         return entity;
     }
 }

@@ -2,14 +2,18 @@ package com.hethongdata.taichinh.service.validation;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hethongdata.taichinh.dto.validation.ValidationExecutionResponse;
+import com.hethongdata.taichinh.entity.enums.IngestionRunStatus;
+import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
 import com.hethongdata.taichinh.entity.ingestion.RawPayloadEntity;
 import com.hethongdata.taichinh.entity.validation.DataVersionEntity;
 import com.hethongdata.taichinh.entity.validation.ValidationResultEntity;
 import com.hethongdata.taichinh.entity.validation.ValidationRuleEntity;
+import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.RawPayloadJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.validation.DataVersionJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.validation.ValidationResultJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.validation.ValidationRuleJpaRepository;
+import com.hethongdata.taichinh.service.ingestion.ChecksumService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,28 +24,36 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class ValidationJobService {
     private static final Logger LOGGER = LoggerFactory.getLogger(ValidationJobService.class);
 
     private final RawPayloadJpaRepository rawPayloads;
+    private final IngestionRunJpaRepository ingestionRuns;
     private final ValidationRuleJpaRepository rules;
     private final ValidationResultJpaRepository results;
     private final DataVersionJpaRepository versions;
+    private final ChecksumService checksums;
 
     public ValidationJobService(
             RawPayloadJpaRepository rawPayloads,
+            IngestionRunJpaRepository ingestionRuns,
             ValidationRuleJpaRepository rules,
             ValidationResultJpaRepository results,
-            DataVersionJpaRepository versions) {
+            DataVersionJpaRepository versions,
+            ChecksumService checksums) {
         this.rawPayloads = rawPayloads;
+        this.ingestionRuns = ingestionRuns;
         this.rules = rules;
         this.results = results;
         this.versions = versions;
+        this.checksums = checksums;
     }
 
     @Transactional
@@ -94,24 +106,11 @@ public class ValidationJobService {
                         outcome.message);
             }
         }
-        UUID versionId = null;
-        if (!blockingFailure && !duplicate) {
-            versionId =
-                    versions.findByIngestionRunId(raw.getIngestionRun().getId())
-                            .orElseGet(
-                                    () ->
-                                            versions.save(
-                                                    DataVersionEntity.accepted(
-                                                            domain(raw),
-                                                            "RAW-" + raw.getId(),
-                                                            raw.getIngestionRun().getId(),
-                                                            raw.getChecksumSha256())))
-                            .getId();
-            LOGGER.info("Data version {} accepted for rawPayloadId={}, domain={}",
-                    versionId, raw.getId(), domain(raw));
-        }
-
-        String finalStatus = duplicate ? "DUPLICATE" : (blockingFailure ? "REJECTED" : "ACCEPTED");
+        UUID versionId = finalizeIngestionRun(raw.getIngestionRun().getId());
+        String finalStatus =
+                duplicate
+                        ? "DUPLICATE"
+                        : blockingFailure ? "REJECTED" : versionId == null ? "VALIDATED" : "ACCEPTED";
         LOGGER.info(
                 "Completed validation for rawPayloadId={}: status={}, passed={}, failed={}, skipped={}, versionId={}",
                 raw.getId(),
@@ -155,15 +154,112 @@ public class ValidationJobService {
                 versions.findByIngestionRunId(raw.getIngestionRun().getId())
                         .map(DataVersionEntity::getId)
                         .orElse(null);
+        boolean blockingFailure =
+                existing.stream()
+                        .anyMatch(
+                                result ->
+                                        "FAIL".equals(result.getStatus())
+                                                && ("ERROR".equals(result.getSeverity())
+                                                        || "CRITICAL".equals(result.getSeverity())));
+        boolean duplicate =
+                existing.stream()
+                        .anyMatch(
+                                result ->
+                                        "FAIL".equals(result.getStatus())
+                                                && "NEWS_DUPLICATE_HASH".equals(result.getRuleCode()));
         return new ValidationExecutionResponse(
                 raw.getId(),
                 raw.getIngestionRun().getId(),
-                version == null ? "REJECTED" : "ACCEPTED",
+                duplicate
+                        ? "DUPLICATE"
+                        : blockingFailure ? "REJECTED" : version == null ? "VALIDATED" : "ACCEPTED",
                 pass,
                 fail,
                 skip,
                 version,
                 true);
+    }
+
+    /**
+     * Creates one version only after every raw payload in a completed ingestion run has been
+     * validated and no run-blocking result exists. The run lock prevents concurrent validation
+     * workers from creating two versions for the same run.
+     */
+    private UUID finalizeIngestionRun(UUID ingestionRunId) {
+        IngestionRunEntity run =
+                ingestionRuns
+                        .findByIdForUpdate(ingestionRunId)
+                        .orElseThrow(
+                                () ->
+                                        new IllegalArgumentException(
+                                                "Ingestion run was not found during validation"));
+        var existingVersion = versions.findByIngestionRunId(ingestionRunId);
+        if (existingVersion.isPresent()) return existingVersion.get().getId();
+
+        if (run.getStatus() != IngestionRunStatus.SUCCESS) {
+            LOGGER.info(
+                    "Data version deferred for ingestionRunId={}: ingestion status is {}",
+                    ingestionRunId,
+                    run.getStatus());
+            return null;
+        }
+
+        long rawPayloadCount = rawPayloads.countByIngestionRunId(ingestionRunId);
+        long validatedPayloadCount =
+                results.countValidatedRawPayloadsByIngestionRunId(ingestionRunId);
+        if (rawPayloadCount == 0 || validatedPayloadCount != rawPayloadCount) {
+            LOGGER.info(
+                    "Data version deferred for ingestionRunId={}: validatedRawPayloads={}/{}",
+                    ingestionRunId,
+                    validatedPayloadCount,
+                    rawPayloadCount);
+            return null;
+        }
+
+        boolean blockingFailure =
+                results.existsByIngestionRunIdAndStatusAndSeverityIn(
+                                ingestionRunId, "FAIL", List.of("ERROR", "CRITICAL"))
+                        || results.existsByIngestionRunIdAndStatusAndRuleCode(
+                                ingestionRunId, "FAIL", "NEWS_DUPLICATE_HASH");
+        if (blockingFailure) {
+            LOGGER.warn(
+                    "Data version rejected for ingestionRunId={}: a blocking validation result exists",
+                    ingestionRunId);
+            return null;
+        }
+
+        List<RawPayloadEntity> runPayloads =
+                rawPayloads.findByIngestionRunIdOrderByFetchedAtDesc(ingestionRunId);
+        if (runPayloads.size() != rawPayloadCount) {
+            throw new IllegalStateException(
+                    "Raw payload count changed while finalizing ingestion run " + ingestionRunId);
+        }
+
+        String dataDomain =
+                run.getIngestionJob() != null && run.getIngestionJob().getDatasetType() != null
+                        ? run.getIngestionJob().getDatasetType()
+                        : runPayloads.stream().map(this::domain).distinct().count() == 1
+                                ? domain(runPayloads.getFirst())
+                                : "OTHER";
+        String checksumInput =
+                runPayloads.stream()
+                        .sorted(Comparator.comparing(RawPayloadEntity::getId))
+                        .map(payload -> payload.getId() + ":" + payload.getChecksumSha256())
+                        .collect(Collectors.joining("\n"));
+        DataVersionEntity version =
+                versions.save(
+                        DataVersionEntity.acceptedForRun(
+                                dataDomain,
+                                ingestionRunId,
+                                rawPayloadCount,
+                                checksums.sha256(checksumInput)));
+        LOGGER.info(
+                "Data version {} accepted for ingestionRunId={}: rawPayloadCount={}, domain={}",
+                version.getId(),
+                ingestionRunId,
+                rawPayloadCount,
+                version.getDataDomain());
+        return version.getId();
     }
 
     private boolean applies(ValidationRuleEntity rule, RawPayloadEntity raw) {

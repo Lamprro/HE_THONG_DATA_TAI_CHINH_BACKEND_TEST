@@ -86,21 +86,39 @@ Hệ thống áp dụng kiến trúc **Hexagonal Architecture (Ports & Adapters)
         |              SUCCESS?
         |         YES |        NO |
         v             v           v
-  [RawPayloadEntity]  [markFailed]
-  (lưu SHA-256)   [RetryBudget--]
+[RawPayloadEntity]  [markFailed]
+  (lưu SHA-256, thuộc một ingestion run)   [RetryBudget--]
         |
         v
-  [ValidationEngine]
-   (ValidationJobService)
+[ValidationEngine]
+   (ValidationJobService: kiểm định từng raw payload)
         |
-  +-----+------+
-  |            |
- PASS         FAIL (CRITICAL)
-  |            |
-  v            v
-[DataVersion]  [QuarantinedRecord]
- (ACTIVE)       (OPEN)
+        v
+[Run-level finalization]
+  - ingestion run đã SUCCESS
+  - mọi raw payload của run đã có validation result
+  - không có FAIL mức ERROR/CRITICAL
+  - không có NEWS_DUPLICATE_HASH bị FAIL
+        |
+  +-----+------------------+
+  |                        |
+  v                        v
+[DataVersion ACTIVE]   [validation_results]
+ (một bản ghi/run)      (FAIL giữ handling_status=OPEN)
 ```
+
+### Quy ước data version và điều kiện chấp nhận
+
+`data_versions` không đại diện cho một `raw_payload`. Một bản ghi `data_version` là mốc chấp
+nhận dữ liệu sạch của **toàn bộ một `ingestion_run`**; vì vậy nó chỉ được tạo một lần cho run đó.
+`row_count` là số raw payload thuộc run, `version_code` có dạng `RUN-<ingestion_run_id>`, và
+checksum là SHA-256 của tập raw payload đã được sắp thứ tự theo id.
+
+Việc validation vẫn diễn ra độc lập theo từng raw payload và từng rule. Sau mỗi lần validate,
+hệ thống chỉ kiểm tra xem run đã đủ điều kiện finalization chưa. Nếu run còn raw payload chưa
+được validate, không tạo data version. `FAIL` mức `ERROR` hoặc `CRITICAL` chặn run; `WARNING`
+không chặn, trừ `NEWS_DUPLICATE_HASH` theo chính sách dedup hiện tại. `PASS` và `SKIP` không cần
+xử lý thủ công; `FAIL` được lưu ngay tại `validation_results` với `handling_status=OPEN`.
 
 ---
 
@@ -154,7 +172,7 @@ financial.python-service.read-timeout=45s
 | Retry Budget (Redis) | HOÀN THÀNH | Tự vô hiệu job khi cạn ngân sách |
 | Master Data (Company/Security) | HOÀN THÀNH | CRUD + tự provision jobs |
 | Scheduler (Ingestion/Validation/Reconciliation) | HOÀN THÀNH | Cần bật trong config |
-| Validation Engine (Kiểm định dữ liệu) | ĐANG PHÁT TRIỂN | Có một số rules, cần mở rộng |
+| Validation Engine (Kiểm định dữ liệu) | ĐANG PHÁT TRIỂN | Kiểm định từng raw, chỉ tạo data version sau khi toàn bộ ingestion run đạt điều kiện |
 | Tin tức (News Ingestion) | ĐANG PHÁT TRIỂN | Chỉ có rule kiểm định, chưa có controller riêng |
 | Logging & Observability | HOÀN THÀNH | Logback rolling, MDC traceId |
 | Authentication / Authorization | CHƯA BẮT ĐẦU | Cần Spring Security + JWT |
@@ -199,6 +217,12 @@ Quy trình xử lý hoàn chỉnh:
 ### 5.3 Validation Engine
 
 **Package:** `service/validation/`, `controller/admin/`, `scheduler/validation/`
+
+`ValidationJobService` có hai trách nhiệm tách biệt: (1) chạy các rule phù hợp và lưu kết quả
+cho từng `raw_payload`; (2) finalization ở mức `ingestion_run`. Finalization được khóa theo run
+để hai worker không thể tạo hai data version. Một raw pass chỉ có trạng thái `VALIDATED` nếu các
+raw khác trong cùng run chưa hoàn thành; chỉ raw cuối cùng làm run đủ điều kiện mới nhận response
+`ACCEPTED` kèm `dataVersionId`.
 
 Hiện có **11 executor keys** (quy tắc kiểm định):
 
@@ -386,8 +410,8 @@ src/main/java/com/hethongdata/taichinh/
 | `POST` | `/api/admin/validation/raw-payloads/{id}` | Validate một payload |
 | `POST` | `/api/admin/validation/pending?limit=50` | Validate hàng loạt pending |
 | `GET` | `/api/admin/validation/results` | Xem kết quả validation |
+| `GET` | `/api/admin/validation/results/open` | Xem validation FAIL đang chờ xử lý |
 | `GET` | `/api/admin/validation/data-versions` | Xem data versions |
-| `GET` | `/api/admin/validation/quarantined-records` | Xem bản ghi bị cách ly |
 
 ### External Financial Data Proxy
 
@@ -505,6 +529,7 @@ grep "runId=<UUID>" logs/financial-app.log
 ---
 
 > **Tài liệu liên quan:**
+> - `DATA_PIPELINE_STATUS_REFERENCE.md` — Định nghĩa trạng thái ingestion, validation và data version
 > - `SYSTEM_STATES_AND_DATA_LIFECYCLE.md` — Y nghia chi tiet cac trang thai va vong doi du lieu
 > - `src/main/resources/application.properties` — Toan bo cau hinh he thong voi chu thich
 > - `application-local.properties.example` — Mau cau hinh local

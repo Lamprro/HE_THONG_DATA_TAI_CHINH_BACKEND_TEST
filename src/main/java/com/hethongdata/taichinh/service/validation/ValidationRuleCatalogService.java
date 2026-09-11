@@ -83,7 +83,7 @@ public class ValidationRuleCatalogService {
                         "RANGE",
                         "PRICE_NON_NEGATIVE",
                         "{\"minimum\":0}",
-                        "Quarantines a payload containing a negative price."),
+                        "Records an open validation result for a payload containing a negative price."),
                 new Definition(
                         "MARKET_VOLUME_NON_NEGATIVE",
                         "Non-negative market volume",
@@ -92,7 +92,7 @@ public class ValidationRuleCatalogService {
                         "RANGE",
                         "MARKET_VOLUME_NON_NEGATIVE",
                         "{\"minimum\":0}",
-                        "Quarantines a payload containing a negative trading volume."),
+                        "Records an open validation result for a payload containing a negative trading volume."),
                 new Definition(
                         "STATEMENT_REQUIRED_KEYS",
                         "Financial statement payload present",
@@ -164,7 +164,7 @@ public class ValidationRuleCatalogService {
                         "CUSTOM",
                         "RAW_ERROR_MESSAGE",
                         "{\"markers\":[\"error\",\"errors\",\"failed\"]}",
-                        "Quarantines a transport-success payload that carries an upstream error marker."));
+                        "Records an open validation result for a transport-success payload that carries an upstream error marker."));
     }
 
     private record Definition(

@@ -86,4 +86,28 @@ public class NewsArticleEntity {
 
     @Column(name = "updated_at")
     private Instant updatedAt;
+
+    public static NewsArticleEntity create(
+            Long dataSourceId, UUID rawPayloadId, String canonicalUrl, String urlHash, String title,
+            String sapo, String contentText, Instant publishedAt, Instant crawledAt,
+            String contentHash, JsonNode metadata) {
+        NewsArticleEntity entity = new NewsArticleEntity();
+        entity.dataSourceId = dataSourceId;
+        entity.rawPayloadId = rawPayloadId;
+        entity.canonicalUrl = canonicalUrl;
+        entity.urlHash = urlHash;
+        entity.title = title;
+        entity.sapo = sapo;
+        entity.contentText = contentText;
+        entity.language = "vi";
+        entity.publishedAt = publishedAt;
+        entity.crawledAt = crawledAt;
+        entity.contentHash = contentHash;
+        entity.dedupStatus = "UNIQUE";
+        entity.isDeletedSource = false;
+        entity.metadata = metadata;
+        entity.createdAt = Instant.now();
+        entity.updatedAt = entity.createdAt;
+        return entity;
+    }
 }

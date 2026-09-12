@@ -1,5 +1,7 @@
 package com.hethongdata.taichinh.config;
 
+import com.hethongdata.taichinh.entity.NewsArticleCompanyEntity;
+import com.hethongdata.taichinh.entity.NewsArticleEntity;
 import com.hethongdata.taichinh.entity.ingestion.DataSourceEntity;
 import com.hethongdata.taichinh.entity.ingestion.IngestionJobEntity;
 import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
@@ -11,6 +13,8 @@ import com.hethongdata.taichinh.entity.validation.DataVersionEntity;
 import com.hethongdata.taichinh.entity.validation.ValidationResultEntity;
 import com.hethongdata.taichinh.entity.validation.ValidationRuleEntity;
 import com.hethongdata.taichinh.repository.jpa.ingestion.DataSourceJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.news.NewsArticleCompanyJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.news.NewsArticleJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionJobJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.RawPayloadJpaRepository;
@@ -35,7 +39,8 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
             DataSourceEntity.class, IngestionJobEntity.class, IngestionRunEntity.class,
                     RawPayloadEntity.class,
             ValidationRuleEntity.class, ValidationResultEntity.class, DataVersionEntity.class,
-            CompanyEntity.class, CompanyAliasEntity.class, SecurityEntity.class
+            CompanyEntity.class, CompanyAliasEntity.class, SecurityEntity.class,
+            NewsArticleEntity.class, NewsArticleCompanyEntity.class
         })
 @EnableJpaRepositories(
         basePackageClasses = {
@@ -43,6 +48,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
                     IngestionRunJpaRepository.class, RawPayloadJpaRepository.class,
             ValidationRuleJpaRepository.class, ValidationResultJpaRepository.class,
                     DataVersionJpaRepository.class,
-            CompanyJpaRepository.class, CompanyAliasJpaRepository.class, SecurityJpaRepository.class
+            CompanyJpaRepository.class, CompanyAliasJpaRepository.class, SecurityJpaRepository.class,
+            NewsArticleJpaRepository.class, NewsArticleCompanyJpaRepository.class
         })
 public class PersistenceConfiguration {}

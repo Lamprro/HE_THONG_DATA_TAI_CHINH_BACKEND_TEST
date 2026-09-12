@@ -63,6 +63,22 @@ public class IngestionRunRepository {
     }
 
     @Transactional
+    public IngestionRunEntity startInternalBatch(
+            DataSourceEntity source, IngestionJobEntity job, String triggerType, String workflow) {
+        JsonNode emptyObject = objectMapper.createObjectNode();
+        IngestionRunEntity entity =
+                IngestionRunEntity.start(
+                        source,
+                        job,
+                        triggerType,
+                        objectMapper.valueToTree(Map.of("workflow", workflow)),
+                        URI.create("internal://ingestion/" + workflow.toLowerCase()),
+                        emptyObject,
+                        Instant.now());
+        return ingestionRuns.save(entity);
+    }
+
+    @Transactional
     public void markSuccess(
             IngestionRunEntity run,
             ExternalFetchResponse response,

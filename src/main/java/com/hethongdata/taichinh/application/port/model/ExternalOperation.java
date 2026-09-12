@@ -18,5 +18,6 @@ public enum ExternalOperation {
     NEWS_HISTORY,
     NEWS_COMPANY,
     PROXY_PROVIDERS,
-    RAW_PROXY
+    RAW_PROXY,
+    FETCH_URL
 }

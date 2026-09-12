@@ -66,7 +66,8 @@ public record ExternalFetchRequest(
                             NEWS_LATEST,
                             NEWS_HISTORY,
                             NEWS_COMPANY,
-                            PROXY_PROVIDERS ->
+                            PROXY_PROVIDERS,
+                            FETCH_URL ->
                     false;
             default -> true;
         };

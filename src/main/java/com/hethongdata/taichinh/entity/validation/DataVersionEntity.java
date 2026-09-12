@@ -81,8 +81,16 @@ public class DataVersionEntity {
         entity.checksumSha256 = checksum;
         entity.effectiveFrom = Instant.now();
         entity.createdAt = entity.effectiveFrom;
-        entity.activatedAt = entity.effectiveFrom;
         entity.notes = "Created after all raw payloads in the ingestion run passed validation";
         return entity;
+    }
+
+    /** Marks a validated batch as consumed by its downstream workflow. */
+    public void markActivated() {
+        if (!"ACTIVE".equals(status)) {
+            throw new IllegalStateException("Only ACTIVE data versions can be activated");
+        }
+        status = "ACTIVATED";
+        activatedAt = Instant.now();
     }
 }

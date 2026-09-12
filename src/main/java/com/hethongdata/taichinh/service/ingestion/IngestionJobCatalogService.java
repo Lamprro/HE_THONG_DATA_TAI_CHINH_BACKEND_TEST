@@ -123,6 +123,7 @@ public class IngestionJobCatalogService {
         equityJobs(jobs, "VNSTOCK", "vnstock", true, false);
         equityJobs(jobs, "VNDIRECT", "vndirect", true, true);
         cafeFJobs(jobs);
+        newsWorkflowJobs(jobs);
 
         return List.copyOf(jobs);
     }
@@ -249,6 +250,34 @@ public class IngestionJobCatalogService {
                         Map.of("limit", "100")));
     }
 
+    /**
+     * These jobs consume versions produced by the existing NEWS ingestion and validation flow.
+     * NEWS_WEB is the active NEWS source in the development database; this method never creates
+     * a data source.
+     */
+    private void newsWorkflowJobs(List<JobDefinition> jobs) {
+        jobs.add(
+                job(
+                        "NEWS_DATA_FETCH",
+                        "Fetch source pages for validated news",
+                        "NEWS_WEB",
+                        "NEWS_DATA",
+                        EVERY_15_MINUTES,
+                        "FETCH_URL",
+                        null,
+                        null,
+                        null,
+                        Map.of()));
+        jobs.add(
+                workflowJob(
+                        "NEWS_ARTICLE_BUILD",
+                        "Build articles from validated news data",
+                        "NEWS_WEB",
+                        "NEWS_DATA",
+                        EVERY_15_MINUTES,
+                        "NEWS_ARTICLE_BUILD"));
+    }
+
     private JobDefinition job(
             String code,
             String name,
@@ -266,6 +295,14 @@ public class IngestionJobCatalogService {
         if (lookbackDays != null) root.put("lookbackDays", lookbackDays);
         ObjectNode nested = root.putObject("parameters");
         parameters.forEach(nested::put);
+        return new JobDefinition(code, name, source, dataset, cron, root);
+    }
+
+    /** Internal workflow jobs are dispatched by code and do not call the external adapter. */
+    private JobDefinition workflowJob(
+            String code, String name, String source, String dataset, String cron, String workflow) {
+        ObjectNode root = objectMapper.createObjectNode().put("workflow", workflow);
+        root.putObject("parameters");
         return new JobDefinition(code, name, source, dataset, cron, root);
     }
 

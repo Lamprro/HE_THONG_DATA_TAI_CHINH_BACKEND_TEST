@@ -40,4 +40,17 @@ public class NewsArticleCompanyEntity {
 
     @Column(name = "created_at")
     private Instant createdAt;
+
+    public static NewsArticleCompanyEntity create(
+            UUID newsArticleId, UUID companyId, UUID securityId, BigDecimal relevanceScore,
+            String matchMethod) {
+        NewsArticleCompanyEntity entity = new NewsArticleCompanyEntity();
+        entity.newsArticleId = newsArticleId;
+        entity.companyId = companyId;
+        entity.securityId = securityId;
+        entity.relevanceScore = relevanceScore;
+        entity.matchMethod = matchMethod;
+        entity.createdAt = Instant.now();
+        return entity;
+    }
 }

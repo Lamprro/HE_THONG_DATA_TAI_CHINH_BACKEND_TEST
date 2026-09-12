@@ -32,6 +32,7 @@ public final class AppParams {
                     "MARKET_PRICE",
                     "MARKET_INDEX",
                     "NEWS",
+                    "NEWS_DATA",
                     "MACRO",
                     "OTHER");
     public static final Set<String> COMPANY_ALIAS_TYPES =

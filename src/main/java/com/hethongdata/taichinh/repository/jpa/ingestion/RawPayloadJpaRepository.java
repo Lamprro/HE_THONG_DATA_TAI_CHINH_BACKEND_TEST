@@ -18,6 +18,9 @@ public interface RawPayloadJpaRepository extends JpaRepository<RawPayloadEntity,
 
     List<RawPayloadEntity> findByIngestionRunIdOrderByFetchedAtDesc(UUID ingestionRunId);
 
+    List<RawPayloadEntity> findByIngestionRunIdAndEntityTypeOrderByFetchedAtAsc(
+            UUID ingestionRunId, String entityType);
+
     long countByIngestionRunId(UUID ingestionRunId);
 
     boolean existsByDataSourceIdAndChecksumSha256AndIdNot(

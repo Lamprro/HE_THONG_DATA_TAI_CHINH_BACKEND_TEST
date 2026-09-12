@@ -36,6 +36,7 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
     private static final Set<String> NEWS_PARAMETERS = Set.of("limit");
     private static final Set<String> NEWS_FEED_PARAMETERS =
             Set.of("site", "limit", "request_delay");
+    private static final Set<String> URL_FETCH_PARAMETERS = Set.of("url");
 
     private final RestClient restClient;
     private final PythonFinancialDataProperties properties;
@@ -169,6 +170,7 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
             case NEWS_COMPANY -> "/api/v1/vnstock-news/company/" + symbol;
             case PROXY_PROVIDERS -> "/api/v1/proxy/providers";
             case RAW_PROXY -> rawProxyPath(provider, requiredParameter(request, "upstream_path"));
+            case FETCH_URL -> "/api/v1/url-fetch";
         };
     }
 
@@ -225,6 +227,7 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
                     case NEWS, EVENTS, NEWS_COMPANY -> NEWS_PARAMETERS;
                     case NEWS_LATEST, NEWS_HISTORY -> NEWS_FEED_PARAMETERS;
                     case RAW_PROXY -> request.parameters().keySet();
+                    case FETCH_URL -> URL_FETCH_PARAMETERS;
                     default -> Set.of();
                 };
         return request.parameters().entrySet().stream()

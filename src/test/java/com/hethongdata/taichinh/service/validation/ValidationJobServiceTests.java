@@ -8,7 +8,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hethongdata.taichinh.dto.validation.ValidationExecutionResponse;
 import com.hethongdata.taichinh.entity.enums.IngestionRunStatus;
 import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
@@ -151,7 +150,6 @@ class ValidationJobServiceTests {
         when(raw.getIngestionRun()).thenReturn(run);
         when(raw.getEntityType()).thenReturn("QUOTE");
         when(raw.getExternalKey()).thenReturn(rawId.toString());
-        when(raw.getPayload()).thenReturn(new ObjectMapper().createObjectNode());
         lenient().when(raw.getChecksumSha256()).thenReturn(checksum);
         return raw;
     }
@@ -163,5 +161,32 @@ class ValidationJobServiceTests {
         when(rule.getSeverity()).thenReturn("CRITICAL");
         when(rule.getExecutorKey()).thenReturn("RAW_ERROR_MESSAGE");
         return rule;
+    }
+
+    @Test
+    void newsDataUsesItsOwnRulesAndBlocksVersionOnSourceHttpFailure() throws Exception {
+        UUID id = UUID.randomUUID();
+        UUID runId = UUID.randomUUID();
+        IngestionRunEntity run = successfulRun(runId);
+        RawPayloadEntity raw = rawPayload(id, run, "checksum");
+        when(raw.getEntityType()).thenReturn("NEWS_DATA");
+        var httpRule = NewsValidationRulesTests.rule("NEWS_DATA_HTTP_SUCCESS");
+        var titleRule = NewsValidationRulesTests.rule("NEWS_TITLE_REQUIRED");
+        when(rawPayloads.findById(id)).thenReturn(Optional.of(raw));
+        when(rules.findByIsActiveTrueOrderByIdAsc()).thenReturn(List.of(titleRule, httpRule));
+        when(ruleExecutor.execute(httpRule, raw)).thenReturn(
+                new ValidationRuleExecutionService.Outcome("FAIL", "http_status=404", "200..299", "Page not found"));
+        when(ingestionRuns.findByIdForUpdate(runId)).thenReturn(Optional.of(run));
+        when(rawPayloads.countByIngestionRunId(runId)).thenReturn(1L);
+        when(results.countValidatedRawPayloadsByIngestionRunId(runId)).thenReturn(1L);
+        when(results.existsByIngestionRunIdAndStatusAndSeverityIn(eq(runId), eq("FAIL"), any())).thenReturn(true);
+        var response = service.validate(id);
+        assertThat(response.getStatus()).isEqualTo("REJECTED");
+        verify(ruleExecutor, never()).execute(titleRule, raw);
+        verify(versions, never()).save(any());
+        var saved = ArgumentCaptor.forClass(com.hethongdata.taichinh.entity.validation.ValidationResultEntity.class);
+        verify(results).save(saved.capture());
+        assertThat(saved.getValue().getRuleCode()).isEqualTo("NEWS_DATA_HTTP_SUCCESS");
+        assertThat(saved.getValue().getStatus()).isEqualTo("FAIL");
     }
 }

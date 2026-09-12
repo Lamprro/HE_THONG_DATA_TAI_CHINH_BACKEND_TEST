@@ -1,0 +1,217 @@
+[
+  {
+    "code": "NEWS_PAYLOAD_STRUCTURE",
+    "name": "News list structure",
+    "domain": "NEWS",
+    "severity": "ERROR",
+    "type": "FORMAT",
+    "executor": "NEWS_PAYLOAD_STRUCTURE",
+    "config": {
+      "dataField": "data"
+    },
+    "description": "payload.data must be a non-empty array of objects."
+  },
+  {
+    "code": "NEWS_TITLE_REQUIRED",
+    "name": "News title present",
+    "domain": "NEWS",
+    "severity": "WARNING",
+    "type": "NOT_NULL",
+    "executor": "NEWS_TITLE_REQUIRED",
+    "config": {
+      "dataField": "data",
+      "fields": [
+        "title",
+        "headline"
+      ]
+    },
+    "description": "Missing title is a warning; fetching the linked article remains possible."
+  },
+  {
+    "code": "NEWS_URL_REQUIRED",
+    "name": "News article URL",
+    "domain": "NEWS",
+    "severity": "ERROR",
+    "type": "FORMAT",
+    "executor": "NEWS_URL_REQUIRED",
+    "config": {
+      "dataField": "data",
+      "fields": [
+        "url",
+        "link",
+        "href"
+      ],
+      "schemes": [
+        "http",
+        "https"
+      ]
+    },
+    "description": "Each news item must have an absolute HTTP(S) URL with a host."
+  },
+  {
+    "code": "NEWS_PUBLISHED_AT_VALID",
+    "name": "News publication date",
+    "domain": "NEWS",
+    "severity": "WARNING",
+    "type": "FORMAT",
+    "executor": "NEWS_PUBLISHED_AT_VALID",
+    "config": {
+      "dataField": "data",
+      "field": "publishedAt",
+      "format": "dd/MM/uuuu HH:mm",
+      "zone": "Asia/Ho_Chi_Minh"
+    },
+    "description": "When provided, publishedAt must be a valid local date and time."
+  },
+  {
+    "code": "NEWS_SYMBOL_MATCH",
+    "name": "News source symbol",
+    "domain": "NEWS",
+    "severity": "WARNING",
+    "type": "RECONCILIATION",
+    "executor": "NEWS_SYMBOL_MATCH",
+    "config": {
+      "dataField": "data",
+      "field": "symbol"
+    },
+    "description": "For symbol-scoped sources, each item symbol must match source_symbol."
+  },
+  {
+    "code": "NEWS_URL_DUPLICATE_IN_BATCH",
+    "name": "Duplicate URLs within news list",
+    "domain": "NEWS",
+    "severity": "WARNING",
+    "type": "UNIQUE",
+    "executor": "NEWS_URL_DUPLICATE_IN_BATCH",
+    "config": {
+      "dataField": "data",
+      "fields": [
+        "url",
+        "link",
+        "href"
+      ],
+      "schemes": [
+        "http",
+        "https"
+      ],
+      "ignoreQueryPrefixes": [
+        "utm_"
+      ],
+      "ignoreQueryNames": [
+        "fbclid",
+        "gclid"
+      ]
+    },
+    "description": "Warn on repeated normalized article URLs within this raw payload only."
+  },
+  {
+    "code": "NEWS_DUPLICATE_HASH",
+    "name": "News duplicate checksum",
+    "domain": "NEWS",
+    "severity": "WARNING",
+    "type": "UNIQUE",
+    "executor": "NEWS_DUPLICATE_HASH",
+    "config": {
+      "strategy": "raw-checksum"
+    },
+    "description": "Existing policy: identical raw checksum within a source blocks a new version."
+  },
+  {
+    "code": "NEWS_DATA_METADATA_REQUIRED",
+    "name": "News page response metadata",
+    "domain": "NEWS_DATA",
+    "severity": "ERROR",
+    "type": "NOT_NULL",
+    "executor": "NEWS_DATA_METADATA_REQUIRED",
+    "config": {},
+    "description": "payload must contain textual boolean, integral http_status, requested_url and final_url strings."
+  },
+  {
+    "code": "NEWS_DATA_URL_VALID",
+    "name": "News page URLs",
+    "domain": "NEWS_DATA",
+    "severity": "ERROR",
+    "type": "FORMAT",
+    "executor": "NEWS_DATA_URL_VALID",
+    "config": {
+      "fields": [
+        "requested_url",
+        "final_url"
+      ],
+      "schemes": [
+        "http",
+        "https"
+      ]
+    },
+    "description": "Validate both page URLs; redirects may change the final URL."
+  },
+  {
+    "code": "NEWS_DATA_HTTP_SUCCESS",
+    "name": "News page HTTP success",
+    "domain": "NEWS_DATA",
+    "severity": "ERROR",
+    "type": "RANGE",
+    "executor": "NEWS_DATA_HTTP_SUCCESS",
+    "config": {
+      "minimum": 200,
+      "maximum": 299
+    },
+    "description": "Validate the source page HTTP status stored in payload.http_status."
+  },
+  {
+    "code": "NEWS_DATA_CONTENT_TYPE_VALID",
+    "name": "News HTML content type",
+    "domain": "NEWS_DATA",
+    "severity": "ERROR",
+    "type": "FORMAT",
+    "executor": "NEWS_DATA_CONTENT_TYPE_VALID",
+    "config": {
+      "allowed": [
+        "text/html",
+        "application/xhtml+xml"
+      ]
+    },
+    "description": "Require textual=true and an allowed raw_payloads.content_type (ignoring charset)."
+  },
+  {
+    "code": "NEWS_DATA_RAW_TEXT_REQUIRED",
+    "name": "News HTML body present",
+    "domain": "NEWS_DATA",
+    "severity": "ERROR",
+    "type": "NOT_NULL",
+    "executor": "NEWS_DATA_RAW_TEXT_REQUIRED",
+    "config": {},
+    "description": "raw_payloads.raw_text must contain non-whitespace source HTML."
+  },
+  {
+    "code": "NEWS_DATA_HTML_STRUCTURE",
+    "name": "News HTML document",
+    "domain": "NEWS_DATA",
+    "severity": "ERROR",
+    "type": "FORMAT",
+    "executor": "NEWS_DATA_HTML_STRUCTURE",
+    "config": {},
+    "description": "Require HTML document markup and parsed visible body text; tolerate recoverable HTML syntax."
+  },
+  {
+    "code": "NEWS_DATA_BLOCK_PAGE_DETECTED",
+    "name": "News access block page",
+    "domain": "NEWS_DATA",
+    "severity": "WARNING",
+    "type": "CUSTOM",
+    "executor": "NEWS_DATA_BLOCK_PAGE_DETECTED",
+    "config": {
+      "titleMarkers": [
+        "access denied",
+        "403 forbidden",
+        "404 not found",
+        "page not found",
+        "just a moment",
+        "verify you are human",
+        "truy cập bị từ chối",
+        "không tìm thấy trang"
+      ]
+    },
+    "description": "Warn when the page title or h1 identifies an error or access challenge; script tags alone are not errors."
+  }
+]

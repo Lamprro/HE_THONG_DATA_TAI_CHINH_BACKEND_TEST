@@ -5,7 +5,7 @@ Tài liệu này dùng để tra nhanh: trạng thái nằm ở **bảng nào**,
 - `status`, `*_status`: tiến độ hoặc kết quả.
 - `is_*`: cờ đúng/sai của record.
 
-DB đang tạm dừng. “Đang dùng” lấy từ code; “Thiết kế” lấy từ báo cáo/schema, chưa có service xử lý.
+Trạng thái “Đang dùng” lấy từ code/DB đã đối chiếu; “Thiết kế” là trạng thái có trong schema hoặc tài liệu nhưng chưa có xử lý đầy đủ.
 
 ## 1. Luồng dữ liệu
 
@@ -25,6 +25,8 @@ DB đang tạm dừng. “Đang dùng” lấy từ code; “Thiết kế” l�
 | `validation_results` | `handling_status` | `RESOLVED` | Lỗi đã xử lý. | Thiết kế một phần |
 | `validation_results` | `handling_status` | `IGNORED` | Đồng ý bỏ qua lỗi. | Thiết kế một phần |
 | `data_versions` | `status` | `ACTIVE` | Dữ liệu sạch của cả run đã được chấp nhận. | Đang dùng |
+| `data_versions` | `status` | `ACTIVATE` | Tên trạng thái nghiệp vụ thống nhất cho version NEWS/NEWS_DATA đang chờ job kế tiếp. | Quy ước mới; cần đồng bộ code |
+| `data_versions` | `status` | `ACTIVATED` | Version NEWS/NEWS_DATA đã được job kế tiếp tiêu thụ thành công. | Đang dùng trong DB |
 | `data_versions` | `status` | `SUPERSEDED` | Version cũ đã có version mới thay thế. | Thiết kế |
 | `data_versions` | `status` | `ARCHIVED` | Version chỉ để lưu lịch sử. | Thiết kế |
 
@@ -131,3 +133,19 @@ không có `FAIL` mức `ERROR`/`CRITICAL`, và không fail `NEWS_DUPLICATE_HASH
 `analysis_reports`, `audit_logs`, `data_lineage_events`, `dataset_samples`, `feature_sets`,
 `macro_observations`, `news_article_companies`, `prediction_explanations`, `roles`,
 `security_index_memberships`, `users`, `watchlist_items` và `raw_payloads`.
+
+## 9. Trạng thái và dữ liệu riêng của NEWS
+
+| Bảng | Thuộc tính | Giá trị/đường dẫn | Ý nghĩa |
+| --- | --- | --- | --- |
+| `raw_payloads` | `entity_type` | `NEWS` | Response danh sách tin; link bài nằm trong `payload.data[].url`. |
+| `raw_payloads` | `entity_type` | `NEWS_DATA` | Response trang báo; metadata nằm trong `payload`, HTML đầy đủ nằm trong `raw_text`. |
+| `raw_payloads` | `content_type` | `application/json` | Thường dùng cho NEWS list. |
+| `raw_payloads` | `content_type` | `text/html; charset=utf-8` | Thường dùng cho NEWS_DATA. |
+| `ingestion_jobs` | `code` | `NEWS_DATA_FETCH` | Lấy URL bài báo từ version NEWS và gọi Python. |
+| `ingestion_jobs` | `code` | `NEWS_ARTICLE_BUILD` | Đọc version NEWS_DATA đã validate và ghi bảng tin. |
+| `news_articles` | `dedup_status` | `UNIQUE`, `POSSIBLE_DUPLICATE`, `DUPLICATE` | Kết quả chống trùng ở cấp bài báo; khác với checksum của raw response. |
+
+Trong code hiện tại, `ValidationJobService` query trạng thái chờ là `ACTIVE`, còn nghiệp vụ NEWS
+đã thống nhất tên `ACTIVATE`. Hai tên này không được dùng lẫn trong code và DB; cần một lần đồng bộ
+riêng trước khi đổi scheduler sang `ACTIVATE`.

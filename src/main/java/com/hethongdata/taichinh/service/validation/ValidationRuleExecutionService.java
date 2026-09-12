@@ -12,6 +12,20 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.HashMap;
+import java.util.Arrays;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
+import java.io.StringReader;
+import java.io.IOException;
+import javax.swing.text.MutableAttributeSet;
+import javax.swing.text.html.HTML;
+import javax.swing.text.html.HTMLEditorKit;
+import javax.swing.text.html.parser.ParserDelegator;
+import java.util.regex.Pattern;
 
 /** Executes the code registered by validation rules. */
 @Service
@@ -29,8 +43,19 @@ public class ValidationRuleExecutionService {
             case "MARKET_VOLUME_NON_NEGATIVE" -> nonNegativeVolume(raw.getPayload());
             case "STATEMENT_REQUIRED_KEYS" -> required(raw.getPayload());
             case "STATEMENT_ITEM_CODE_REQUIRED" -> itemCode(raw.getPayload());
-            case "NEWS_TITLE_REQUIRED" -> title(raw.getPayload());
-            case "NEWS_URL_REQUIRED" -> url(raw.getPayload());
+            case "NEWS_TITLE_REQUIRED" -> title(raw.getPayload(), rule.getRuleConfig());
+            case "NEWS_URL_REQUIRED" -> url(raw.getPayload(), rule.getRuleConfig());
+            case "NEWS_PAYLOAD_STRUCTURE" -> newsStructure(raw.getPayload(), rule.getRuleConfig());
+            case "NEWS_PUBLISHED_AT_VALID" -> newsDate(raw.getPayload(), rule.getRuleConfig());
+            case "NEWS_SYMBOL_MATCH" -> newsSymbol(raw, rule.getRuleConfig());
+            case "NEWS_URL_DUPLICATE_IN_BATCH" -> newsDuplicateUrl(raw.getPayload(), rule.getRuleConfig());
+            case "NEWS_DATA_METADATA_REQUIRED" -> newsMetadata(raw.getPayload());
+            case "NEWS_DATA_URL_VALID" -> newsDataUrls(raw.getPayload(), rule.getRuleConfig());
+            case "NEWS_DATA_HTTP_SUCCESS" -> newsHttpStatus(raw.getPayload(), rule.getRuleConfig());
+            case "NEWS_DATA_CONTENT_TYPE_VALID" -> newsContentType(raw, rule.getRuleConfig());
+            case "NEWS_DATA_RAW_TEXT_REQUIRED" -> newsRawText(raw.getRawText());
+            case "NEWS_DATA_HTML_STRUCTURE" -> newsHtml(raw.getRawText());
+            case "NEWS_DATA_BLOCK_PAGE_DETECTED" -> newsBlockPage(raw.getRawText(), rule.getRuleConfig());
             case "NEWS_DUPLICATE_HASH" -> duplicateNews(raw);
             case "RAW_ENVELOPE_REQUIRED" -> envelope(raw.getPayload());
             case "DATA_COUNT_MATCH" -> dataCount(raw.getPayload());
@@ -87,24 +112,220 @@ public class ValidationRuleExecutionService {
                 : new Outcome("PASS", null, null, "Financial statement payload is present");
     }
 
-    private Outcome title(JsonNode payload) {
-        List<JsonNode> items = newsItems(payload);
+    private Outcome title(JsonNode payload, JsonNode config) {
+        List<JsonNode> items = newsItems(payload, config);
         if (items.isEmpty()) return fail("no news item", "at least one news item", "News payload has no item to validate");
-        for (JsonNode item : items)
-            if (text(item, "title", "headline").isBlank())
-                return fail("missing title", "title or headline", "A news item has no title");
+        String[] fields = configStrings(config, "fields");
+        for (int i = 0; i < items.size(); i++)
+            if (text(items.get(i), fields).isBlank())
+                return fail("payload.data[" + i + "]", String.join("/", fields), "News item title is missing");
         return new Outcome("PASS", null, null, "Every news item has a title");
     }
 
-    private Outcome url(JsonNode payload) {
-        List<JsonNode> items = newsItems(payload);
+    private Outcome url(JsonNode payload, JsonNode config) {
+        List<JsonNode> items = newsItems(payload, config);
         if (items.isEmpty()) return fail("no news item", "at least one linked news item", "News payload has no item to validate");
-        for (JsonNode item : items) {
-            String value = text(item, "url", "link", "href");
-            if (!isHttpUrl(value)) return fail(value.isBlank() ? "missing link" : value,
-                    "valid http(s) URL", "A news item has no valid source link");
+        String[] fields = configStrings(config, "fields");
+        for (int i = 0; i < items.size(); i++) {
+            String value = text(items.get(i), fields);
+            if (!isHttpUrl(value, config)) return fail("payload.data[" + i + "].url",
+                    "absolute HTTP(S) URL with host", "News item link is missing or invalid");
         }
         return new Outcome("PASS", null, null, "Every news item has a valid source link");
+    }
+
+    private Outcome newsStructure(JsonNode payload, JsonNode config) {
+        String field = config.path("dataField").asText("data");
+        if (payload == null || !payload.isObject() || !payload.path(field).isArray()
+                || payload.path(field).isEmpty())
+            return fail("payload." + field, "non-empty array of news objects", "News list is missing or malformed");
+        for (int i = 0; i < payload.path(field).size(); i++)
+            if (!payload.path(field).get(i).isObject())
+                return fail("payload." + field + "[" + i + "]", "object", "News list contains a non-object item");
+        return new Outcome("PASS", null, null, "News list structure is valid");
+    }
+
+    private Outcome newsDate(JsonNode payload, JsonNode config) {
+        String field = config.required("field").asText();
+        DateTimeFormatter format = DateTimeFormatter.ofPattern(config.required("format").asText())
+                .withResolverStyle(ResolverStyle.STRICT);
+        ZoneId zone = ZoneId.of(config.required("zone").asText());
+        List<JsonNode> items = newsItems(payload, config);
+        boolean checked = false;
+        for (int i = 0; i < items.size(); i++) {
+            JsonNode value = items.get(i).path(field);
+            if (value.isMissingNode() || value.isNull()) continue;
+            try {
+                if (!value.isTextual()) throw new DateTimeParseException("Expected text", "", 0);
+                LocalDateTime.parse(value.asText().trim(), format).atZone(zone);
+                checked = true;
+            } catch (DateTimeParseException exception) {
+                return fail("payload.data[" + i + "]." + field, config.path("format").asText(),
+                        "Invalid news publication date");
+            }
+        }
+        return new Outcome(checked ? "PASS" : "SKIP", null, null,
+                checked ? "Provided publication dates are valid" : "No publication date provided");
+    }
+
+    private Outcome newsSymbol(RawPayloadEntity raw, JsonNode config) {
+        String expected = raw.getSourceSymbol();
+        if (expected == null || expected.isBlank())
+            return new Outcome("SKIP", null, null, "Source is not scoped to a symbol");
+        String field = config.required("field").asText();
+        List<JsonNode> items = newsItems(raw.getPayload(), config);
+        if (items.isEmpty()) return new Outcome("SKIP", null, null, "No news items to compare");
+        for (int i = 0; i < items.size(); i++)
+            if (!expected.trim().equalsIgnoreCase(text(items.get(i), field)))
+                return fail("payload.data[" + i + "]." + field, expected, "News symbol differs from source_symbol");
+        return new Outcome("PASS", null, null, "News symbols match the source");
+    }
+
+    private Outcome newsDuplicateUrl(JsonNode payload, JsonNode config) {
+        var seen = new HashMap<String, Integer>();
+        List<JsonNode> items = newsItems(payload, config);
+        String[] fields = configStrings(config, "fields");
+        List<String> prefixes = Arrays.asList(configStrings(config, "ignoreQueryPrefixes"));
+        List<String> names = Arrays.asList(configStrings(config, "ignoreQueryNames"));
+        for (int i = 0; i < items.size(); i++) {
+            String value = text(items.get(i), fields);
+            if (!isHttpUrl(value, config)) continue; // NEWS_URL_REQUIRED reports invalid links.
+            URI uri = URI.create(value).normalize();
+            String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
+            int port = uri.getPort();
+            if (("http".equals(scheme) && port == 80) || ("https".equals(scheme) && port == 443)) port = -1;
+            String query = uri.getRawQuery() == null ? "" : Arrays.stream(uri.getRawQuery().split("&"))
+                    .filter(part -> {
+                        String name = part.split("=", 2)[0].toLowerCase(Locale.ROOT);
+                        return !names.contains(name) && prefixes.stream().noneMatch(name::startsWith);
+                    })
+                    .sorted().collect(java.util.stream.Collectors.joining("&"));
+            String path = uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
+            String key = scheme + "://" + uri.getHost().toLowerCase(Locale.ROOT)
+                    + (port == -1 ? "" : ":" + port) + path + (query.isEmpty() ? "" : "?" + query);
+            Integer previous = seen.putIfAbsent(key, i);
+            if (previous != null)
+                return fail("payload.data[" + i + "].url", "unique URL in this payload",
+                        "Duplicates payload.data[" + previous + "].url after URL normalization");
+        }
+        return new Outcome(seen.isEmpty() ? "SKIP" : "PASS", null, null, "No repeated valid URL within the news list");
+    }
+
+    private Outcome newsMetadata(JsonNode payload) {
+        if (payload == null || !payload.isObject())
+            return fail("payload", "object", "NEWS_DATA metadata must be an object");
+        for (String field : List.of("requested_url", "final_url"))
+            if (!payload.path(field).isTextual() || payload.path(field).asText().isBlank())
+                return fail("payload." + field, "non-empty string", "Missing page URL metadata");
+        if (!payload.path("http_status").isIntegralNumber() || !payload.path("http_status").canConvertToInt())
+            return fail("payload.http_status", "integer", "Invalid source HTTP status type");
+        if (!payload.path("textual").isBoolean())
+            return fail("payload.textual", "boolean", "Missing or invalid textual flag");
+        return new Outcome("PASS", null, null, "NEWS_DATA metadata types are valid");
+    }
+
+    private Outcome newsDataUrls(JsonNode payload, JsonNode config) {
+        for (String field : configStrings(config, "fields"))
+            if (payload == null || !isHttpUrl(text(payload, field), config))
+                return fail("payload." + field, "absolute HTTP(S) URL with host", "Invalid source page URL");
+        return new Outcome("PASS", null, null, "Requested and final page URLs are valid");
+    }
+
+    private Outcome newsHttpStatus(JsonNode payload, JsonNode config) {
+        int min = config.required("minimum").intValue();
+        int max = config.required("maximum").intValue();
+        if (min < 200 || max > 299 || min > max) throw new IllegalStateException("Invalid success HTTP range");
+        JsonNode status = payload == null ? null : payload.get("http_status");
+        if (status == null || !status.isIntegralNumber() || !status.canConvertToInt()
+                || status.intValue() < min || status.intValue() > max)
+            return fail("payload.http_status=" + status, min + ".." + max, "Source page HTTP request did not succeed");
+        return new Outcome("PASS", null, null, "Source page HTTP status is successful");
+    }
+
+    private Outcome newsContentType(RawPayloadEntity raw, JsonNode config) {
+        String type = raw.getContentType() == null ? "" : raw.getContentType().split(";", 2)[0].trim();
+        JsonNode flag = raw.getPayload() == null ? null : raw.getPayload().get("textual");
+        if (flag == null || !flag.isBoolean() || !flag.booleanValue()
+                || Arrays.stream(configStrings(config, "allowed")).noneMatch(type::equalsIgnoreCase))
+            return fail("content_type=" + type + ", payload.textual=" + flag,
+                    String.join(", ", configStrings(config, "allowed")) + "; textual=true",
+                    "Source page is not supported HTML text");
+        return new Outcome("PASS", null, null, "Source page content type is HTML text");
+    }
+
+    private Outcome newsRawText(String html) {
+        return html == null || html.isBlank()
+                ? fail("raw_text", "non-empty HTML text", "Source page body is empty")
+                : new Outcome("PASS", null, null, "Source page body is present");
+    }
+
+    private Outcome newsHtml(String html) {
+        if (html == null || !Pattern.compile("(?is)<(?:!doctype\\s+html\\b|html\\b|body\\b)").matcher(html).find())
+            return fail("raw_text", "HTML document markup", "Source body is not an HTML document");
+        HtmlSummary parsed = parseHtml(html);
+        return parsed.body.isEmpty()
+                ? fail("raw_text", "visible body text", "HTML has no visible body text")
+                : new Outcome("PASS", null, null, "HTML document contains visible body text");
+    }
+
+    private Outcome newsBlockPage(String html, JsonNode config) {
+        if (html == null || html.isBlank()) return new Outcome("SKIP", null, null, "No page body to inspect");
+        HtmlSummary parsed = parseHtml(html);
+        String heading = parsed.heading.toString().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+        for (String marker : configStrings(config, "titleMarkers"))
+            if (heading.contains(marker.toLowerCase(Locale.ROOT)))
+                return fail("raw_text:title/h1", "article page", "Possible block/error page marker: " + marker);
+        return new Outcome("PASS", null, null, "No configured block page marker in title/h1");
+    }
+
+    /** Parses locally; never fetches links, loads resources, or executes page scripts. */
+    private HtmlSummary parseHtml(String html) {
+        HtmlSummary summary = new HtmlSummary();
+        try {
+            new ParserDelegator().parse(new StringReader(html), new HTMLEditorKit.ParserCallback() {
+                boolean body;
+                int heading;
+                int ignored;
+                public void handleStartTag(HTML.Tag tag, MutableAttributeSet attributes, int position) {
+                    if (tag == HTML.Tag.BODY) body = true;
+                    if (tag == HTML.Tag.TITLE || tag == HTML.Tag.H1) heading++;
+                    if (tag == HTML.Tag.SCRIPT || tag == HTML.Tag.STYLE) ignored++;
+                }
+                public void handleEndTag(HTML.Tag tag, int position) {
+                    if (tag == HTML.Tag.BODY) body = false;
+                    if (tag == HTML.Tag.TITLE || tag == HTML.Tag.H1) heading = Math.max(0, heading - 1);
+                    if (tag == HTML.Tag.SCRIPT || tag == HTML.Tag.STYLE) ignored = Math.max(0, ignored - 1);
+                }
+                public void handleText(char[] text, int position) {
+                    String value = new String(text).replace('\u00a0', ' ').trim();
+                    if (ignored == 0 && !value.isBlank()) {
+                        if (body) summary.body.append(value).append(' ');
+                        if (heading > 0) summary.heading.append(value).append(' ');
+                    }
+                }
+            }, true);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Cannot parse in-memory HTML", exception);
+        }
+        return summary;
+    }
+
+    private static class HtmlSummary {
+        final StringBuilder body = new StringBuilder();
+        final StringBuilder heading = new StringBuilder();
+    }
+
+    private String[] configStrings(JsonNode config, String field) {
+        JsonNode array = config == null ? null : config.get(field);
+        if (array == null || !array.isArray() || array.isEmpty())
+            throw new IllegalStateException("Missing non-empty rule_config." + field);
+        List<String> values = new ArrayList<>();
+        for (JsonNode value : array) {
+            if (!value.isTextual() || value.asText().isBlank())
+                throw new IllegalStateException("Invalid rule_config." + field);
+            values.add(value.asText());
+        }
+        return values.toArray(String[]::new);
     }
 
     private Outcome itemCode(JsonNode payload) {
@@ -126,7 +347,9 @@ public class ValidationRuleExecutionService {
     private Outcome dataCount(JsonNode payload) {
         if (payload == null || !payload.path("data").isArray() || !payload.has("count"))
             return new Outcome("SKIP", null, null, "Payload does not expose count/data array");
-        return payload.path("count").asInt(-1) == payload.path("data").size()
+        return payload.path("count").isIntegralNumber()
+                        && payload.path("count").canConvertToLong()
+                        && payload.path("count").asLong(-1) == payload.path("data").size()
                 ? new Outcome("PASS", null, null, "Count matches data array")
                 : fail("count=" + payload.path("count").asText(), "data.size=" + payload.path("data").size(), "Envelope count does not match data array");
     }
@@ -152,14 +375,15 @@ public class ValidationRuleExecutionService {
         return payload != null && payload.isObject() && payload.hasNonNull("data");
     }
 
-    private List<JsonNode> newsItems(JsonNode payload) {
+    private List<JsonNode> newsItems(JsonNode payload, JsonNode config) {
         if (payload == null || !payload.isObject()) return List.of();
-        if (payload.path("data").isArray()) {
+        String field = config == null ? "data" : config.path("dataField").asText("data");
+        if (payload.path(field).isArray()) {
             List<JsonNode> items = new ArrayList<>();
-            payload.path("data").elements().forEachRemaining(item -> { if (item.isObject()) items.add(item); });
+            payload.path(field).elements().forEachRemaining(items::add);
             return items;
         }
-        return List.of(payload);
+        return List.of();
     }
 
     private String text(JsonNode item, String... keys) {
@@ -168,10 +392,14 @@ public class ValidationRuleExecutionService {
         return "";
     }
 
-    private boolean isHttpUrl(String value) {
+    private boolean isHttpUrl(String value, JsonNode config) {
         try {
             URI uri = URI.create(value);
-            return "http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme());
+            return uri.getHost() != null && uri.getUserInfo() == null
+                    && (uri.getPort() == -1 || (uri.getPort() > 0 && uri.getPort() <= 65535))
+                    && ("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
+                    && Arrays.stream(configStrings(config, "schemes"))
+                            .anyMatch(scheme -> scheme.equalsIgnoreCase(uri.getScheme()));
         } catch (IllegalArgumentException exception) { return false; }
     }
 

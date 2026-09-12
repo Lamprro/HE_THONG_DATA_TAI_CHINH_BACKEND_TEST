@@ -9,6 +9,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.ArrayList;
+import java.io.IOException;
+import org.springframework.core.io.ClassPathResource;
 
 @Service
 public class ValidationRuleCatalogService {
@@ -23,7 +26,8 @@ public class ValidationRuleCatalogService {
 
     @Transactional
     public int seed() {
-        definitions()
+        List<Definition> all = definitions();
+        all
                 .forEach(
                         definition ->
                                 rules.findByCode(definition.code)
@@ -48,7 +52,7 @@ public class ValidationRuleCatalogService {
                                                                         config(definition.config),
                                                                         definition.description,
                                                                         definition.executor))));
-        return definitions().size();
+        return all.size();
     }
 
     public List<ValidationRuleEntity> list() {
@@ -65,7 +69,7 @@ public class ValidationRuleCatalogService {
     }
 
     private List<Definition> definitions() {
-        return List.of(
+        List<Definition> all = new ArrayList<>(List.of(
                 new Definition(
                         "PRICE_OHLC_VALID",
                         "OHLC price relationship",
@@ -112,33 +116,6 @@ public class ValidationRuleCatalogService {
                         "{\"field\":\"itemCode\"}",
                         "Each financial statement item must have itemCode."),
                 new Definition(
-                        "NEWS_TITLE_REQUIRED",
-                        "News title required",
-                        "NEWS",
-                        "ERROR",
-                        "NOT_NULL",
-                        "NEWS_TITLE_REQUIRED",
-                        "{\"fields\":[\"title\",\"headline\"]}",
-                        "Rejects news without a title/headline."),
-                new Definition(
-                        "NEWS_URL_REQUIRED",
-                        "News source link required",
-                        "NEWS",
-                        "ERROR",
-                        "FORMAT",
-                        "NEWS_URL_REQUIRED",
-                        "{\"fields\":[\"url\",\"link\",\"href\"],\"schemes\":[\"http\",\"https\"]}",
-                        "Every news item must have a valid HTTP(S) source link."),
-                new Definition(
-                        "NEWS_DUPLICATE_HASH",
-                        "News duplicate checksum",
-                        "NEWS",
-                        "WARNING",
-                        "UNIQUE",
-                        "NEWS_DUPLICATE_HASH",
-                        "{\"strategy\":\"raw-checksum\"}",
-                        "Records the duplicate policy; canonical deduplication remains a later mapping concern."),
-                new Definition(
                         "RAW_ENVELOPE_REQUIRED",
                         "Data response envelope",
                         "RAW",
@@ -164,7 +141,27 @@ public class ValidationRuleCatalogService {
                         "CUSTOM",
                         "RAW_ERROR_MESSAGE",
                         "{\"markers\":[\"error\",\"errors\",\"failed\"]}",
-                        "Records an open validation result for a transport-success payload that carries an upstream error marker."));
+                        "Records an open validation result for a transport-success payload that carries an upstream error marker.")));
+        all.addAll(newsDefinitions());
+        return List.copyOf(all);
+    }
+
+    /** Shared with the controlled DB sync; rule configs are JSON objects, not executable code. */
+    private List<Definition> newsDefinitions() {
+        try (var input = new ClassPathResource("validation/news-rules.json").getInputStream()) {
+            JsonNode entries = objectMapper.readTree(input);
+            List<Definition> definitions = new ArrayList<>();
+            for (JsonNode entry : entries) {
+                definitions.add(new Definition(
+                        entry.required("code").asText(), entry.required("name").asText(),
+                        entry.required("domain").asText(), entry.required("severity").asText(),
+                        entry.required("type").asText(), entry.required("executor").asText(),
+                        entry.required("config").toString(), entry.required("description").asText()));
+            }
+            return List.copyOf(definitions);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Cannot read NEWS validation rule catalog", exception);
+        }
     }
 
     private record Definition(

@@ -275,6 +275,7 @@ public class ValidationJobService {
             case "QUOTE", "OHLCV", "RATIO" -> "MARKET_PRICE";
             case "FINANCIAL_STATEMENT" -> "FINANCIAL_STATEMENT";
             case "NEWS", "NEWS_COMPANY" -> "NEWS";
+            case "NEWS_DATA" -> "NEWS_DATA";
             default -> "RAW";
         };
     }

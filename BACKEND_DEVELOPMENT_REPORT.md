@@ -103,7 +103,7 @@ Hệ thống áp dụng kiến trúc **Hexagonal Architecture (Ports & Adapters)
   +-----+------------------+
   |                        |
   v                        v
-[DataVersion ACTIVE]   [validation_results]
+[DataVersion ACTIVE / ACTIVATE theo vocabulary NEWS]   [validation_results]
  (một bản ghi/run)      (FAIL giữ handling_status=OPEN)
 ```
 
@@ -218,13 +218,15 @@ Quy trình xử lý hoàn chỉnh:
 
 **Package:** `service/validation/`, `controller/admin/`, `scheduler/validation/`
 
-`ValidationJobService` có hai trách nhiệm tách biệt: (1) chạy các rule phù hợp và lưu kết quả
+`ValidationJobService` điều phối hai việc: (1) lấy rule phù hợp, gọi `ValidationRuleExecutionService`
+để chạy và lưu kết quả
 cho từng `raw_payload`; (2) finalization ở mức `ingestion_run`. Finalization được khóa theo run
 để hai worker không thể tạo hai data version. Một raw pass chỉ có trạng thái `VALIDATED` nếu các
 raw khác trong cùng run chưa hoàn thành; chỉ raw cuối cùng làm run đủ điều kiện mới nhận response
 `ACCEPTED` kèm `dataVersionId`.
 
-Hiện có **11 executor keys** (quy tắc kiểm định):
+Hiện có executor cho các domain dữ liệu chung và bộ **14 rule NEWS/NEWS_DATA** được quản lý trong
+`src/main/resources/validation/news-rules.json`:
 
 | Executor Key | Domain | Mô Tả |
 |---|---|---|
@@ -236,6 +238,17 @@ Hiện có **11 executor keys** (quy tắc kiểm định):
 | `NEWS_TITLE_REQUIRED` | NEWS | Tin tức phải có tiêu đề |
 | `NEWS_URL_REQUIRED` | NEWS | Tin tức phải có link hợp lệ (http/https) |
 | `NEWS_DUPLICATE_HASH` | NEWS | Phát hiện tin tức trùng lặp qua SHA-256 |
+| `NEWS_PAYLOAD_STRUCTURE` | NEWS | `payload.data` là danh sách object |
+| `NEWS_PUBLISHED_AT_VALID` | NEWS | Ngày đăng đúng định dạng nếu có |
+| `NEWS_SYMBOL_MATCH` | NEWS | Symbol của item khớp source symbol |
+| `NEWS_URL_DUPLICATE_IN_BATCH` | NEWS | URL không lặp sau chuẩn hóa trong một payload |
+| `NEWS_DATA_METADATA_REQUIRED` | NEWS_DATA | Metadata response có đủ và đúng kiểu |
+| `NEWS_DATA_URL_VALID` | NEWS_DATA | requested/final URL hợp lệ |
+| `NEWS_DATA_HTTP_SUCCESS` | NEWS_DATA | HTTP status của trang nguồn là 2xx |
+| `NEWS_DATA_CONTENT_TYPE_VALID` | NEWS_DATA | Nội dung là HTML text |
+| `NEWS_DATA_RAW_TEXT_REQUIRED` | NEWS_DATA | Có HTML trong raw_text |
+| `NEWS_DATA_HTML_STRUCTURE` | NEWS_DATA | HTML có cấu trúc và text hiển thị |
+| `NEWS_DATA_BLOCK_PAGE_DETECTED` | NEWS_DATA | Cảnh báo trang lỗi/chặn truy cập |
 | `RAW_ENVELOPE_REQUIRED` | ALL | Payload phải có provider, dataset, retrieved_at, data |
 | `DATA_COUNT_MATCH` | ALL | `count` phải khớp với `data.size()` |
 | `RAW_ERROR_MESSAGE` | ALL | Payload không chứa "error", "errors", "failed" |
@@ -252,20 +265,23 @@ Hiện có **11 executor keys** (quy tắc kiểm định):
 - Rule time-series: không có gap quá lớn trong chuỗi giá
 
 **File cần sửa:**
-- `ValidationJobService.java` — thêm `case` mới vào `evaluate()` switch
+- `ValidationRuleExecutionService.java` — thêm `case` và method mới vào `execute()`; NEWS/NEWS_DATA xem [quy tắc validation](docs/NEWS_VALIDATION_RULES.md).
 - `ValidationRuleCatalogService.java` — thêm rule definition
 
 ### 6.2 News Ingestion (Thu thập tin tức)
 
-**Trạng thái:** Python service đã hỗ trợ các endpoint tin tức. Backend đã có:
+**Trạng thái:** Python service đã hỗ trợ các endpoint tin tức và fetch URL. Backend đã có:
 - `ExternalOperation` enum với các news operations
-- `ValidationJobService` có rule `NEWS_TITLE_REQUIRED`, `NEWS_URL_REQUIRED`, `NEWS_DUPLICATE_HASH`
-- Entity `NewsArticleEntity`, `NewsAiAnalysisEntity` trong repository
+- Bộ rule NEWS/NEWS_DATA và `ValidationRuleExecutionService`
+- `NEWS_DATA_FETCH` và `NEWS_ARTICLE_BUILD`
+- `NewsWorkflowService`, `NewsWorkflowPersistenceService`
+- Insert `news_articles` và `news_article_companies`
 
-**Còn thiếu:**
+**Còn thiếu hoặc cần hoàn thiện:**
+- Đồng bộ tên trạng thái chờ `ACTIVATE` giữa code và DB; code hiện còn query `ACTIVE`
+- Revalidate raw cũ khi muốn áp dụng bộ rule mới
+- Parser HTML chuyên sâu nếu cần tách chính xác nội dung bài
 - Controller riêng cho News (`/api/news/...`)
-- Service riêng để xử lý sau khi ingest news: lưu vào `news_articles` table
-- Hiện tại news chỉ được lưu dạng raw JSON vào `raw_payloads`, chưa parse thành `news_articles`
 
 **TODO cho News Module:**
 ```
@@ -501,7 +517,9 @@ grep "runId=<UUID>" logs/financial-app.log
 
 ### Phase 2 — Hoàn thiện News & Validation (Ưu tiên cao)
 
-- [ ] Tạo `NewsIngestionService` — parse raw JSON news từ `raw_payloads` -> `news_articles`
+- [x] Tách workflow NEWS: lấy HTML, validate NEWS_DATA, tạo article/company link
+- [ ] Đồng bộ trạng thái chờ `ACTIVATE` trong code, DB và tài liệu
+- [ ] Chạy lại validation có kiểm soát cho raw cũ khi áp dụng rule mới
 - [ ] Tạo `NewsController` — `GET /api/news`, `GET /api/news/{id}`
 - [ ] Mở rộng Validation Engine: thêm rules cho `RATIO` domain
 - [ ] Thêm validation cross-field cho BCTC (cân bằng bảng cân đối kế toán)

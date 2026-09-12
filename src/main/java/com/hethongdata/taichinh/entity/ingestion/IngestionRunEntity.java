@@ -178,4 +178,12 @@ public class IngestionRunEntity {
         this.responseText = responseText;
         this.metadata = metadata;
     }
+
+    public void markBatchSuccess(JsonNode metadata, Instant finishedAt, int itemCount) {
+        status = IngestionRunStatus.SUCCESS;
+        this.finishedAt = finishedAt;
+        fetchedCount = itemCount;
+        insertedCount = itemCount;
+        this.metadata = metadata;
+    }
 }

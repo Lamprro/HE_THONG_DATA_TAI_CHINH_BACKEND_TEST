@@ -529,7 +529,7 @@ grep "runId=<UUID>" logs/financial-app.log
 ---
 
 > **Tài liệu liên quan:**
-> - `DATA_PIPELINE_STATUS_REFERENCE.md` — Định nghĩa trạng thái ingestion, validation và data version
+> - `DATA_PIPELINE_STATUS_REFERENCE.md` — Tra cứu bảng, thuộc tính và trạng thái của hệ thống
 > - `SYSTEM_STATES_AND_DATA_LIFECYCLE.md` — Y nghia chi tiet cac trang thai va vong doi du lieu
 > - `src/main/resources/application.properties` — Toan bo cau hinh he thong voi chu thich
 > - `application-local.properties.example` — Mau cau hinh local

@@ -41,6 +41,7 @@ class ValidationJobServiceTests {
     @Mock private ValidationRuleJpaRepository rules;
     @Mock private ValidationResultJpaRepository results;
     @Mock private DataVersionJpaRepository versions;
+    @Mock private ValidationRuleExecutionService ruleExecutor;
 
     private ValidationJobService service;
 
@@ -53,7 +54,8 @@ class ValidationJobServiceTests {
                         rules,
                         results,
                         versions,
-                        new ChecksumService());
+                        new ChecksumService(),
+                        ruleExecutor);
     }
 
     @Test
@@ -75,6 +77,10 @@ class ValidationJobServiceTests {
                 .thenReturn(List.of(firstRaw, secondRaw));
         when(ingestionRuns.findByIdForUpdate(runId)).thenReturn(Optional.of(run));
         when(rules.findByIsActiveTrueOrderByIdAsc()).thenReturn(List.of(rule));
+        when(ruleExecutor.execute(rule, firstRaw))
+                .thenReturn(new ValidationRuleExecutionService.Outcome("PASS", null, null, "pass"));
+        when(ruleExecutor.execute(rule, secondRaw))
+                .thenReturn(new ValidationRuleExecutionService.Outcome("PASS", null, null, "pass"));
         when(results.countValidatedRawPayloadsByIngestionRunId(runId)).thenReturn(1L, 2L);
         when(results.existsByIngestionRunIdAndStatusAndSeverityIn(
                         eq(runId), eq("FAIL"), any()))
@@ -117,6 +123,8 @@ class ValidationJobServiceTests {
         when(rawPayloads.countByIngestionRunId(runId)).thenReturn(1L);
         when(ingestionRuns.findByIdForUpdate(runId)).thenReturn(Optional.of(run));
         when(rules.findByIsActiveTrueOrderByIdAsc()).thenReturn(List.of(rule));
+        when(ruleExecutor.execute(rule, raw))
+                .thenReturn(new ValidationRuleExecutionService.Outcome("PASS", null, null, "pass"));
         when(results.countValidatedRawPayloadsByIngestionRunId(runId)).thenReturn(1L);
         when(results.existsByIngestionRunIdAndStatusAndSeverityIn(
                         eq(runId), eq("FAIL"), any()))

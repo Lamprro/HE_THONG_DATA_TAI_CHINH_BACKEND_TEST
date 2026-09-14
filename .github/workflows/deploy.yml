@@ -16,15 +16,5 @@ jobs:
       - name: Deploy with Docker Compose
         run: |
           docker compose down
-          docker compose up -d --build
-
-      - name: Monitor Startup Logs
-        run: |
-          echo "Đang theo dõi log khởi động trong 90 giây..."
-          # Treo stream log trực tiếp trong 90s, sau đó tự ngắt để hoàn tất job
-          timeout 90s docker logs -f springboot-app || true
-
-      - name: Check Container Status
-        run: |
-          echo "Trạng thái container sau khi khởi động:"
-          docker ps -a --filter "name=springboot-app"
+          docker compose build --no-cache
+          docker compose up -d

@@ -63,4 +63,26 @@ public class FinancialStatementItemEntity {
 
     @Column(name = "created_at")
     private Instant createdAt;
+
+    public static FinancialStatementItemEntity create(
+            UUID financialStatementId,
+            String itemCode,
+            String itemName,
+            BigDecimal value,
+            String rawValue,
+            Integer displayOrder,
+            JsonNode metadata) {
+        FinancialStatementItemEntity entity = new FinancialStatementItemEntity();
+        entity.financialStatementId = financialStatementId;
+        entity.itemCode = itemCode;
+        entity.itemName = itemName;
+        entity.value = value;
+        entity.rawValue = rawValue;
+        entity.unit = "VND";
+        entity.displayOrder = displayOrder;
+        entity.isTotal = false;
+        entity.metadata = metadata;
+        entity.createdAt = Instant.now();
+        return entity;
+    }
 }

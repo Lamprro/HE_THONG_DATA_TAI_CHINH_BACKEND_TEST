@@ -10,6 +10,7 @@ import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
 import com.hethongdata.taichinh.repository.ingestion.IngestionJobRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaRepository;
 import com.hethongdata.taichinh.service.news.NewsWorkflowService;
+import com.hethongdata.taichinh.service.financial.FinancialStatementBuildService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,18 +33,21 @@ public class IngestionJobService {
     private final IngestionService ingestionService;
     private final RetryBudgetService retryBudgetService;
     private final NewsWorkflowService newsWorkflowService;
+    private final FinancialStatementBuildService financialStatementBuildService;
 
     public IngestionJobService(
             IngestionJobRepository ingestionJobs,
             IngestionRunJpaRepository ingestionRuns,
             IngestionService ingestionService,
             RetryBudgetService retryBudgetService,
-            NewsWorkflowService newsWorkflowService) {
+            NewsWorkflowService newsWorkflowService,
+            FinancialStatementBuildService financialStatementBuildService) {
         this.ingestionJobs = ingestionJobs;
         this.ingestionRuns = ingestionRuns;
         this.ingestionService = ingestionService;
         this.retryBudgetService = retryBudgetService;
         this.newsWorkflowService = newsWorkflowService;
+        this.financialStatementBuildService = financialStatementBuildService;
     }
 
     public IngestionJobResponse create(CreateIngestionJobRequest request) {
@@ -155,7 +159,9 @@ public class IngestionJobService {
             IngestionExecutionResponse response =
                     newsWorkflowService.supports(job.getCode())
                             ? newsWorkflowService.execute(job, triggerType)
-                            : ingestionService.ingestJob(job, triggerType);
+                            : financialStatementBuildService.supports(job.getCode())
+                                    ? financialStatementBuildService.execute(job, triggerType)
+                                    : ingestionService.ingestJob(job, triggerType);
             retryBudgetService.resetAfterSuccess(job);
             return response;
         } catch (IngestionExecutionException exception) {

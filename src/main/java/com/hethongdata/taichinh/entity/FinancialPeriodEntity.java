@@ -42,4 +42,21 @@ public class FinancialPeriodEntity {
 
     @Column(name = "is_audited_period")
     private Boolean isAuditedPeriod;
+
+    public static FinancialPeriodEntity create(
+            short fiscalYear,
+            String periodType,
+            LocalDate startDate,
+            LocalDate endDate,
+            LocalDate reportDate,
+            boolean auditedPeriod) {
+        FinancialPeriodEntity entity = new FinancialPeriodEntity();
+        entity.fiscalYear = fiscalYear;
+        entity.periodType = periodType;
+        entity.startDate = startDate;
+        entity.endDate = endDate;
+        entity.reportDate = reportDate;
+        entity.isAuditedPeriod = auditedPeriod;
+        return entity;
+    }
 }

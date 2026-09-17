@@ -124,6 +124,7 @@ public class IngestionJobCatalogService {
         equityJobs(jobs, "VNDIRECT", "vndirect", true, true);
         cafeFJobs(jobs);
         newsWorkflowJobs(jobs);
+        financialStatementBuildJob(jobs);
 
         return List.copyOf(jobs);
     }
@@ -276,6 +277,18 @@ public class IngestionJobCatalogService {
                         "NEWS_DATA",
                         EVERY_15_MINUTES,
                         "NEWS_ARTICLE_BUILD"));
+    }
+
+    /** Builds normalized statements from validated raw batches; it performs no upstream fetch. */
+    private void financialStatementBuildJob(List<JobDefinition> jobs) {
+        jobs.add(
+                workflowJob(
+                        "FINANCIAL_STATEMENT_BUILD",
+                        "Build normalized financial statements from validated batches",
+                        "PYTHON_GATEWAY",
+                        "FINANCIAL_STATEMENT",
+                        EVERY_15_MINUTES,
+                        "FINANCIAL_STATEMENT_BUILD"));
     }
 
     private JobDefinition job(

@@ -4,8 +4,9 @@ WORKDIR /app
 ENV MAVEN_OPTS="-Xmx1024m -XX:+TieredCompilation -XX:TieredStopAtLevel=1"
 
 COPY pom.xml .
+RUN mvn -B -DskipTests dependency:go-offline
 COPY src ./src
-RUN mvn clean package -U -DskipTests
+RUN mvn -B -DskipTests package
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app

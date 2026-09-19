@@ -37,12 +37,6 @@ public class ValidationRuleExecutionService {
     private final MarketIndexJpaRepository marketIndices;
     private final SecurityJpaRepository securities;
 
-    public ValidationRuleExecutionService(RawPayloadJpaRepository rawPayloads) {
-        this.rawPayloads = rawPayloads;
-        this.marketIndices = null;
-        this.securities = null;
-    }
-
     public ValidationRuleExecutionService(
             RawPayloadJpaRepository rawPayloads,
             MarketIndexJpaRepository marketIndices,

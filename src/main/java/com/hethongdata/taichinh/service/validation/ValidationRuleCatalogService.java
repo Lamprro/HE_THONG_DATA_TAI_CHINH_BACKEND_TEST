@@ -143,7 +143,30 @@ public class ValidationRuleCatalogService {
                         "{\"markers\":[\"error\",\"errors\",\"failed\"]}",
                         "Records an open validation result for a transport-success payload that carries an upstream error marker.")));
         all.addAll(newsDefinitions());
+        all.addAll(marketIndexDefinitions());
         return List.copyOf(all);
+    }
+
+    private List<Definition> marketIndexDefinitions() {
+        return List.of(
+                new Definition(
+                        "INDEX_OHLCV_PAYLOAD_VALID",
+                        "Valid market-index OHLCV payload",
+                        "MARKET_INDEX",
+                        "CRITICAL",
+                        "BUSINESS",
+                        "INDEX_OHLCV_PAYLOAD_VALID",
+                        "{\"interval\":\"1D\",\"zone\":\"Asia/Ho_Chi_Minh\"}",
+                        "Requires non-empty, duplicate-free daily rows with valid timestamps, OHLC and non-negative volume/value."),
+                new Definition(
+                        "INDEX_MEMBERS_PAYLOAD_VALID",
+                        "Valid market-index membership snapshot",
+                        "MARKET_INDEX",
+                        "CRITICAL",
+                        "BUSINESS",
+                        "INDEX_MEMBERS_PAYLOAD_VALID",
+                        "{\"symbolAliases\":[\"symbol\",\"ticker\",\"code\",\"organ_code\",\"stock_code\",\"stockCode\"]}",
+                        "Requires a non-empty snapshot with resolvable symbols and no conflicting duplicate weights."));
     }
 
     /** Shared with the controlled DB sync; rule configs are JSON objects, not executable code. */

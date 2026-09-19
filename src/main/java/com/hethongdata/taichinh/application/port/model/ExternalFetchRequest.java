@@ -44,6 +44,9 @@ public record ExternalFetchRequest(
         return switch (operation) {
             case QUOTE,
                             OHLCV,
+                            INDEX_OHLCV,
+                            INDEX_LATEST,
+                            INDEX_MEMBERS,
                             COMPANY,
                             FINANCIAL_STATEMENT,
                             RATIO,

@@ -4,7 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.hethongdata.taichinh.entity.ingestion.RawPayloadEntity;
 import com.hethongdata.taichinh.entity.validation.ValidationRuleEntity;
 import com.hethongdata.taichinh.repository.jpa.ingestion.RawPayloadJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.market.MarketIndexJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.master.SecurityJpaRepository;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -26,14 +29,31 @@ import javax.swing.text.html.HTML;
 import javax.swing.text.html.HTMLEditorKit;
 import javax.swing.text.html.parser.ParserDelegator;
 import java.util.regex.Pattern;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.Map;
+import java.time.Instant;
+import java.time.LocalDate;
 
 /** Executes the code registered by validation rules. */
 @Service
 public class ValidationRuleExecutionService {
     private final RawPayloadJpaRepository rawPayloads;
+    private final MarketIndexJpaRepository marketIndices;
+    private final SecurityJpaRepository securities;
 
     public ValidationRuleExecutionService(RawPayloadJpaRepository rawPayloads) {
+        this(rawPayloads, null, null);
+    }
+
+    @Autowired
+    public ValidationRuleExecutionService(
+            RawPayloadJpaRepository rawPayloads,
+            MarketIndexJpaRepository marketIndices,
+            SecurityJpaRepository securities) {
         this.rawPayloads = rawPayloads;
+        this.marketIndices = marketIndices;
+        this.securities = securities;
     }
 
     public Outcome execute(ValidationRuleEntity rule, RawPayloadEntity raw) {
@@ -60,6 +80,8 @@ public class ValidationRuleExecutionService {
             case "RAW_ENVELOPE_REQUIRED" -> envelope(raw.getPayload());
             case "DATA_COUNT_MATCH" -> dataCount(raw.getPayload());
             case "RAW_ERROR_MESSAGE" -> errorMessage(raw.getPayload(), raw.getRawText());
+            case "INDEX_OHLCV_PAYLOAD_VALID" -> indexOhlcv(raw);
+            case "INDEX_MEMBERS_PAYLOAD_VALID" -> indexMembers(raw);
             default -> new Outcome("SKIP", null, null,
                     "No executor registered for " + rule.getExecutorKey());
         };
@@ -143,6 +165,121 @@ public class ValidationRuleExecutionService {
             if (!payload.path(field).get(i).isObject())
                 return fail("payload." + field + "[" + i + "]", "object", "News list contains a non-object item");
         return new Outcome("PASS", null, null, "News list structure is valid");
+    }
+
+    private Outcome indexOhlcv(RawPayloadEntity raw) {
+        if (!"INDEX_OHLCV".equalsIgnoreCase(raw.getEntityType())
+                && !"INDEX_LATEST".equalsIgnoreCase(raw.getEntityType())) {
+            return new Outcome("SKIP", null, null, "Rule applies only to index price payloads");
+        }
+        JsonNode payload = raw.getPayload();
+        JsonNode data = payload == null ? null : payload.path("data");
+        if (data == null || !data.isArray() || data.isEmpty()) {
+            return fail("payload.data", "non-empty array", "Index OHLCV payload has no rows");
+        }
+        String interval = payload.path("interval").asText("1D");
+        if (!"1D".equalsIgnoreCase(interval)) {
+            return fail(interval, "1D", "Only daily index bars are supported");
+        }
+        String indexCode = firstTextValue(payload, "symbol", "index_code", "indexCode", "code");
+        if (indexCode == null) indexCode = raw.getSourceSymbol();
+        if (indexCode == null
+                || (marketIndices != null
+                        && marketIndices.findByCodeIgnoreCase(indexCode).isEmpty())) {
+            return fail(indexCode, "existing market_indices.code", "Market index master record was not found");
+        }
+        Set<String> naturalKeys = new HashSet<>();
+        for (int i = 0; i < data.size(); i++) {
+            JsonNode row = data.get(i);
+            String time = firstTextValue(row, "time", "timestamp", "date", "trading_date");
+            if (time == null || !validIndexTimestamp(time)) {
+                return fail("data[" + i + "].time=" + time, "ISO date/time", "Index timestamp is invalid");
+            }
+            if (!naturalKeys.add(time + "|1D")) {
+                return fail(time, "unique timestamp/interval", "Duplicate index bar in one payload");
+            }
+            BigDecimal open = firstDecimal(row, "open", "open_value", "open_price");
+            BigDecimal high = firstDecimal(row, "high", "high_value", "high_price");
+            BigDecimal low = firstDecimal(row, "low", "low_value", "low_price");
+            BigDecimal close = firstDecimal(row, "close", "close_value", "close_price");
+            if (open == null || high == null || low == null || close == null) {
+                return fail("data[" + i + "]", "finite open/high/low/close", "Required OHLC value is missing or invalid");
+            }
+            if (high.compareTo(open.max(close).max(low)) < 0
+                    || low.compareTo(open.min(close).min(high)) > 0) {
+                return fail("data[" + i + "]", "low <= open/close <= high", "Index OHLC bounds are invalid");
+            }
+            for (String field : List.of("volume", "trading_value", "tradingValue", "value")) {
+                BigDecimal value = decimal(row.get(field));
+                if (value != null && value.signum() < 0) {
+                    return fail(field + "=" + value, ">= 0", "Index volume/value cannot be negative");
+                }
+            }
+        }
+        return new Outcome("PASS", String.valueOf(data.size()), "> 0", "Index OHLCV payload is valid");
+    }
+
+    private Outcome indexMembers(RawPayloadEntity raw) {
+        if (!"INDEX_MEMBERS".equalsIgnoreCase(raw.getEntityType())) {
+            return new Outcome("SKIP", null, null, "Rule applies only to index membership payloads");
+        }
+        JsonNode payload = raw.getPayload();
+        JsonNode data = payload == null ? null : payload.path("data");
+        if (data == null || !data.isArray() || data.isEmpty()) {
+            return fail("payload.data", "non-empty array", "Index membership snapshot has no rows");
+        }
+        Map<String, BigDecimal> seen = new HashMap<>();
+        for (int i = 0; i < data.size(); i++) {
+            JsonNode row = data.get(i);
+            String symbol = firstTextValue(
+                    row, "symbol", "ticker", "code", "organ_code", "stock_code", "stockCode");
+            if (symbol == null || !symbol.toUpperCase(Locale.ROOT).matches("[A-Z0-9._-]{1,20}")) {
+                return fail("data[" + i + "]", "valid security symbol", "Index member symbol is missing or invalid");
+            }
+            symbol = symbol.toUpperCase(Locale.ROOT);
+            if (securities != null && securities.findBySymbolIgnoreCase(symbol).isEmpty()) {
+                return fail(symbol, "existing securities.symbol", "Index member security was not found");
+            }
+            BigDecimal weight = firstDecimal(row, "weight", "weight_percent", "weightPercent", "ratio");
+            if (weight != null && weight.signum() < 0) {
+                return fail(symbol + " weight=" + weight, ">= 0", "Index member weight cannot be negative");
+            }
+            if (seen.containsKey(symbol) && !java.util.Objects.equals(seen.get(symbol), weight)) {
+                return fail(symbol, "one consistent weight", "Duplicate member has conflicting weights");
+            }
+            seen.putIfAbsent(symbol, weight);
+        }
+        return new Outcome("PASS", String.valueOf(seen.size()), "> 0", "Index membership snapshot is valid");
+    }
+
+    private String firstTextValue(JsonNode node, String... fields) {
+        if (node == null || !node.isObject()) return null;
+        for (String field : fields) {
+            JsonNode value = node.get(field);
+            if (value != null && value.isValueNode() && !value.asText().isBlank()) {
+                return value.asText().trim();
+            }
+        }
+        return null;
+    }
+
+    private boolean validIndexTimestamp(String value) {
+        try {
+            Instant.parse(value);
+            return true;
+        } catch (DateTimeParseException ignored) {
+            try {
+                LocalDateTime.parse(value);
+                return true;
+            } catch (DateTimeParseException ignoredAgain) {
+                try {
+                    LocalDate.parse(value);
+                    return true;
+                } catch (DateTimeParseException ignoredDate) {
+                    return false;
+                }
+            }
+        }
     }
 
     private Outcome newsDate(JsonNode payload, JsonNode config) {

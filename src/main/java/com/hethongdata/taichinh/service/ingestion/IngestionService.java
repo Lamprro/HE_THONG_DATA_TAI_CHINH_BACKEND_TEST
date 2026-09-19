@@ -25,7 +25,7 @@ import org.springframework.stereotype.Service;
 
 import java.net.URI;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
@@ -39,6 +39,7 @@ public class IngestionService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(IngestionService.class);
     private static final TypeReference<Map<String, String>> STRING_MAP = new TypeReference<>() {};
+    private static final ZoneId VIETNAM_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
     private final ExternalFinancialDataPort externalFinancialDataPort;
     private final DataSourceRepository dataSourceRepository;
@@ -226,13 +227,13 @@ public class IngestionService {
         if (lookbackDays != null) {
             // A scheduled price job needs a moving window, not fixed calendar dates from its seed
             // definition.
-            endDate = LocalDate.now(ZoneOffset.UTC);
+            endDate = LocalDate.now(VIETNAM_ZONE);
             startDate = endDate.minusDays(lookbackDays);
         }
         return new ExternalFetchRequest(
                 operation,
                 provider,
-                optionalText(config, "symbol"),
+                firstText(config, "symbol", "indexCode"),
                 startDate,
                 endDate,
                 optionalText(config, "interval"),
@@ -252,6 +253,14 @@ public class IngestionService {
         return value == null || value.isNull() || value.asText().isBlank()
                 ? null
                 : value.asText().trim();
+    }
+
+    private String firstText(JsonNode node, String... fields) {
+        for (String field : fields) {
+            String value = optionalText(node, field);
+            if (value != null) return value;
+        }
+        return null;
     }
 
     private LocalDate parseDate(String value) {

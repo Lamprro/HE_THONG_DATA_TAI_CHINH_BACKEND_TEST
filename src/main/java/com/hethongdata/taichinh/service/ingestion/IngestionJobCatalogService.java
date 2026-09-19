@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.hethongdata.taichinh.common.AppParams;
 import com.hethongdata.taichinh.repository.ingestion.DataSourceRepository;
 import com.hethongdata.taichinh.repository.ingestion.IngestionJobRepository;
+import com.hethongdata.taichinh.service.market.MarketIndexCatalogService;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,19 +34,23 @@ public class IngestionJobCatalogService {
     private final DataSourceRepository dataSources;
     private final IngestionJobRepository ingestionJobs;
     private final ObjectMapper objectMapper;
+    private final MarketIndexCatalogService marketIndexCatalog;
 
     public IngestionJobCatalogService(
             DataSourceRepository dataSources,
             IngestionJobRepository ingestionJobs,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            MarketIndexCatalogService marketIndexCatalog) {
         this.dataSources = dataSources;
         this.ingestionJobs = ingestionJobs;
         this.objectMapper = objectMapper;
+        this.marketIndexCatalog = marketIndexCatalog;
     }
 
     @Transactional
     public int seed() {
         seedSources();
+        marketIndexCatalog.seed();
         // VnStock News requires a paid/API-key integration and is deliberately outside the free
         // Phase 1 catalog.
         ingestionJobs.deactivateByCodes(RETIRED_PAID_NEWS_JOB_CODES);
@@ -124,8 +129,68 @@ public class IngestionJobCatalogService {
         equityJobs(jobs, "VNDIRECT", "vndirect", true, true);
         cafeFJobs(jobs);
         newsWorkflowJobs(jobs);
+        marketIndexJobs(jobs);
 
         return List.copyOf(jobs);
+    }
+
+    private void marketIndexJobs(List<JobDefinition> jobs) {
+        for (String indexCode : List.of("VNINDEX", "VN30", "HNXINDEX")) {
+            jobs.add(
+                    indexJob(
+                            "VNSTOCK_" + indexCode + "_INDEX_OHLCV_DAILY",
+                            "VnStock " + indexCode + " daily index OHLCV",
+                            "VNSTOCK",
+                            WEEKDAY_AFTER_MARKET_CLOSE_UTC,
+                            "INDEX_OHLCV",
+                            indexCode,
+                            7));
+            jobs.add(
+                    indexJob(
+                            "VNSTOCK_" + indexCode + "_INDEX_MEMBERS_DAILY",
+                            "VnStock " + indexCode + " constituent snapshot",
+                            "VNSTOCK",
+                            "0 20 9 * * MON-FRI",
+                            "INDEX_MEMBERS",
+                            indexCode,
+                            null));
+        }
+        jobs.add(
+                workflowJob(
+                        "INDEX_PRICE_BUILD",
+                        "Build prices from validated market-index payloads",
+                        "VNSTOCK",
+                        "MARKET_INDEX",
+                        EVERY_15_MINUTES,
+                        "INDEX_PRICE_BUILD"));
+        jobs.add(
+                workflowJob(
+                        "INDEX_MEMBERSHIP_BUILD",
+                        "Build effective-dated index memberships",
+                        "VNSTOCK",
+                        "MARKET_INDEX",
+                        EVERY_15_MINUTES,
+                        "INDEX_MEMBERSHIP_BUILD"));
+    }
+
+    private JobDefinition indexJob(
+            String code,
+            String name,
+            String source,
+            String cron,
+            String operation,
+            String indexCode,
+            Integer lookbackDays) {
+        ObjectNode root =
+                objectMapper
+                        .createObjectNode()
+                        .put("operation", operation)
+                        .put("provider", "vnstock")
+                        .put("indexCode", indexCode)
+                        .put("interval", "1D");
+        if (lookbackDays != null) root.put("lookbackDays", lookbackDays);
+        root.putObject("parameters");
+        return new JobDefinition(code, name, source, "MARKET_INDEX", cron, root);
     }
 
     private void equityJobs(

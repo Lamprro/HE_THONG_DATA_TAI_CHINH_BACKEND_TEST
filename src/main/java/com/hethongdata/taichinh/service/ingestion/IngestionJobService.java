@@ -10,6 +10,7 @@ import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
 import com.hethongdata.taichinh.repository.ingestion.IngestionJobRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaRepository;
 import com.hethongdata.taichinh.service.news.NewsWorkflowService;
+import com.hethongdata.taichinh.service.market.MarketIndexWorkflowService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,18 +33,21 @@ public class IngestionJobService {
     private final IngestionService ingestionService;
     private final RetryBudgetService retryBudgetService;
     private final NewsWorkflowService newsWorkflowService;
+    private final MarketIndexWorkflowService marketIndexWorkflowService;
 
     public IngestionJobService(
             IngestionJobRepository ingestionJobs,
             IngestionRunJpaRepository ingestionRuns,
             IngestionService ingestionService,
             RetryBudgetService retryBudgetService,
-            NewsWorkflowService newsWorkflowService) {
+            NewsWorkflowService newsWorkflowService,
+            MarketIndexWorkflowService marketIndexWorkflowService) {
         this.ingestionJobs = ingestionJobs;
         this.ingestionRuns = ingestionRuns;
         this.ingestionService = ingestionService;
         this.retryBudgetService = retryBudgetService;
         this.newsWorkflowService = newsWorkflowService;
+        this.marketIndexWorkflowService = marketIndexWorkflowService;
     }
 
     public IngestionJobResponse create(CreateIngestionJobRequest request) {
@@ -152,10 +156,14 @@ public class IngestionJobService {
     private IngestionExecutionResponse executeWithBudget(
             IngestionJobEntity job, String triggerType) {
         try {
-            IngestionExecutionResponse response =
-                    newsWorkflowService.supports(job.getCode())
-                            ? newsWorkflowService.execute(job, triggerType)
-                            : ingestionService.ingestJob(job, triggerType);
+            IngestionExecutionResponse response;
+            if (newsWorkflowService.supports(job.getCode())) {
+                response = newsWorkflowService.execute(job, triggerType);
+            } else if (marketIndexWorkflowService.supports(job.getCode())) {
+                response = marketIndexWorkflowService.execute(job, triggerType);
+            } else {
+                response = ingestionService.ingestJob(job, triggerType);
+            }
             retryBudgetService.resetAfterSuccess(job);
             return response;
         } catch (IngestionExecutionException exception) {

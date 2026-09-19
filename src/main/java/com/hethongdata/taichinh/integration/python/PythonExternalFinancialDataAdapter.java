@@ -55,7 +55,8 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
     public URI resolveUri(ExternalFetchRequest request) {
         UriComponentsBuilder builder =
                 UriComponentsBuilder.fromUri(properties.getBaseUrl()).path(pathFor(request));
-        if (request.operation() == ExternalOperation.OHLCV) {
+        if (request.operation() == ExternalOperation.OHLCV
+                || request.operation() == ExternalOperation.INDEX_OHLCV) {
             addIfPresent(builder, "start", request.startDate());
             addIfPresent(builder, "end", request.endDate());
         }
@@ -154,6 +155,10 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
             case PROVIDERS -> "/api/v1/providers";
             case QUOTE -> equityPath(provider, symbol, "quote");
             case OHLCV -> equityPath(provider, symbol, "ohlcv");
+            case INDEX_LIST -> indexPath(provider, null, null);
+            case INDEX_OHLCV -> indexPath(provider, symbol, "ohlcv");
+            case INDEX_LATEST -> indexPath(provider, symbol, "latest");
+            case INDEX_MEMBERS -> indexPath(provider, symbol, "members");
             case COMPANY -> companyPath(provider, symbol);
             case FINANCIAL_STATEMENT ->
                     financialStatementPath(
@@ -176,6 +181,16 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
 
     private String equityPath(String provider, String symbol, String dataset) {
         return "/api/v1/" + equityProvider(provider) + "/equities/" + symbol + "/" + dataset;
+    }
+
+    private String indexPath(String provider, String indexCode, String dataset) {
+        if (!"vnstock".equals(provider)) {
+            throw new IllegalArgumentException(
+                    "Market-index endpoints currently support only provider vnstock");
+        }
+        String path = "/api/v1/vnstock/indices";
+        if (indexCode != null) path += "/" + indexCode;
+        return dataset == null ? path : path + "/" + dataset;
     }
 
     private String companyPath(String provider, String symbol) {

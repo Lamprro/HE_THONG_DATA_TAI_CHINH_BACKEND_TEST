@@ -6,8 +6,8 @@ import com.hethongdata.taichinh.entity.validation.ValidationRuleEntity;
 import com.hethongdata.taichinh.repository.jpa.ingestion.RawPayloadJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.market.MarketIndexJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.master.SecurityJpaRepository;
+import com.hethongdata.taichinh.service.market.MarketIndexPayloadParser;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -29,11 +29,6 @@ import javax.swing.text.html.HTML;
 import javax.swing.text.html.HTMLEditorKit;
 import javax.swing.text.html.parser.ParserDelegator;
 import java.util.regex.Pattern;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.Map;
-import java.time.Instant;
-import java.time.LocalDate;
 
 /** Executes the code registered by validation rules. */
 @Service
@@ -41,19 +36,17 @@ public class ValidationRuleExecutionService {
     private final RawPayloadJpaRepository rawPayloads;
     private final MarketIndexJpaRepository marketIndices;
     private final SecurityJpaRepository securities;
+    private final MarketIndexPayloadParser marketParser;
 
-    public ValidationRuleExecutionService(RawPayloadJpaRepository rawPayloads) {
-        this(rawPayloads, null, null);
-    }
-
-    @Autowired
     public ValidationRuleExecutionService(
             RawPayloadJpaRepository rawPayloads,
             MarketIndexJpaRepository marketIndices,
-            SecurityJpaRepository securities) {
+            SecurityJpaRepository securities,
+            MarketIndexPayloadParser marketParser) {
         this.rawPayloads = rawPayloads;
         this.marketIndices = marketIndices;
         this.securities = securities;
+        this.marketParser = marketParser;
     }
 
     public Outcome execute(ValidationRuleEntity rule, RawPayloadEntity raw) {
@@ -168,120 +161,45 @@ public class ValidationRuleExecutionService {
     }
 
     private Outcome indexOhlcv(RawPayloadEntity raw) {
-        if (!"INDEX_OHLCV".equalsIgnoreCase(raw.getEntityType())
-                && !"INDEX_LATEST".equalsIgnoreCase(raw.getEntityType())) {
-            return new Outcome("SKIP", null, null, "Rule applies only to index price payloads");
+        if (!"INDEX_OHLCV".equalsIgnoreCase(raw.getEntityType())) {
+            return new Outcome("SKIP", null, null, "Rule applies only to INDEX_OHLCV");
         }
-        JsonNode payload = raw.getPayload();
-        JsonNode data = payload == null ? null : payload.path("data");
-        if (data == null || !data.isArray() || data.isEmpty()) {
-            return fail("payload.data", "non-empty array", "Index OHLCV payload has no rows");
+        try {
+            var batch = marketParser.prices(raw.getPayload(), raw.getSourceSymbol());
+            if (marketIndices.findByCodeIgnoreCase(batch.indexCode()).isEmpty()) {
+                return fail(batch.indexCode(), "existing market_indices.code",
+                        "Chưa có chỉ số trong market_indices");
+            }
+            return new Outcome("PASS", String.valueOf(batch.rows().size()), "> 0",
+                    "Dữ liệu giá chỉ số hợp lệ");
+        } catch (IllegalArgumentException exception) {
+            return fail("payload", "valid INDEX_OHLCV", exception.getMessage());
         }
-        String interval = payload.path("interval").asText("1D");
-        if (!"1D".equalsIgnoreCase(interval)) {
-            return fail(interval, "1D", "Only daily index bars are supported");
-        }
-        String indexCode = firstTextValue(payload, "symbol", "index_code", "indexCode", "code");
-        if (indexCode == null) indexCode = raw.getSourceSymbol();
-        if (indexCode == null
-                || (marketIndices != null
-                        && marketIndices.findByCodeIgnoreCase(indexCode).isEmpty())) {
-            return fail(indexCode, "existing market_indices.code", "Market index master record was not found");
-        }
-        Set<String> naturalKeys = new HashSet<>();
-        for (int i = 0; i < data.size(); i++) {
-            JsonNode row = data.get(i);
-            String time = firstTextValue(row, "time", "timestamp", "date", "trading_date");
-            if (time == null || !validIndexTimestamp(time)) {
-                return fail("data[" + i + "].time=" + time, "ISO date/time", "Index timestamp is invalid");
-            }
-            if (!naturalKeys.add(time + "|1D")) {
-                return fail(time, "unique timestamp/interval", "Duplicate index bar in one payload");
-            }
-            BigDecimal open = firstDecimal(row, "open", "open_value", "open_price");
-            BigDecimal high = firstDecimal(row, "high", "high_value", "high_price");
-            BigDecimal low = firstDecimal(row, "low", "low_value", "low_price");
-            BigDecimal close = firstDecimal(row, "close", "close_value", "close_price");
-            if (open == null || high == null || low == null || close == null) {
-                return fail("data[" + i + "]", "finite open/high/low/close", "Required OHLC value is missing or invalid");
-            }
-            if (high.compareTo(open.max(close).max(low)) < 0
-                    || low.compareTo(open.min(close).min(high)) > 0) {
-                return fail("data[" + i + "]", "low <= open/close <= high", "Index OHLC bounds are invalid");
-            }
-            for (String field : List.of("volume", "trading_value", "tradingValue", "value")) {
-                BigDecimal value = decimal(row.get(field));
-                if (value != null && value.signum() < 0) {
-                    return fail(field + "=" + value, ">= 0", "Index volume/value cannot be negative");
-                }
-            }
-        }
-        return new Outcome("PASS", String.valueOf(data.size()), "> 0", "Index OHLCV payload is valid");
     }
 
     private Outcome indexMembers(RawPayloadEntity raw) {
         if (!"INDEX_MEMBERS".equalsIgnoreCase(raw.getEntityType())) {
-            return new Outcome("SKIP", null, null, "Rule applies only to index membership payloads");
+            return new Outcome("SKIP", null, null, "Rule applies only to INDEX_MEMBERS");
         }
-        JsonNode payload = raw.getPayload();
-        JsonNode data = payload == null ? null : payload.path("data");
-        if (data == null || !data.isArray() || data.isEmpty()) {
-            return fail("payload.data", "non-empty array", "Index membership snapshot has no rows");
-        }
-        Map<String, BigDecimal> seen = new HashMap<>();
-        for (int i = 0; i < data.size(); i++) {
-            JsonNode row = data.get(i);
-            String symbol = firstTextValue(
-                    row, "symbol", "ticker", "code", "organ_code", "stock_code", "stockCode");
-            if (symbol == null || !symbol.toUpperCase(Locale.ROOT).matches("[A-Z0-9._-]{1,20}")) {
-                return fail("data[" + i + "]", "valid security symbol", "Index member symbol is missing or invalid");
-            }
-            symbol = symbol.toUpperCase(Locale.ROOT);
-            if (securities != null && securities.findBySymbolIgnoreCase(symbol).isEmpty()) {
-                return fail(symbol, "existing securities.symbol", "Index member security was not found");
-            }
-            BigDecimal weight = firstDecimal(row, "weight", "weight_percent", "weightPercent", "ratio");
-            if (weight != null && weight.signum() < 0) {
-                return fail(symbol + " weight=" + weight, ">= 0", "Index member weight cannot be negative");
-            }
-            if (seen.containsKey(symbol) && !java.util.Objects.equals(seen.get(symbol), weight)) {
-                return fail(symbol, "one consistent weight", "Duplicate member has conflicting weights");
-            }
-            seen.putIfAbsent(symbol, weight);
-        }
-        return new Outcome("PASS", String.valueOf(seen.size()), "> 0", "Index membership snapshot is valid");
-    }
-
-    private String firstTextValue(JsonNode node, String... fields) {
-        if (node == null || !node.isObject()) return null;
-        for (String field : fields) {
-            JsonNode value = node.get(field);
-            if (value != null && value.isValueNode() && !value.asText().isBlank()) {
-                return value.asText().trim();
-            }
-        }
-        return null;
-    }
-
-    private boolean validIndexTimestamp(String value) {
         try {
-            Instant.parse(value);
-            return true;
-        } catch (DateTimeParseException ignored) {
-            try {
-                LocalDateTime.parse(value);
-                return true;
-            } catch (DateTimeParseException ignoredAgain) {
-                try {
-                    LocalDate.parse(value);
-                    return true;
-                } catch (DateTimeParseException ignoredDate) {
-                    return false;
+            var snapshot = marketParser.members(
+                    raw.getPayload(), raw.getSourceSymbol(), raw.getFetchedAt());
+            if (marketIndices.findByCodeIgnoreCase(snapshot.indexCode()).isEmpty()) {
+                return fail(snapshot.indexCode(), "existing market_indices.code",
+                        "Chưa có chỉ số trong market_indices");
+            }
+            for (var member : snapshot.rows()) {
+                if (securities.findBySymbolIgnoreCase(member.symbol()).isEmpty()) {
+                    return fail(member.symbol(), "existing securities.symbol",
+                            "Chưa có mã chứng khoán thành viên trong securities");
                 }
             }
+            return new Outcome("PASS", String.valueOf(snapshot.rows().size()), "> 0",
+                    "Snapshot thành viên chỉ số hợp lệ");
+        } catch (IllegalArgumentException exception) {
+            return fail("payload", "valid INDEX_MEMBERS", exception.getMessage());
         }
     }
-
     private Outcome newsDate(JsonNode payload, JsonNode config) {
         String field = config.required("field").asText();
         DateTimeFormatter format = DateTimeFormatter.ofPattern(config.required("format").asText())

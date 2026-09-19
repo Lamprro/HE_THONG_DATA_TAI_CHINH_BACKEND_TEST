@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.hethongdata.taichinh.entity.ingestion.RawPayloadEntity;
 import com.hethongdata.taichinh.entity.validation.ValidationRuleEntity;
 import com.hethongdata.taichinh.repository.jpa.ingestion.RawPayloadJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.market.MarketIndexJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.master.SecurityJpaRepository;
+import com.hethongdata.taichinh.entity.MarketIndexEntity;
 
 import org.springframework.stereotype.Service;
 
@@ -31,9 +34,22 @@ import java.util.regex.Pattern;
 @Service
 public class ValidationRuleExecutionService {
     private final RawPayloadJpaRepository rawPayloads;
+    private final MarketIndexJpaRepository marketIndices;
+    private final SecurityJpaRepository securities;
 
     public ValidationRuleExecutionService(RawPayloadJpaRepository rawPayloads) {
         this.rawPayloads = rawPayloads;
+        this.marketIndices = null;
+        this.securities = null;
+    }
+
+    public ValidationRuleExecutionService(
+            RawPayloadJpaRepository rawPayloads,
+            MarketIndexJpaRepository marketIndices,
+            SecurityJpaRepository securities) {
+        this.rawPayloads = rawPayloads;
+        this.marketIndices = marketIndices;
+        this.securities = securities;
     }
 
     public Outcome execute(ValidationRuleEntity rule, RawPayloadEntity raw) {
@@ -60,9 +76,70 @@ public class ValidationRuleExecutionService {
             case "RAW_ENVELOPE_REQUIRED" -> envelope(raw.getPayload());
             case "DATA_COUNT_MATCH" -> dataCount(raw.getPayload());
             case "RAW_ERROR_MESSAGE" -> errorMessage(raw.getPayload(), raw.getRawText());
+            case "INDEX_OHLCV_PAYLOAD_VALID" -> indexOhlcv(raw);
+            case "INDEX_MEMBERS_PAYLOAD_VALID" -> indexMembers(raw);
             default -> new Outcome("SKIP", null, null,
                     "No executor registered for " + rule.getExecutorKey());
         };
+    }
+
+    private Outcome indexOhlcv(RawPayloadEntity raw) {
+        JsonNode payload = raw.getPayload();
+        if (payload == null || !payload.isObject() || !payload.path("data").isArray()
+                || payload.path("data").isEmpty()) {
+            return fail("data", "non-empty array", "Index OHLCV payload is empty");
+        }
+        String symbol = payload.path("symbol").asText(raw.getSourceSymbol()).toUpperCase(Locale.ROOT);
+        if (marketIndices != null && marketIndices.findByCodeIgnoreCase(symbol).isEmpty()) {
+            return fail("symbol", symbol, "Market index was not found");
+        }
+        if (!"1D".equalsIgnoreCase(payload.path("interval").asText("1D"))) {
+            return fail("interval", "1D", "Only daily index bars are supported");
+        }
+        java.util.Set<String> timestamps = new java.util.HashSet<>();
+        for (JsonNode row : payload.path("data")) {
+            String timestamp = row.has("time") ? row.path("time").asText() : row.path("date").asText();
+            if (timestamp.isBlank() || !timestamps.add(timestamp)) {
+                return fail("time", timestamp, "Duplicate or missing index timestamp");
+            }
+            BigDecimal open = decimal(row.get("open"));
+            BigDecimal high = decimal(row.get("high"));
+            BigDecimal low = decimal(row.get("low"));
+            BigDecimal close = decimal(row.get("close"));
+            if (open == null || high == null || low == null || close == null) {
+                return fail("ohlc", "open/high/low/close", "Index OHLC fields are required");
+            }
+            if (low.compareTo(high) > 0 || open.compareTo(low) < 0 || open.compareTo(high) > 0
+                    || close.compareTo(low) < 0 || close.compareTo(high) > 0) {
+                return fail("ohlc", "valid bounds", "Index OHLC bounds are invalid");
+            }
+        }
+        return new Outcome("PASS", null, null, "Index OHLCV payload is valid");
+    }
+
+    private Outcome indexMembers(RawPayloadEntity raw) {
+        JsonNode payload = raw.getPayload();
+        if (payload == null || !payload.path("data").isArray() || payload.path("data").isEmpty()) {
+            return fail("data", "non-empty array", "Index membership payload is empty");
+        }
+        java.util.Set<String> symbols = new java.util.HashSet<>();
+        for (JsonNode row : payload.path("data")) {
+            String symbol = firstText(row, "symbol", "ticker", "stockCode");
+            if (symbol == null || !symbols.add(symbol.toUpperCase(Locale.ROOT))) {
+                return fail("symbol", symbol, "Duplicate or missing membership symbol");
+            }
+            if (securities != null && securities.findBySymbolIgnoreCase(symbol).isEmpty()) {
+                return fail("symbol", symbol, "security was not found");
+            }
+        }
+        return new Outcome("PASS", null, null, "Index membership payload is valid");
+    }
+
+    private String firstText(JsonNode node, String... keys) {
+        for (String key : keys) {
+            if (node.hasNonNull(key) && !node.path(key).asText().isBlank()) return node.path(key).asText().trim();
+        }
+        return null;
     }
 
     private Outcome nonNegative(JsonNode payload) {

@@ -179,6 +179,17 @@ public class IngestionRunEntity {
         this.metadata = metadata;
     }
 
+    public void markWorkflowSuccess(
+            JsonNode metadata, Instant finishedAt, int fetchedCount,
+            int insertedCount, int updatedCount) {
+        this.status = IngestionRunStatus.SUCCESS;
+        this.finishedAt = finishedAt;
+        this.fetchedCount = fetchedCount;
+        this.insertedCount = insertedCount;
+        this.updatedCount = updatedCount;
+        this.metadata = metadata;
+    }
+
     public void markBatchSuccess(JsonNode metadata, Instant finishedAt, int itemCount) {
         status = IngestionRunStatus.SUCCESS;
         this.finishedAt = finishedAt;

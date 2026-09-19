@@ -48,4 +48,30 @@ public class MarketIndexEntity {
 
     @Column(name = "created_at")
     private Instant createdAt;
+
+    public static MarketIndexEntity create(
+            String code, String name, String exchange, String currency, String description,
+            boolean benchmark, boolean active) {
+        MarketIndexEntity entity = new MarketIndexEntity();
+        entity.code = code;
+        entity.name = name;
+        entity.exchange = exchange;
+        entity.currency = currency;
+        entity.description = description;
+        entity.isBenchmark = benchmark;
+        entity.isActive = active;
+        entity.createdAt = Instant.now();
+        return entity;
+    }
+
+    public void update(
+            String name, String exchange, String currency, String description,
+            boolean benchmark, boolean active) {
+        this.name = name;
+        this.exchange = exchange;
+        this.currency = currency;
+        this.description = description;
+        this.isBenchmark = benchmark;
+        this.isActive = active;
+    }
 }

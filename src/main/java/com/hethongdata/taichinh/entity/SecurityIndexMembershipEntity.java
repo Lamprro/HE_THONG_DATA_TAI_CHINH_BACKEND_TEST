@@ -44,4 +44,28 @@ public class SecurityIndexMembershipEntity {
 
     @Column(name = "created_at")
     private Instant createdAt;
+
+    public static SecurityIndexMembershipEntity open(
+            UUID securityId, UUID marketIndexId, LocalDate effectiveFrom, BigDecimal weight) {
+        SecurityIndexMembershipEntity entity = new SecurityIndexMembershipEntity();
+        entity.securityId = securityId;
+        entity.marketIndexId = marketIndexId;
+        entity.effectiveFrom = effectiveFrom;
+        entity.weight = weight;
+        entity.createdAt = Instant.now();
+        return entity;
+    }
+
+    public void close(LocalDate effectiveTo) {
+        this.effectiveTo = effectiveTo;
+    }
+
+    public void correctSameDay(BigDecimal newWeight) {
+        this.weight = newWeight;
+    }
+
+    public void reopenSameDay(BigDecimal newWeight) {
+        this.weight = newWeight;
+        this.effectiveTo = null;
+    }
 }

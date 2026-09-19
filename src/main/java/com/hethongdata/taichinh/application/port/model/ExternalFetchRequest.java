@@ -19,7 +19,7 @@ public record ExternalFetchRequest(
 
     public ExternalFetchRequest {
         if (operation == null) {
-            throw new IllegalArgumentException("operation is required");
+            throw new IllegalArgumentException("Thiếu tham số operation.");
         }
         provider = normalizeProvider(provider);
         symbol = normalizeSymbol(symbol);
@@ -27,16 +27,16 @@ public record ExternalFetchRequest(
         parameters = parameters == null ? Map.of() : Map.copyOf(parameters);
 
         if (requiresSymbol(operation) && symbol == null) {
-            throw new IllegalArgumentException("symbol is required for " + operation);
+            throw new IllegalArgumentException("Thiếu mã chứng khoán symbol cho thao tác " + operation + ".");
         }
         if (requiresProvider(operation) && provider == null) {
-            throw new IllegalArgumentException("provider is required for " + operation);
+            throw new IllegalArgumentException("Thiếu nhà cung cấp provider cho thao tác " + operation + ".");
         }
         if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
-            throw new IllegalArgumentException("startDate must not be after endDate");
+            throw new IllegalArgumentException("Ngày bắt đầu không được sau ngày kết thúc.");
         }
         if (startDate != null && endDate != null && startDate.plusYears(10).isBefore(endDate)) {
-            throw new IllegalArgumentException("date range must not exceed 10 years");
+            throw new IllegalArgumentException("Khoảng thời gian truy vấn không được vượt quá 10 năm.");
         }
     }
 
@@ -44,6 +44,9 @@ public record ExternalFetchRequest(
         return switch (operation) {
             case QUOTE,
                             OHLCV,
+                            INDEX_OHLCV,
+                            INDEX_LATEST,
+                            INDEX_MEMBERS,
                             COMPANY,
                             FINANCIAL_STATEMENT,
                             RATIO,
@@ -85,7 +88,7 @@ public record ExternalFetchRequest(
         }
         normalized = normalized.toUpperCase(Locale.ROOT);
         if (!normalized.matches("[A-Z0-9._-]{1,20}")) {
-            throw new IllegalArgumentException("symbol contains unsupported characters");
+            throw new IllegalArgumentException("Mã chứng khoán chứa ký tự không được hỗ trợ.");
         }
         return normalized;
     }

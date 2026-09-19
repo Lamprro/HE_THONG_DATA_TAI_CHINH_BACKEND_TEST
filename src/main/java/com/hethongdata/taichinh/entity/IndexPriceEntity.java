@@ -64,4 +64,43 @@ public class IndexPriceEntity {
 
     @Column(name = "interval_code")
     private String intervalCode;
+
+    public static IndexPriceEntity create(
+            UUID marketIndexId, Instant timestamp, String interval, BigDecimal open,
+            BigDecimal high, BigDecimal low, BigDecimal close, BigDecimal volume,
+            BigDecimal tradingValue, Long dataSourceId, UUID rawPayloadId, UUID dataVersionId) {
+        IndexPriceEntity entity = new IndexPriceEntity();
+        entity.marketIndexId = marketIndexId;
+        entity.priceTimestamp = timestamp;
+        entity.intervalCode = interval;
+        entity.openValue = open;
+        entity.highValue = high;
+        entity.lowValue = low;
+        entity.closeValue = close;
+        entity.volume = volume;
+        entity.tradingValue = tradingValue;
+        entity.dataSourceId = dataSourceId;
+        entity.rawPayloadId = rawPayloadId;
+        entity.dataVersionId = dataVersionId;
+        entity.isCanonical = false;
+        entity.createdAt = Instant.now();
+        return entity;
+    }
+
+    public void applyCorrection(
+            BigDecimal open, BigDecimal high, BigDecimal low, BigDecimal close,
+            BigDecimal volume, BigDecimal tradingValue, UUID rawPayloadId, UUID dataVersionId) {
+        this.openValue = open;
+        this.highValue = high;
+        this.lowValue = low;
+        this.closeValue = close;
+        this.volume = volume;
+        this.tradingValue = tradingValue;
+        this.rawPayloadId = rawPayloadId;
+        this.dataVersionId = dataVersionId;
+    }
+
+    public void setCanonical(boolean canonical) {
+        this.isCanonical = canonical;
+    }
 }

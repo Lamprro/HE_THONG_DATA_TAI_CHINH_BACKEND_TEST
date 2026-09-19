@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.hethongdata.taichinh.entity.ingestion.RawPayloadEntity;
 import com.hethongdata.taichinh.entity.validation.ValidationRuleEntity;
 import com.hethongdata.taichinh.repository.jpa.ingestion.RawPayloadJpaRepository;
-import com.hethongdata.taichinh.repository.jpa.market.MarketIndexJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.MarketIndexJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.master.SecurityJpaRepository;
 import com.hethongdata.taichinh.entity.MarketIndexEntity;
 

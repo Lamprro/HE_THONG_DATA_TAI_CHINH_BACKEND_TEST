@@ -7,6 +7,10 @@ import com.hethongdata.taichinh.entity.ingestion.RawPayloadEntity;
 import com.hethongdata.taichinh.entity.ingestion.DataSourceEntity;
 import com.hethongdata.taichinh.entity.validation.ValidationRuleEntity;
 import com.hethongdata.taichinh.repository.jpa.ingestion.RawPayloadJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.market.MarketIndexJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.master.SecurityJpaRepository;
+import com.hethongdata.taichinh.service.market.MarketIndexPayloadParser;
+import com.hethongdata.taichinh.service.market.MarketPricePayloadParser;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -19,7 +23,9 @@ import static org.mockito.Mockito.*;
 class NewsValidationRulesTests {
     private static final ObjectMapper JSON = new ObjectMapper();
     private final ValidationRuleExecutionService executor =
-            new ValidationRuleExecutionService(mock(RawPayloadJpaRepository.class));
+            new ValidationRuleExecutionService(mock(RawPayloadJpaRepository.class),
+                    mock(MarketIndexJpaRepository.class), mock(SecurityJpaRepository.class),
+                    new MarketIndexPayloadParser(), new MarketPricePayloadParser());
 
     static Stream<String> catalogCodes() throws Exception {
         try (var input = NewsValidationRulesTests.class.getResourceAsStream("/validation/news-rules.json")) {

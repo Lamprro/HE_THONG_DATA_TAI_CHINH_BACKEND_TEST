@@ -19,7 +19,7 @@ import com.hethongdata.taichinh.repository.ingestion.IngestionRunRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.RawPayloadJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.validation.DataVersionJpaRepository;
 import com.hethongdata.taichinh.service.ingestion.ChecksumService;
-import com.hethongdata.taichinh.service.ingestion.IngestionExecutionException;
+import com.hethongdata.taichinh.service.validation.DataVersionLifecycleService;
 
 import org.springframework.stereotype.Service;
 
@@ -58,6 +58,7 @@ public class NewsWorkflowService {
     private final NewsWorkflowPersistenceService writes;
     private final ChecksumService checksums;
     private final ObjectMapper objectMapper;
+    private final DataVersionLifecycleService lifecycle;
 
     public NewsWorkflowService(
             DataVersionJpaRepository versions,
@@ -66,7 +67,8 @@ public class NewsWorkflowService {
             ExternalFinancialDataPort externalPort,
             NewsWorkflowPersistenceService writes,
             ChecksumService checksums,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            DataVersionLifecycleService lifecycle) {
         this.versions = versions;
         this.rawPayloads = rawPayloads;
         this.ingestionRuns = ingestionRuns;
@@ -74,6 +76,7 @@ public class NewsWorkflowService {
         this.writes = writes;
         this.checksums = checksums;
         this.objectMapper = objectMapper;
+        this.lifecycle = lifecycle;
     }
 
     public boolean supports(String code) {
@@ -95,6 +98,7 @@ public class NewsWorkflowService {
 
         UUID firstRawId = null;
         UUID latestRunId = null;
+        int rejected = 0;
         for (DataVersionEntity version : candidates) {
             IngestionRunEntity run = ingestionRuns.startInternalBatch(job.getDataSource(), job, triggerType, NEWS_DATA_FETCH);
             latestRunId = run.getId();
@@ -117,15 +121,17 @@ public class NewsWorkflowService {
                 if (firstRawId == null && !rawIds.isEmpty()) firstRawId = rawIds.getFirst();
             } catch (ExternalFetchException exception) {
                 ingestionRuns.markFailed(run, exception.category().name(), exception.upstreamStatus(), exception.getMessage());
-                throw new IngestionExecutionException(
-                        run.getId(), exception.category(), exception.upstreamStatus(), exception.getMessage(), exception);
+                lifecycle.rejectBuildFailure(version.getId(), NEWS_DATA_FETCH, exception);
+                rejected++;
             } catch (RuntimeException exception) {
                 ingestionRuns.markFailed(run, ExternalErrorCategory.PROTOCOL.name(), null, "NEWS_DATA_FETCH failed");
-                throw new IngestionExecutionException(
-                        run.getId(), ExternalErrorCategory.PROTOCOL, null, "NEWS_DATA_FETCH failed", exception);
+                lifecycle.rejectBuildFailure(version.getId(), NEWS_DATA_FETCH, exception);
+                rejected++;
             }
         }
-        return new IngestionExecutionResponse(latestRunId, firstRawId, "SUCCESS", 200, "application/json", null, false);
+        return new IngestionExecutionResponse(latestRunId, firstRawId,
+                rejected == 0 ? "SUCCESS" : "COMPLETED_WITH_REJECTIONS",
+                200, "application/json", null, false);
     }
 
     private IngestionExecutionResponse buildArticles(IngestionJobEntity job, String triggerType) {
@@ -134,6 +140,7 @@ public class NewsWorkflowService {
         if (candidates.isEmpty()) return noWork(job, triggerType, NEWS_ARTICLE_BUILD);
 
         UUID latestRunId = null;
+        int rejected = 0;
         for (DataVersionEntity version : candidates) {
             IngestionRunEntity run = ingestionRuns.startInternalBatch(job.getDataSource(), job, triggerType, NEWS_ARTICLE_BUILD);
             latestRunId = run.getId();
@@ -146,11 +153,13 @@ public class NewsWorkflowService {
                 writes.persistBuiltArticles(version.getId(), run, payloads, this::articleDraft);
             } catch (RuntimeException exception) {
                 ingestionRuns.markFailed(run, ExternalErrorCategory.PROTOCOL.name(), null, "NEWS_ARTICLE_BUILD failed");
-                throw new IngestionExecutionException(
-                        run.getId(), ExternalErrorCategory.PROTOCOL, null, "NEWS_ARTICLE_BUILD failed", exception);
+                lifecycle.rejectBuildFailure(version.getId(), NEWS_ARTICLE_BUILD, exception);
+                rejected++;
             }
         }
-        return new IngestionExecutionResponse(latestRunId, null, "SUCCESS", 200, "application/json", null, false);
+        return new IngestionExecutionResponse(latestRunId, null,
+                rejected == 0 ? "SUCCESS" : "COMPLETED_WITH_REJECTIONS",
+                200, "application/json", null, false);
     }
 
     private IngestionExecutionResponse noWork(IngestionJobEntity job, String triggerType, String workflow) {

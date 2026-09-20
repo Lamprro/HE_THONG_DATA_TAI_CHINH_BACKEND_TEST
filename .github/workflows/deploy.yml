@@ -5,9 +5,14 @@ on:
   push:
     branches: [ main, master ]
 
+concurrency:
+  group: backend-deploy
+  cancel-in-progress: true
+
 jobs:
   deploy:
     runs-on: self-hosted
+    timeout-minutes: 20
 
     steps:
       - name: Checkout Code
@@ -15,6 +20,29 @@ jobs:
 
       - name: Deploy with Docker Compose
         run: |
-          docker compose down
-          docker compose build --no-cache
-          docker compose up -d
+          set -euo pipefail
+          # Keep the server's Docker/Maven cache between deployments.
+          # The changed service is recreated by compose without taking the
+          # whole project down first.
+          docker compose build
+          docker compose up -d --remove-orphans
+
+          # Fail the workflow if the newly started API never becomes healthy.
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8080/api/health; then
+              echo "Backend health check passed."
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              docker compose logs --tail=120 app
+              exit 1
+            fi
+            sleep 2
+          done
+
+          # Remove only dangling layers; keep tagged images for rollback.
+          docker image prune --force
+
+      - name: Show deployed containers
+        if: always()
+        run: docker compose ps

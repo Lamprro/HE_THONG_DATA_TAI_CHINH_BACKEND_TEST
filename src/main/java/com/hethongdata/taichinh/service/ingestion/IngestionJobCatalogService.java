@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.hethongdata.taichinh.common.AppParams;
 import com.hethongdata.taichinh.repository.ingestion.DataSourceRepository;
 import com.hethongdata.taichinh.repository.ingestion.IngestionJobRepository;
+import com.hethongdata.taichinh.service.market.IndexJobProvisioningService;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,25 +34,29 @@ public class IngestionJobCatalogService {
     private final DataSourceRepository dataSources;
     private final IngestionJobRepository ingestionJobs;
     private final ObjectMapper objectMapper;
+    private final IndexJobProvisioningService indexJobs;
 
     public IngestionJobCatalogService(
             DataSourceRepository dataSources,
             IngestionJobRepository ingestionJobs,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            IndexJobProvisioningService indexJobs) {
         this.dataSources = dataSources;
         this.ingestionJobs = ingestionJobs;
         this.objectMapper = objectMapper;
+        this.indexJobs = indexJobs;
     }
 
     @Transactional
     public int seed() {
         seedSources();
+        int indexJobCount = indexJobs.seed();
         // VnStock News requires a paid/API-key integration and is deliberately outside the free
         // Phase 1 catalog.
         ingestionJobs.deactivateByCodes(RETIRED_PAID_NEWS_JOB_CODES);
         List<JobDefinition> definitions = definitions();
         definitions.forEach(this::upsert);
-        return definitions.size();
+        return definitions.size() + indexJobCount;
     }
 
     private void seedSources() {
@@ -123,6 +128,14 @@ public class IngestionJobCatalogService {
         equityJobs(jobs, "VNSTOCK", "vnstock", true, false);
         equityJobs(jobs, "VNDIRECT", "vndirect", true, true);
         cafeFJobs(jobs);
+        jobs.add(
+                workflowJob(
+                        "MARKET_PRICE_BUILD",
+                        "Build validated quote and OHLCV data",
+                        "PYTHON_GATEWAY",
+                        "MARKET_PRICE",
+                        EVERY_15_MINUTES,
+                        "MARKET_PRICE_BUILD"));
         newsWorkflowJobs(jobs);
         financialStatementBuildJob(jobs);
 

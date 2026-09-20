@@ -273,6 +273,7 @@ public class ValidationJobService {
     private String domain(RawPayloadEntity raw) {
         return switch (raw.getEntityType().toUpperCase(Locale.ROOT)) {
             case "QUOTE", "OHLCV", "RATIO" -> "MARKET_PRICE";
+            case "INDEX_OHLCV", "INDEX_LATEST", "INDEX_MEMBERS" -> "MARKET_INDEX";
             case "FINANCIAL_STATEMENT" -> "FINANCIAL_STATEMENT";
             case "NEWS", "NEWS_COMPANY" -> "NEWS";
             case "NEWS_DATA" -> "NEWS_DATA";

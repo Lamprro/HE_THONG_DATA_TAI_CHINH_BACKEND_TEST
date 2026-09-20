@@ -2,6 +2,8 @@ package com.hethongdata.taichinh.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
@@ -20,6 +22,7 @@ import java.util.UUID;
 public class MarketPriceEntity {
 
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "id")
     private Long id;
 
@@ -85,4 +88,110 @@ public class MarketPriceEntity {
 
     @Column(name = "interval_code")
     private String intervalCode;
+
+    public static MarketPriceEntity create(
+            UUID securityId,
+            Instant priceTimestamp,
+            String intervalCode,
+            BigDecimal openPrice,
+            BigDecimal highPrice,
+            BigDecimal lowPrice,
+            BigDecimal closePrice,
+            BigDecimal adjustedClose,
+            BigDecimal referencePrice,
+            BigDecimal ceilingPrice,
+            BigDecimal floorPrice,
+            BigDecimal volume,
+            BigDecimal tradingValue,
+            BigDecimal foreignBuyVolume,
+            BigDecimal foreignSellVolume,
+            Long dataSourceId,
+            UUID rawPayloadId,
+            UUID dataVersionId) {
+        MarketPriceEntity entity = new MarketPriceEntity();
+        entity.securityId = securityId;
+        entity.priceTimestamp = priceTimestamp;
+        entity.intervalCode = intervalCode;
+        entity.dataSourceId = dataSourceId;
+        entity.isCanonical = false;
+        entity.createdAt = Instant.now();
+        entity.updatedAt = entity.createdAt;
+        entity.applyValues(openPrice, highPrice, lowPrice, closePrice, adjustedClose,
+                referencePrice, ceilingPrice, floorPrice, volume, tradingValue,
+                foreignBuyVolume, foreignSellVolume, rawPayloadId, dataVersionId, false);
+        return entity;
+    }
+
+    /** Merges a newer observation so a partial quote does not erase known fields. */
+    public boolean applyCorrection(
+            BigDecimal openPrice,
+            BigDecimal highPrice,
+            BigDecimal lowPrice,
+            BigDecimal closePrice,
+            BigDecimal adjustedClose,
+            BigDecimal referencePrice,
+            BigDecimal ceilingPrice,
+            BigDecimal floorPrice,
+            BigDecimal volume,
+            BigDecimal tradingValue,
+            BigDecimal foreignBuyVolume,
+            BigDecimal foreignSellVolume,
+            UUID rawPayloadId,
+            UUID dataVersionId) {
+        return applyValues(openPrice, highPrice, lowPrice, closePrice, adjustedClose,
+                referencePrice, ceilingPrice, floorPrice, volume, tradingValue,
+                foreignBuyVolume, foreignSellVolume, rawPayloadId, dataVersionId, true);
+    }
+
+    public void setCanonical(boolean canonical) {
+        isCanonical = canonical;
+    }
+
+    private boolean applyValues(
+            BigDecimal openPrice,
+            BigDecimal highPrice,
+            BigDecimal lowPrice,
+            BigDecimal closePrice,
+            BigDecimal adjustedClose,
+            BigDecimal referencePrice,
+            BigDecimal ceilingPrice,
+            BigDecimal floorPrice,
+            BigDecimal volume,
+            BigDecimal tradingValue,
+            BigDecimal foreignBuyVolume,
+            BigDecimal foreignSellVolume,
+            UUID rawPayloadId,
+            UUID dataVersionId,
+            boolean mergeNulls) {
+        boolean changed = false;
+        changed |= setIfDifferent(this.openPrice, openPrice, value -> this.openPrice = value, mergeNulls);
+        changed |= setIfDifferent(this.highPrice, highPrice, value -> this.highPrice = value, mergeNulls);
+        changed |= setIfDifferent(this.lowPrice, lowPrice, value -> this.lowPrice = value, mergeNulls);
+        changed |= setIfDifferent(this.closePrice, closePrice, value -> this.closePrice = value, mergeNulls);
+        changed |= setIfDifferent(this.adjustedClose, adjustedClose, value -> this.adjustedClose = value, mergeNulls);
+        changed |= setIfDifferent(this.referencePrice, referencePrice, value -> this.referencePrice = value, mergeNulls);
+        changed |= setIfDifferent(this.ceilingPrice, ceilingPrice, value -> this.ceilingPrice = value, mergeNulls);
+        changed |= setIfDifferent(this.floorPrice, floorPrice, value -> this.floorPrice = value, mergeNulls);
+        changed |= setIfDifferent(this.volume, volume, value -> this.volume = value, mergeNulls);
+        changed |= setIfDifferent(this.tradingValue, tradingValue, value -> this.tradingValue = value, mergeNulls);
+        changed |= setIfDifferent(this.foreignBuyVolume, foreignBuyVolume,
+                value -> this.foreignBuyVolume = value, mergeNulls);
+        changed |= setIfDifferent(this.foreignSellVolume, foreignSellVolume,
+                value -> this.foreignSellVolume = value, mergeNulls);
+        if (changed || !mergeNulls) {
+            this.rawPayloadId = rawPayloadId;
+            this.dataVersionId = dataVersionId;
+            this.updatedAt = Instant.now();
+        }
+        return changed;
+    }
+
+    private boolean setIfDifferent(BigDecimal current, BigDecimal incoming,
+            java.util.function.Consumer<BigDecimal> setter, boolean mergeNulls) {
+        if (incoming == null && mergeNulls) return false;
+        boolean different = current == null ? incoming != null
+                : incoming == null || current.compareTo(incoming) != 0;
+        if (different) setter.accept(incoming);
+        return different;
+    }
 }

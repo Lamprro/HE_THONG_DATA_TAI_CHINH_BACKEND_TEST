@@ -18,10 +18,10 @@ public record ExternalFetchResponse(
 
     public ExternalFetchResponse {
         if (operation == null || sourceUri == null || fetchedAt == null) {
-            throw new IllegalArgumentException("operation, sourceUri and fetchedAt are required");
+            throw new IllegalArgumentException("Thiếu operation, sourceUri hoặc fetchedAt.");
         }
         if (httpStatus < 100 || httpStatus > 599) {
-            throw new IllegalArgumentException("invalid HTTP status: " + httpStatus);
+            throw new IllegalArgumentException("Mã HTTP không hợp lệ: " + httpStatus);
         }
         provider = provider == null ? "unknown" : provider;
         contentType = contentType == null ? "application/octet-stream" : contentType;

@@ -5,6 +5,10 @@ import com.hethongdata.taichinh.entity.NewsArticleEntity;
 import com.hethongdata.taichinh.entity.FinancialPeriodEntity;
 import com.hethongdata.taichinh.entity.FinancialStatementEntity;
 import com.hethongdata.taichinh.entity.FinancialStatementItemEntity;
+import com.hethongdata.taichinh.entity.IndexPriceEntity;
+import com.hethongdata.taichinh.entity.MarketIndexEntity;
+import com.hethongdata.taichinh.entity.MarketPriceEntity;
+import com.hethongdata.taichinh.entity.SecurityIndexMembershipEntity;
 import com.hethongdata.taichinh.entity.ingestion.DataSourceEntity;
 import com.hethongdata.taichinh.entity.ingestion.IngestionJobEntity;
 import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
@@ -24,6 +28,10 @@ import com.hethongdata.taichinh.repository.jpa.financial.FinancialStatementItemJ
 import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionJobJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.RawPayloadJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.market.IndexPriceJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.market.MarketIndexJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.market.MarketPriceJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.market.SecurityIndexMembershipJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.master.CompanyAliasJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.master.CompanyJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.master.SecurityJpaRepository;
@@ -47,7 +55,10 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
             ValidationRuleEntity.class, ValidationResultEntity.class, DataVersionEntity.class,
             CompanyEntity.class, CompanyAliasEntity.class, SecurityEntity.class,
             NewsArticleEntity.class, NewsArticleCompanyEntity.class,
-            FinancialPeriodEntity.class, FinancialStatementEntity.class, FinancialStatementItemEntity.class
+            FinancialPeriodEntity.class, FinancialStatementEntity.class,
+                    FinancialStatementItemEntity.class,
+            MarketIndexEntity.class, IndexPriceEntity.class, MarketPriceEntity.class,
+                    SecurityIndexMembershipEntity.class
         })
 @EnableJpaRepositories(
         basePackageClasses = {
@@ -58,6 +69,9 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
             CompanyJpaRepository.class, CompanyAliasJpaRepository.class, SecurityJpaRepository.class,
             NewsArticleJpaRepository.class, NewsArticleCompanyJpaRepository.class,
             FinancialPeriodJpaRepository.class, FinancialStatementJpaRepository.class,
-            FinancialStatementItemJpaRepository.class
+                    FinancialStatementItemJpaRepository.class,
+            MarketIndexJpaRepository.class, IndexPriceJpaRepository.class,
+                    MarketPriceJpaRepository.class,
+                    SecurityIndexMembershipJpaRepository.class
         })
 public class PersistenceConfiguration {}

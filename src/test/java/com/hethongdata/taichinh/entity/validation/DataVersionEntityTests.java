@@ -21,4 +21,18 @@ class DataVersionEntityTests {
         assertThat(version.getStatus()).isEqualTo("ACTIVATED");
         assertThat(version.getActivatedAt()).isNotNull();
     }
+
+    @Test
+    void rejectsFailedDownstreamBatchAndRecordsTheReason() {
+        DataVersionEntity version =
+                DataVersionEntity.acceptedForRun(
+                        "FINANCIAL_STATEMENT", UUID.randomUUID(), 1, "b".repeat(64));
+
+        version.markRejected("Không thể ghi báo cáo tài chính");
+
+        assertThat(version.getStatus()).isEqualTo("REJECTED");
+        assertThat(version.getEffectiveTo()).isNotNull();
+        assertThat(version.getActivatedAt()).isNull();
+        assertThat(version.getNotes()).isEqualTo("Không thể ghi báo cáo tài chính");
+    }
 }

@@ -1,7 +1,6 @@
 package com.hethongdata.taichinh.service.financial;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -12,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hethongdata.taichinh.application.port.error.ExternalErrorCategory;
+import com.hethongdata.taichinh.dto.ingestion.IngestionExecutionResponse;
 import com.hethongdata.taichinh.entity.ingestion.DataSourceEntity;
 import com.hethongdata.taichinh.entity.ingestion.IngestionJobEntity;
 import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
@@ -20,7 +20,7 @@ import com.hethongdata.taichinh.entity.validation.DataVersionEntity;
 import com.hethongdata.taichinh.repository.ingestion.IngestionRunRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.RawPayloadJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.validation.DataVersionJpaRepository;
-import com.hethongdata.taichinh.service.ingestion.IngestionExecutionException;
+import com.hethongdata.taichinh.service.validation.DataVersionLifecycleService;
 
 import org.junit.jupiter.api.Test;
 
@@ -152,6 +152,7 @@ class FinancialStatementBuildServiceTests {
         RawPayloadJpaRepository rawPayloads = mock(RawPayloadJpaRepository.class);
         IngestionRunRepository runs = mock(IngestionRunRepository.class);
         FinancialStatementBuildPersistenceService writes = mock(FinancialStatementBuildPersistenceService.class);
+        DataVersionLifecycleService lifecycle = mock(DataVersionLifecycleService.class);
         IngestionJobEntity job = mock(IngestionJobEntity.class);
         DataSourceEntity source = mock(DataSourceEntity.class);
         DataVersionEntity version = mock(DataVersionEntity.class);
@@ -174,16 +175,23 @@ class FinancialStatementBuildServiceTests {
                 .when(writes)
                 .persist(eq(versionId), eq(buildRun), anyList());
 
-        FinancialStatementBuildService service = new FinancialStatementBuildService(versions, rawPayloads, runs, writes);
+        FinancialStatementBuildService service =
+                new FinancialStatementBuildService(versions, rawPayloads, runs, writes, lifecycle);
 
-        assertThatThrownBy(() -> service.execute(job, "MANUAL"))
-                .isInstanceOf(IngestionExecutionException.class);
+        IngestionExecutionResponse response = service.execute(job, "MANUAL");
+
+        assertThat(response.getStatus()).isEqualTo("COMPLETED_WITH_REJECTIONS");
         verify(runs)
                 .markFailed(
                         eq(buildRun),
                         eq(ExternalErrorCategory.PROTOCOL.name()),
                         isNull(),
-                        eq("FINANCIAL_STATEMENT_BUILD failed"));
+                        eq("FINANCIAL_STATEMENT_BUILD failed for version " + versionId));
+        verify(lifecycle)
+                .rejectBuildFailure(
+                        eq(versionId),
+                        eq(FinancialStatementBuildService.FINANCIAL_STATEMENT_BUILD),
+                        org.mockito.ArgumentMatchers.any(IllegalStateException.class));
     }
 
     @Test
@@ -218,7 +226,8 @@ class FinancialStatementBuildServiceTests {
                 mock(DataVersionJpaRepository.class),
                 mock(RawPayloadJpaRepository.class),
                 mock(IngestionRunRepository.class),
-                mock(FinancialStatementBuildPersistenceService.class));
+                mock(FinancialStatementBuildPersistenceService.class),
+                mock(DataVersionLifecycleService.class));
     }
 
     private static Map<String, String> codesBySourceName(

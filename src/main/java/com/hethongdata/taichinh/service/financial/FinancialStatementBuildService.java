@@ -10,7 +10,7 @@ import com.hethongdata.taichinh.entity.validation.DataVersionEntity;
 import com.hethongdata.taichinh.repository.ingestion.IngestionRunRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.RawPayloadJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.validation.DataVersionJpaRepository;
-import com.hethongdata.taichinh.service.ingestion.IngestionExecutionException;
+import com.hethongdata.taichinh.service.validation.DataVersionLifecycleService;
 
 import org.springframework.stereotype.Service;
 
@@ -41,16 +41,19 @@ public class FinancialStatementBuildService {
     private final RawPayloadJpaRepository rawPayloads;
     private final IngestionRunRepository ingestionRuns;
     private final FinancialStatementBuildPersistenceService writes;
+    private final DataVersionLifecycleService lifecycle;
 
     public FinancialStatementBuildService(
             DataVersionJpaRepository versions,
             RawPayloadJpaRepository rawPayloads,
             IngestionRunRepository ingestionRuns,
-            FinancialStatementBuildPersistenceService writes) {
+            FinancialStatementBuildPersistenceService writes,
+            DataVersionLifecycleService lifecycle) {
         this.versions = versions;
         this.rawPayloads = rawPayloads;
         this.ingestionRuns = ingestionRuns;
         this.writes = writes;
+        this.lifecycle = lifecycle;
     }
 
     public boolean supports(String code) {
@@ -68,7 +71,7 @@ public class FinancialStatementBuildService {
         }
 
         UUID latestRunId = null;
-        IngestionExecutionException firstFailure = null;
+        int rejected = 0;
         for (DataVersionEntity version : candidates) {
             IngestionRunEntity run =
                     ingestionRuns.startInternalBatch(job.getDataSource(), job, triggerType, FINANCIAL_STATEMENT_BUILD);
@@ -87,17 +90,23 @@ public class FinancialStatementBuildService {
                 }
                 writes.persist(version.getId(), run, drafts);
             } catch (RuntimeException exception) {
-                ingestionRuns.markFailed(run, ExternalErrorCategory.PROTOCOL.name(), null, "FINANCIAL_STATEMENT_BUILD failed");
-                // A malformed batch must remain ACTIVE, but it must not prevent another independently
-                // validated batch from being normalised in the same scheduled invocation.
-                if (firstFailure == null) {
-                    firstFailure = new IngestionExecutionException(
-                            run.getId(), ExternalErrorCategory.PROTOCOL, null, "FINANCIAL_STATEMENT_BUILD failed", exception);
-                }
+                ingestionRuns.markFailed(
+                        run,
+                        ExternalErrorCategory.PROTOCOL.name(),
+                        null,
+                        FINANCIAL_STATEMENT_BUILD + " failed for version " + version.getId());
+                lifecycle.rejectBuildFailure(version.getId(), FINANCIAL_STATEMENT_BUILD, exception);
+                rejected++;
             }
         }
-        if (firstFailure != null) throw firstFailure;
-        return new IngestionExecutionResponse(latestRunId, null, "SUCCESS", 200, "application/json", null, false);
+        return new IngestionExecutionResponse(
+                latestRunId,
+                null,
+                rejected == 0 ? "SUCCESS" : "COMPLETED_WITH_REJECTIONS",
+                200,
+                "application/json",
+                null,
+                false);
     }
 
     List<StatementDraft> parse(RawPayloadEntity payload) {

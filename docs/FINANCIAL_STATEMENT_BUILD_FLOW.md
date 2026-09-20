@@ -8,6 +8,7 @@ Vocabulary trạng thái trong database hiện tại:
 
 - `ACTIVE`: DataVersion đã validate và chờ workflow downstream tiêu thụ.
 - `ACTIVATED`: workflow đã persist đầy đủ dữ liệu chuẩn hoá cho DataVersion đó.
+- `REJECTED`: workflow không thể materialize batch; lỗi đã được ghi vào `notes` và batch không được quét lại.
 
 ## Luồng nghiệp vụ
 
@@ -68,7 +69,7 @@ Do đó raw của run khác, raw chưa validate và domain khác không thể b�
 
 Ưu tiên `payload.symbol`/`payload.code`, fallback `raw_payloads.source_symbol`.
 
-`security_id` trên raw được dùng nếu có; nếu không, resolve qua `securities.symbol` không phân biệt hoa/thường. Security phải có `company_id`; nếu không tìm được mapping thì DataVersion đó fail và giữ `ACTIVE`.
+`security_id` trên raw được dùng nếu có; nếu không, resolve qua `securities.symbol` không phân biệt hoa/thường. Security phải có `company_id`; nếu không tìm được mapping thì transaction ghi dữ liệu rollback và DataVersion được chuyển sang `REJECTED` kèm nguyên nhân trong `notes`.
 
 ### Dataset → StatementType
 
@@ -147,11 +148,11 @@ Trong một transaction, service:
 4. Mark internal IngestionRun `SUCCESS`.
 5. Chuyển DataVersion sang `ACTIVATED`.
 
-Nếu bất kỳ bước nào lỗi, transaction rollback statement/item/period mới của batch đó và DataVersion giữ `ACTIVE`. Service tạo một build run `FAILED` để ghi nhận lỗi.
+Nếu bất kỳ bước nào lỗi, transaction rollback statement/item/period mới của batch đó. Service tạo build run `FAILED`, sau đó chuyển DataVersion sang `REJECTED` trong transaction độc lập và ghi nguyên nhân vào `notes`.
 
-Các DataVersion là độc lập: một batch lỗi không chặn batch `ACTIVE` hợp lệ khác trong cùng invocation. Tuy nhiên, nếu có ít nhất một batch lỗi, API Job trả trạng thái lỗi để scheduler có thể retry batch còn `ACTIVE`.
+Các DataVersion là độc lập: một batch lỗi không chặn batch `ACTIVE` hợp lệ khác trong cùng invocation. Nếu có ít nhất một batch lỗi, Job trả `COMPLETED_WITH_REJECTIONS` với HTTP nội bộ 200. Vì lỗi materialization là lỗi dữ liệu nội bộ đã xác định, Job không ném `IngestionExecutionException`, không tiêu hao retry budget và version `REJECTED` không bị quét lại.
 
-Một payload có `data=[]` là không có kỳ parseable; batch đó không được `ACTIVATED`. Đây là hành vi chủ ý, tránh đánh dấu đã xử lý khi provider trả empty data.
+Một payload có `data=[]` là không có kỳ parseable; batch đó được chuyển sang `REJECTED`, không được `ACTIVATED`. Đây là hành vi chủ ý, tránh đánh dấu đã xử lý khi provider trả empty data.
 
 ## Dispatch và cấu hình Job
 
@@ -211,12 +212,12 @@ parameters     = {"workflow":"FINANCIAL_STATEMENT_BUILD","parameters":{}}
 E2E với DataVersion ACTIVE thực tế:
 
 - Ba batch VNDIRECT cho FPT (balance sheet, cash flow, income statement) đã tạo 1 period `2026/Q2`, 3 statements, 209 items và chuyển sang `ACTIVATED`.
-- Hai batch VNSTOCK có `data=[]` vẫn giữ `ACTIVE`; không có statement/item partial được tạo từ hai batch đó.
+- Hai batch VNSTOCK có `data=[]` sẽ chuyển sang `REJECTED`; không có statement/item partial được tạo từ hai batch đó.
 - `mvn test -q` pass với JDK 21.
 
 ## Retry và idempotency
 
 - Chỉ version `ACTIVE` được query; version đã `ACTIVATED` không thể được Job chọn lại.
 - FinancialPeriod dùng unique/business key `(fiscal_year, period_type, end_date)`; ba statement VNDIRECT FPT `2026/Q2` đã reuse một `financial_period_id` thực tế.
-- Trước khi insert statement, Job lookup theo `(raw_payload_id, financial_period_id, statement_type)`. Một retry sau rollback không có row partial để duplicate; một version đã thành công không còn `ACTIVE`.
+- Trước khi insert statement, Job lookup theo `(raw_payload_id, financial_period_id, statement_type)`. Transaction lỗi không để lại row partial và version được `REJECTED`; một version đã thành công không còn `ACTIVE`.
 - Test parser xác nhận empty data, VNStock period-key transpose, duplicate `item_id`, row-order deterministic và failure lifecycle.

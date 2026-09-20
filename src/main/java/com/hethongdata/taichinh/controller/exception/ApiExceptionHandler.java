@@ -1,6 +1,7 @@
 package com.hethongdata.taichinh.controller.exception;
 
 import com.hethongdata.taichinh.application.port.error.ExternalFetchException;
+import com.hethongdata.taichinh.application.port.error.ExternalErrorCategory;
 import com.hethongdata.taichinh.dto.ApiErrorResponse;
 import com.hethongdata.taichinh.service.ingestion.IngestionExecutionException;
 
@@ -30,7 +31,7 @@ public class ApiExceptionHandler {
                 exception.getBindingResult().getFieldErrors().stream()
                         .findFirst()
                         .map(error -> error.getField() + " " + error.getDefaultMessage())
-                        .orElse("Request is invalid");
+                        .orElse("Yêu cầu không hợp lệ.");
         LOGGER.warn("Validation error on request: {}", message);
         return error(HttpStatus.BAD_REQUEST, "VALIDATION", null, null, message);
     }
@@ -38,7 +39,12 @@ public class ApiExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     ResponseEntity<ApiErrorResponse> invalidRequest(IllegalArgumentException exception) {
         LOGGER.warn("Invalid request argument: {}", exception.getMessage());
-        return error(HttpStatus.BAD_REQUEST, "VALIDATION", null, null, exception.getMessage());
+        return error(
+                HttpStatus.BAD_REQUEST,
+                "VALIDATION",
+                null,
+                null,
+                exception.getMessage() == null ? "Yêu cầu không hợp lệ." : exception.getMessage());
     }
 
     @ExceptionHandler(IngestionExecutionException.class)
@@ -51,7 +57,7 @@ public class ApiExceptionHandler {
                 exception.getMessage(),
                 exception);
         return error(
-                resolveUpstreamStatus(exception.upstreamStatus()),
+                resolveUpstreamStatus(exception.upstreamStatus(), exception.category()),
                 exception.category().name(),
                 exception.runId(),
                 exception.upstreamStatus(),
@@ -67,7 +73,7 @@ public class ApiExceptionHandler {
                 exception.getMessage(),
                 exception);
         return error(
-                resolveUpstreamStatus(exception.upstreamStatus()),
+                resolveUpstreamStatus(exception.upstreamStatus(), exception.category()),
                 exception.category().name(),
                 null,
                 exception.upstreamStatus(),
@@ -82,13 +88,18 @@ public class ApiExceptionHandler {
                 "INTERNAL_ERROR",
                 null,
                 null,
-                "Internal server error occurred");
+                "Hệ thống đang gặp vấn đề. Vui lòng thử lại sau.");
     }
 
     /** Never expose a successful or unknown upstream code as an error response. */
-    private static HttpStatus resolveUpstreamStatus(Integer upstreamStatus) {
+    private static HttpStatus resolveUpstreamStatus(
+            Integer upstreamStatus, ExternalErrorCategory category) {
         HttpStatus status = upstreamStatus == null ? null : HttpStatus.resolve(upstreamStatus);
-        return status == null || status.is2xxSuccessful() ? HttpStatus.BAD_GATEWAY : status;
+        if (category == ExternalErrorCategory.RATE_LIMIT
+                && status == HttpStatus.TOO_MANY_REQUESTS) {
+            return status;
+        }
+        return HttpStatus.BAD_GATEWAY;
     }
 
     private static ResponseEntity<ApiErrorResponse> error(

@@ -111,6 +111,13 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
                     request.symbol(),
                     response.httpStatus(),
                     durationMs);
+            if (!response.isSuccessful()) {
+                ExternalErrorCategory category = classifyUpstreamStatus(response.httpStatus());
+                throw new ExternalFetchException(
+                        category,
+                        response.httpStatus(),
+                        friendlyUpstreamMessage(request, response.httpStatus()));
+            }
             return response;
         } catch (ResourceAccessException exception) {
             long durationMs = System.currentTimeMillis() - startTime;
@@ -142,7 +149,22 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
             throw new ExternalFetchException(
                     ExternalErrorCategory.TRANSPORT,
                     null,
-                    "Unable to call financial data service",
+                    "Không thể gọi dịch vụ dữ liệu tài chính.",
+                    exception);
+        } catch (ExternalFetchException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            LOGGER.error(
+                    "Unexpected external financial data adapter failure: operation={}, provider={}, symbol={}, error={}",
+                    request.operation(),
+                    request.provider(),
+                    request.symbol(),
+                    exception.getMessage(),
+                    exception);
+            throw new ExternalFetchException(
+                    ExternalErrorCategory.PROTOCOL,
+                    null,
+                    "Dịch vụ dữ liệu tài chính đang gặp vấn đề. Vui lòng thử lại sau.",
                     exception);
         }
     }
@@ -186,7 +208,7 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
     private String indexPath(String provider, String indexCode, String dataset) {
         if (!"vnstock".equals(provider)) {
             throw new IllegalArgumentException(
-                    "Market-index endpoints currently support only provider vnstock");
+                    "API chỉ số thị trường hiện chỉ hỗ trợ provider vnstock.");
         }
         String path = "/api/v1/vnstock/indices";
         if (indexCode != null) path += "/" + indexCode;
@@ -227,10 +249,10 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
 
     private String rawProxyPath(String provider, String upstreamPath) {
         if (!Set.of("vndirect", "cafef", "cafef-financial").contains(provider)) {
-            throw new IllegalArgumentException("Unsupported raw proxy provider: " + provider);
+            throw new IllegalArgumentException("Nhà cung cấp proxy không được hỗ trợ: " + provider);
         }
         if (upstreamPath.isBlank() || upstreamPath.startsWith("/") || upstreamPath.contains("..")) {
-            throw new IllegalArgumentException("upstream_path must be a safe relative path");
+            throw new IllegalArgumentException("upstream_path phải là đường dẫn tương đối an toàn.");
         }
         return "/api/v1/proxy/" + provider + "/" + upstreamPath;
     }
@@ -258,7 +280,7 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
 
     private String equityProvider(String provider) {
         if (provider == null || !EQUITY_PROVIDERS.contains(provider)) {
-            throw new IllegalArgumentException("Unsupported equity provider: " + provider);
+            throw new IllegalArgumentException("Nhà cung cấp dữ liệu chứng khoán không được hỗ trợ: " + provider);
         }
         return provider;
     }
@@ -266,7 +288,8 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
     private String requiredParameter(ExternalFetchRequest request, String name) {
         String value = request.parameters().get(name);
         if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " is required for " + request.operation());
+            throw new IllegalArgumentException(
+                    "Thiếu tham số " + name + " cho thao tác " + request.operation() + ".");
         }
         return value.trim();
     }
@@ -274,7 +297,8 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
     private String normalizeStatement(String provider, String statement) {
         String normalized = statement.trim().toLowerCase(Locale.ROOT).replace('-', '_');
         if (!Set.of("balance_sheet", "income_statement", "cash_flow").contains(normalized)) {
-            throw new IllegalArgumentException("Unsupported statement: " + statement);
+            throw new IllegalArgumentException(
+                    "Loại báo cáo tài chính không được hỗ trợ: " + statement);
         }
         return provider.equals("vnstock") ? normalized : normalized.replace('_', '-');
     }
@@ -302,7 +326,31 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
 
     private String safeTransportMessage(ExternalErrorCategory category) {
         return category == ExternalErrorCategory.TIMEOUT
-                ? "Financial data service timed out"
-                : "Financial data service is unavailable";
+                ? "Dịch vụ dữ liệu tài chính phản hồi quá thời gian. Vui lòng thử lại sau."
+                : "Dịch vụ dữ liệu tài chính hiện không khả dụng. Vui lòng thử lại sau.";
+    }
+
+    private ExternalErrorCategory classifyUpstreamStatus(int status) {
+        if (status == 429) {
+            return ExternalErrorCategory.RATE_LIMIT;
+        }
+        if (status >= 500) {
+            return ExternalErrorCategory.UPSTREAM_SERVER;
+        }
+        return ExternalErrorCategory.UPSTREAM_CLIENT;
+    }
+
+    private String friendlyUpstreamMessage(ExternalFetchRequest request, int status) {
+        if (status == 404 && request.symbol() != null && !request.symbol().isBlank()) {
+            return "Không tìm thấy mã "
+                    + request.symbol().toUpperCase(Locale.ROOT)
+                    + " trên nhà cung cấp "
+                    + request.provider()
+                    + ". Vui lòng kiểm tra lại mã chứng khoán.";
+        }
+        if (status == 429) {
+            return "Nhà cung cấp dữ liệu đang giới hạn số lần gọi. Vui lòng thử lại sau.";
+        }
+        return "Dịch vụ dữ liệu tài chính đang tạm thời không khả dụng. Vui lòng thử lại sau.";
     }
 }

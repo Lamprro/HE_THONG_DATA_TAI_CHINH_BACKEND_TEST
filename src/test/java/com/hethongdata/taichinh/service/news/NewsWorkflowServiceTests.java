@@ -16,6 +16,7 @@ import com.hethongdata.taichinh.repository.ingestion.IngestionRunRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.RawPayloadJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.validation.DataVersionJpaRepository;
 import com.hethongdata.taichinh.service.ingestion.ChecksumService;
+import com.hethongdata.taichinh.service.validation.DataVersionLifecycleService;
 
 import org.junit.jupiter.api.Test;
 
@@ -47,7 +48,8 @@ class NewsWorkflowServiceTests {
                         external,
                         writes,
                         new ChecksumService(),
-                        new ObjectMapper());
+                        new ObjectMapper(),
+                        mock(DataVersionLifecycleService.class));
 
         IngestionExecutionResponse result = service.execute(job, "MANUAL");
 

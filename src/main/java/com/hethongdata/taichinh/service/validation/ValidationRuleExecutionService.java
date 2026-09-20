@@ -4,9 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.hethongdata.taichinh.entity.ingestion.RawPayloadEntity;
 import com.hethongdata.taichinh.entity.validation.ValidationRuleEntity;
 import com.hethongdata.taichinh.repository.jpa.ingestion.RawPayloadJpaRepository;
-import com.hethongdata.taichinh.repository.jpa.MarketIndexJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.market.MarketIndexJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.master.SecurityJpaRepository;
-import com.hethongdata.taichinh.entity.MarketIndexEntity;
+import com.hethongdata.taichinh.service.market.MarketIndexPayloadParser;
+import com.hethongdata.taichinh.service.market.MarketPricePayloadParser;
 
 import org.springframework.stereotype.Service;
 
@@ -36,14 +37,20 @@ public class ValidationRuleExecutionService {
     private final RawPayloadJpaRepository rawPayloads;
     private final MarketIndexJpaRepository marketIndices;
     private final SecurityJpaRepository securities;
+    private final MarketIndexPayloadParser marketParser;
+    private final MarketPricePayloadParser marketPriceParser;
 
     public ValidationRuleExecutionService(
             RawPayloadJpaRepository rawPayloads,
             MarketIndexJpaRepository marketIndices,
-            SecurityJpaRepository securities) {
+            SecurityJpaRepository securities,
+            MarketIndexPayloadParser marketParser,
+            MarketPricePayloadParser marketPriceParser) {
         this.rawPayloads = rawPayloads;
         this.marketIndices = marketIndices;
         this.securities = securities;
+        this.marketParser = marketParser;
+        this.marketPriceParser = marketPriceParser;
     }
 
     public Outcome execute(ValidationRuleEntity rule, RawPayloadEntity raw) {
@@ -72,68 +79,10 @@ public class ValidationRuleExecutionService {
             case "RAW_ERROR_MESSAGE" -> errorMessage(raw.getPayload(), raw.getRawText());
             case "INDEX_OHLCV_PAYLOAD_VALID" -> indexOhlcv(raw);
             case "INDEX_MEMBERS_PAYLOAD_VALID" -> indexMembers(raw);
+            case "MARKET_PRICE_PAYLOAD_VALID" -> marketPrice(raw);
             default -> new Outcome("SKIP", null, null,
                     "No executor registered for " + rule.getExecutorKey());
         };
-    }
-
-    private Outcome indexOhlcv(RawPayloadEntity raw) {
-        JsonNode payload = raw.getPayload();
-        if (payload == null || !payload.isObject() || !payload.path("data").isArray()
-                || payload.path("data").isEmpty()) {
-            return fail("data", "non-empty array", "Index OHLCV payload is empty");
-        }
-        String symbol = payload.path("symbol").asText(raw.getSourceSymbol()).toUpperCase(Locale.ROOT);
-        if (marketIndices != null && marketIndices.findByCodeIgnoreCase(symbol).isEmpty()) {
-            return fail("symbol", symbol, "Market index was not found");
-        }
-        if (!"1D".equalsIgnoreCase(payload.path("interval").asText("1D"))) {
-            return fail("interval", "1D", "Only daily index bars are supported");
-        }
-        java.util.Set<String> timestamps = new java.util.HashSet<>();
-        for (JsonNode row : payload.path("data")) {
-            String timestamp = row.has("time") ? row.path("time").asText() : row.path("date").asText();
-            if (timestamp.isBlank() || !timestamps.add(timestamp)) {
-                return fail("time", timestamp, "Duplicate or missing index timestamp");
-            }
-            BigDecimal open = decimal(row.get("open"));
-            BigDecimal high = decimal(row.get("high"));
-            BigDecimal low = decimal(row.get("low"));
-            BigDecimal close = decimal(row.get("close"));
-            if (open == null || high == null || low == null || close == null) {
-                return fail("ohlc", "open/high/low/close", "Index OHLC fields are required");
-            }
-            if (low.compareTo(high) > 0 || open.compareTo(low) < 0 || open.compareTo(high) > 0
-                    || close.compareTo(low) < 0 || close.compareTo(high) > 0) {
-                return fail("ohlc", "valid bounds", "Index OHLC bounds are invalid");
-            }
-        }
-        return new Outcome("PASS", null, null, "Index OHLCV payload is valid");
-    }
-
-    private Outcome indexMembers(RawPayloadEntity raw) {
-        JsonNode payload = raw.getPayload();
-        if (payload == null || !payload.path("data").isArray() || payload.path("data").isEmpty()) {
-            return fail("data", "non-empty array", "Index membership payload is empty");
-        }
-        java.util.Set<String> symbols = new java.util.HashSet<>();
-        for (JsonNode row : payload.path("data")) {
-            String symbol = firstText(row, "symbol", "ticker", "stockCode");
-            if (symbol == null || !symbols.add(symbol.toUpperCase(Locale.ROOT))) {
-                return fail("symbol", symbol, "Duplicate or missing membership symbol");
-            }
-            if (securities != null && securities.findBySymbolIgnoreCase(symbol).isEmpty()) {
-                return fail("symbol", symbol, "security was not found");
-            }
-        }
-        return new Outcome("PASS", null, null, "Index membership payload is valid");
-    }
-
-    private String firstText(JsonNode node, String... keys) {
-        for (String key : keys) {
-            if (node.hasNonNull(key) && !node.path(key).asText().isBlank()) return node.path(key).asText().trim();
-        }
-        return null;
     }
 
     private Outcome nonNegative(JsonNode payload) {
@@ -216,6 +165,68 @@ public class ValidationRuleExecutionService {
         return new Outcome("PASS", null, null, "News list structure is valid");
     }
 
+    private Outcome indexOhlcv(RawPayloadEntity raw) {
+        if (!"INDEX_OHLCV".equalsIgnoreCase(raw.getEntityType())) {
+            return new Outcome("SKIP", null, null, "Rule applies only to INDEX_OHLCV");
+        }
+        try {
+            var batch = marketParser.prices(raw.getPayload(), raw.getSourceSymbol());
+            if (marketIndices.findByCodeIgnoreCase(batch.indexCode()).isEmpty()) {
+                return fail(batch.indexCode(), "existing market_indices.code",
+                        "Chưa có chỉ số trong market_indices");
+            }
+            return new Outcome("PASS", String.valueOf(batch.rows().size()), "> 0",
+                    "Dữ liệu giá chỉ số hợp lệ");
+        } catch (IllegalArgumentException exception) {
+            return fail("payload", "valid INDEX_OHLCV", exception.getMessage());
+        }
+    }
+
+    private Outcome indexMembers(RawPayloadEntity raw) {
+        if (!"INDEX_MEMBERS".equalsIgnoreCase(raw.getEntityType())) {
+            return new Outcome("SKIP", null, null, "Rule applies only to INDEX_MEMBERS");
+        }
+        try {
+            var snapshot = marketParser.members(
+                    raw.getPayload(), raw.getSourceSymbol(), raw.getFetchedAt());
+            if (marketIndices.findByCodeIgnoreCase(snapshot.indexCode()).isEmpty()) {
+                return fail(snapshot.indexCode(), "existing market_indices.code",
+                        "Chưa có chỉ số trong market_indices");
+            }
+            for (var member : snapshot.rows()) {
+                if (securities.findBySymbolIgnoreCase(member.symbol()).isEmpty()) {
+                    return fail(member.symbol(), "existing securities.symbol",
+                            "Chưa có mã chứng khoán thành viên trong securities");
+                }
+            }
+            return new Outcome("PASS", String.valueOf(snapshot.rows().size()), "> 0",
+                    "Snapshot thành viên chỉ số hợp lệ");
+        } catch (IllegalArgumentException exception) {
+            return fail("payload", "valid INDEX_MEMBERS", exception.getMessage());
+        }
+    }
+
+    private Outcome marketPrice(RawPayloadEntity raw) {
+        if (!"QUOTE".equalsIgnoreCase(raw.getEntityType())
+                && !"OHLCV".equalsIgnoreCase(raw.getEntityType())) {
+            return new Outcome("SKIP", null, null, "Rule applies only to QUOTE/OHLCV");
+        }
+        try {
+            var batch = marketPriceParser.parse(raw.getPayload(), raw.getEntityType(),
+                    raw.getSourceSymbol(), raw.getFetchedAt());
+            var security = raw.getSecurityId() == null
+                    ? securities.findBySymbolIgnoreCase(batch.symbol())
+                    : securities.findById(raw.getSecurityId());
+            if (security.isEmpty() || !security.get().getSymbol().equalsIgnoreCase(batch.symbol())) {
+                return fail(batch.symbol(), "existing matching securities symbol/id",
+                        "Chưa có hoặc không khớp mã chứng khoán trong securities");
+            }
+            return new Outcome("PASS", String.valueOf(batch.rows().size()), "> 0",
+                    "Dữ liệu QUOTE/OHLCV hợp lệ");
+        } catch (IllegalArgumentException exception) {
+            return fail("payload", "valid QUOTE/OHLCV", exception.getMessage());
+        }
+    }
     private Outcome newsDate(JsonNode payload, JsonNode config) {
         String field = config.required("field").asText();
         DateTimeFormatter format = DateTimeFormatter.ofPattern(config.required("format").asText())

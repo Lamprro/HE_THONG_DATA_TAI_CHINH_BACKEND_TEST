@@ -177,10 +177,10 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
             case PROVIDERS -> "/api/v1/providers";
             case QUOTE -> equityPath(provider, symbol, "quote");
             case OHLCV -> equityPath(provider, symbol, "ohlcv");
-            case INDEX_LIST -> indexPath(provider, null);
-            case INDEX_OHLCV -> indexPath(provider, symbol + "/ohlcv");
-            case INDEX_LATEST -> indexPath(provider, symbol + "/latest");
-            case INDEX_MEMBERS -> indexPath(provider, symbol + "/members");
+            case INDEX_LIST -> indexPath(provider, null, null);
+            case INDEX_OHLCV -> indexPath(provider, symbol, "ohlcv");
+            case INDEX_LATEST -> indexPath(provider, symbol, "latest");
+            case INDEX_MEMBERS -> indexPath(provider, symbol, "members");
             case COMPANY -> companyPath(provider, symbol);
             case FINANCIAL_STATEMENT ->
                     financialStatementPath(
@@ -205,11 +205,14 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
         return "/api/v1/" + equityProvider(provider) + "/equities/" + symbol + "/" + dataset;
     }
 
-    private String indexPath(String provider, String suffix) {
-        if (provider == null || !provider.equals("vnstock")) {
-            throw new IllegalArgumentException("Market index routes currently support only provider vnstock");
+    private String indexPath(String provider, String indexCode, String dataset) {
+        if (!"vnstock".equals(provider)) {
+            throw new IllegalArgumentException(
+                    "API chỉ số thị trường hiện chỉ hỗ trợ provider vnstock.");
         }
-        return "/api/v1/vnstock/indices" + (suffix == null ? "" : "/" + suffix);
+        String path = "/api/v1/vnstock/indices";
+        if (indexCode != null) path += "/" + indexCode;
+        return dataset == null ? path : path + "/" + dataset;
     }
 
     private String companyPath(String provider, String symbol) {
@@ -285,7 +288,8 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
     private String requiredParameter(ExternalFetchRequest request, String name) {
         String value = request.parameters().get(name);
         if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException("Thiếu tham số " + name + " cho thao tác " + request.operation() + ".");
+            throw new IllegalArgumentException(
+                    "Thiếu tham số " + name + " cho thao tác " + request.operation() + ".");
         }
         return value.trim();
     }
@@ -293,7 +297,8 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
     private String normalizeStatement(String provider, String statement) {
         String normalized = statement.trim().toLowerCase(Locale.ROOT).replace('-', '_');
         if (!Set.of("balance_sheet", "income_statement", "cash_flow").contains(normalized)) {
-            throw new IllegalArgumentException("Loại báo cáo tài chính không được hỗ trợ: " + statement);
+            throw new IllegalArgumentException(
+                    "Loại báo cáo tài chính không được hỗ trợ: " + statement);
         }
         return provider.equals("vnstock") ? normalized : normalized.replace('_', '-');
     }

@@ -56,16 +56,19 @@ public class SecurityIndexMembershipEntity {
         return entity;
     }
 
-    public void close(LocalDate effectiveTo) {
-        this.effectiveTo = effectiveTo;
+    public void correctSameDay(BigDecimal weight) {
+        this.weight = weight;
     }
 
-    public void correctSameDay(BigDecimal newWeight) {
-        this.weight = newWeight;
-    }
-
-    public void reopenSameDay(BigDecimal newWeight) {
-        this.weight = newWeight;
+    public void reopenSameDay(BigDecimal weight) {
         this.effectiveTo = null;
+        this.weight = weight;
+    }
+
+    public void close(LocalDate effectiveTo) {
+        if (effectiveTo.isBefore(effectiveFrom)) {
+            throw new IllegalArgumentException("effectiveTo must not be before effectiveFrom");
+        }
+        this.effectiveTo = effectiveTo;
     }
 }

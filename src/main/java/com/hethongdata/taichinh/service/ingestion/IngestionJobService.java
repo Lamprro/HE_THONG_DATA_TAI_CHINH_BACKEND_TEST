@@ -11,6 +11,7 @@ import com.hethongdata.taichinh.repository.ingestion.IngestionJobRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaRepository;
 import com.hethongdata.taichinh.service.news.NewsWorkflowService;
 import com.hethongdata.taichinh.service.market.MarketIndexWorkflowService;
+import com.hethongdata.taichinh.service.market.MarketPriceWorkflowService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +35,7 @@ public class IngestionJobService {
     private final RetryBudgetService retryBudgetService;
     private final NewsWorkflowService newsWorkflowService;
     private final MarketIndexWorkflowService marketIndexWorkflowService;
+    private final MarketPriceWorkflowService marketPriceWorkflowService;
 
     public IngestionJobService(
             IngestionJobRepository ingestionJobs,
@@ -41,13 +43,15 @@ public class IngestionJobService {
             IngestionService ingestionService,
             RetryBudgetService retryBudgetService,
             NewsWorkflowService newsWorkflowService,
-            MarketIndexWorkflowService marketIndexWorkflowService) {
+            MarketIndexWorkflowService marketIndexWorkflowService,
+            MarketPriceWorkflowService marketPriceWorkflowService) {
         this.ingestionJobs = ingestionJobs;
         this.ingestionRuns = ingestionRuns;
         this.ingestionService = ingestionService;
         this.retryBudgetService = retryBudgetService;
         this.newsWorkflowService = newsWorkflowService;
         this.marketIndexWorkflowService = marketIndexWorkflowService;
+        this.marketPriceWorkflowService = marketPriceWorkflowService;
     }
 
     public IngestionJobResponse create(CreateIngestionJobRequest request) {
@@ -161,6 +165,8 @@ public class IngestionJobService {
                 response = newsWorkflowService.execute(job, triggerType);
             } else if (marketIndexWorkflowService.supports(job.getCode())) {
                 response = marketIndexWorkflowService.execute(job, triggerType);
+            } else if (marketPriceWorkflowService.supports(job.getCode())) {
+                response = marketPriceWorkflowService.execute(job, triggerType);
             } else {
                 response = ingestionService.ingestJob(job, triggerType);
             }

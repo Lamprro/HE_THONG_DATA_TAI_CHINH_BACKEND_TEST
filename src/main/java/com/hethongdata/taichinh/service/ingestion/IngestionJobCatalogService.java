@@ -128,6 +128,14 @@ public class IngestionJobCatalogService {
         equityJobs(jobs, "VNSTOCK", "vnstock", true, false);
         equityJobs(jobs, "VNDIRECT", "vndirect", true, true);
         cafeFJobs(jobs);
+        jobs.add(
+                workflowJob(
+                        "MARKET_PRICE_BUILD",
+                        "Build validated quote and OHLCV data",
+                        "PYTHON_GATEWAY",
+                        "MARKET_PRICE",
+                        EVERY_15_MINUTES,
+                        "MARKET_PRICE_BUILD"));
         newsWorkflowJobs(jobs);
 
         return List.copyOf(jobs);

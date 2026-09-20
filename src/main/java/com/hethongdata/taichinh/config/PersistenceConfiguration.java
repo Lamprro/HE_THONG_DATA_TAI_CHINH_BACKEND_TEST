@@ -3,6 +3,7 @@ package com.hethongdata.taichinh.config;
 import com.hethongdata.taichinh.entity.NewsArticleCompanyEntity;
 import com.hethongdata.taichinh.entity.IndexPriceEntity;
 import com.hethongdata.taichinh.entity.MarketIndexEntity;
+import com.hethongdata.taichinh.entity.MarketPriceEntity;
 import com.hethongdata.taichinh.entity.NewsArticleEntity;
 import com.hethongdata.taichinh.entity.SecurityIndexMembershipEntity;
 import com.hethongdata.taichinh.entity.ingestion.DataSourceEntity;
@@ -16,6 +17,7 @@ import com.hethongdata.taichinh.entity.validation.DataVersionEntity;
 import com.hethongdata.taichinh.entity.validation.ValidationResultEntity;
 import com.hethongdata.taichinh.entity.validation.ValidationRuleEntity;
 import com.hethongdata.taichinh.repository.jpa.ingestion.DataSourceJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.market.MarketPriceJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.market.IndexPriceJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.market.MarketIndexJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.market.SecurityIndexMembershipJpaRepository;
@@ -47,7 +49,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
             ValidationRuleEntity.class, ValidationResultEntity.class, DataVersionEntity.class,
             CompanyEntity.class, CompanyAliasEntity.class, SecurityEntity.class,
             NewsArticleEntity.class, NewsArticleCompanyEntity.class,
-            MarketIndexEntity.class, IndexPriceEntity.class,
+            MarketIndexEntity.class, IndexPriceEntity.class, MarketPriceEntity.class,
                     SecurityIndexMembershipEntity.class
         })
 @EnableJpaRepositories(
@@ -59,6 +61,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
             CompanyJpaRepository.class, CompanyAliasJpaRepository.class, SecurityJpaRepository.class,
             NewsArticleJpaRepository.class, NewsArticleCompanyJpaRepository.class,
             MarketIndexJpaRepository.class, IndexPriceJpaRepository.class,
+                    MarketPriceJpaRepository.class,
                     SecurityIndexMembershipJpaRepository.class
         })
 public class PersistenceConfiguration {}

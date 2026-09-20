@@ -14,20 +14,19 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.UUID;
 
-/** Dispatches validated index batches to their matching internal build workflow. */
+/** Consumes accepted market-price versions and materializes canonical price rows. */
 @Service
-public class MarketIndexWorkflowService {
-    public static final String PRICE_BUILD = "INDEX_PRICE_BUILD";
-    public static final String MEMBERSHIP_BUILD = "INDEX_MEMBERSHIP_BUILD";
+public class MarketPriceWorkflowService {
+    public static final String WORKFLOW = "MARKET_PRICE_BUILD";
     private final DataVersionJpaRepository versions;
     private final RawPayloadJpaRepository rawPayloads;
     private final IngestionRunRepository runs;
-    private final MarketIndexWorkflowPersistenceService writes;
+    private final MarketPriceWorkflowPersistenceService writes;
     private final DataVersionLifecycleService lifecycle;
 
-    public MarketIndexWorkflowService(DataVersionJpaRepository versions,
+    public MarketPriceWorkflowService(DataVersionJpaRepository versions,
             RawPayloadJpaRepository rawPayloads, IngestionRunRepository runs,
-            MarketIndexWorkflowPersistenceService writes,
+            MarketPriceWorkflowPersistenceService writes,
             DataVersionLifecycleService lifecycle) {
         this.versions = versions;
         this.rawPayloads = rawPayloads;
@@ -36,40 +35,38 @@ public class MarketIndexWorkflowService {
         this.lifecycle = lifecycle;
     }
 
-    public boolean supports(String jobCode) {
-        return PRICE_BUILD.equals(jobCode) || MEMBERSHIP_BUILD.equals(jobCode);
-    }
+    public boolean supports(String code) { return WORKFLOW.equals(code); }
 
     public IngestionExecutionResponse execute(IngestionJobEntity job, String triggerType) {
-        if (!supports(job.getCode())) throw new IllegalArgumentException("Workflow index không được hỗ trợ");
-        String workflow = job.getCode();
-        String rawType = PRICE_BUILD.equals(workflow) ? "INDEX_OHLCV" : "INDEX_MEMBERS";
+        if (!supports(job.getCode())) throw new IllegalArgumentException("Workflow market price không được hỗ trợ");
         List<DataVersionEntity> candidates = versions.findByDataDomainAndStatusOrderByCreatedAtAsc(
-                "MARKET_INDEX", "ACTIVE").stream()
-                .filter(version -> !rawPayloads.findByIngestionRunIdAndEntityTypeOrderByFetchedAtAsc(
-                        version.getIngestionRunId(), rawType).isEmpty())
-                .toList();
+                "MARKET_PRICE", "ACTIVE").stream().filter(this::containsPricePayload).toList();
         if (candidates.isEmpty()) {
-            IngestionRunEntity run = runs.startInternalBatch(job.getDataSource(), job, triggerType, workflow);
-            writes.noWork(run, workflow);
+            IngestionRunEntity run = runs.startInternalBatch(job.getDataSource(), job, triggerType, WORKFLOW);
+            writes.noWork(run);
             return response(run.getId());
         }
         UUID lastRunId = null;
         int rejected = 0;
         for (DataVersionEntity version : candidates) {
-            IngestionRunEntity run = runs.startInternalBatch(job.getDataSource(), job, triggerType, workflow);
+            IngestionRunEntity run = runs.startInternalBatch(job.getDataSource(), job, triggerType, WORKFLOW);
             lastRunId = run.getId();
             try {
-                if (PRICE_BUILD.equals(workflow)) writes.buildPrices(version.getId(), run);
-                else writes.buildMemberships(version.getId(), run);
+                writes.build(version.getId(), run);
             } catch (RuntimeException exception) {
                 runs.markFailed(run, ExternalErrorCategory.PROTOCOL.name(), null,
-                        workflow + " failed for version " + version.getId());
-                lifecycle.rejectBuildFailure(version.getId(), workflow, exception);
+                        WORKFLOW + " failed for version " + version.getId());
+                lifecycle.rejectBuildFailure(version.getId(), WORKFLOW, exception);
                 rejected++;
             }
         }
         return response(lastRunId, rejected);
+    }
+
+    private boolean containsPricePayload(DataVersionEntity version) {
+        return rawPayloads.findByIngestionRunIdOrderByFetchedAtDesc(version.getIngestionRunId())
+                .stream().anyMatch(raw -> "QUOTE".equalsIgnoreCase(raw.getEntityType())
+                        || "OHLCV".equalsIgnoreCase(raw.getEntityType()));
     }
 
     private IngestionExecutionResponse response(UUID runId) {

@@ -93,4 +93,16 @@ public class DataVersionEntity {
         status = "ACTIVATED";
         activatedAt = Instant.now();
     }
+
+    /** Permanently removes a batch from the internal build queue after a materialization error. */
+    public void markRejected(String reason) {
+        if (!"ACTIVE".equals(status)) {
+            throw new IllegalStateException("Only ACTIVE data versions can be rejected");
+        }
+        status = "REJECTED";
+        effectiveTo = Instant.now();
+        notes = reason == null || reason.isBlank()
+                ? "Rejected by downstream workflow"
+                : reason.substring(0, Math.min(reason.length(), 4000));
+    }
 }

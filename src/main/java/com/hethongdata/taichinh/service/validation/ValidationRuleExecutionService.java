@@ -7,6 +7,7 @@ import com.hethongdata.taichinh.repository.jpa.ingestion.RawPayloadJpaRepository
 import com.hethongdata.taichinh.repository.jpa.market.MarketIndexJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.master.SecurityJpaRepository;
 import com.hethongdata.taichinh.service.market.MarketIndexPayloadParser;
+import com.hethongdata.taichinh.service.market.MarketPricePayloadParser;
 
 import org.springframework.stereotype.Service;
 
@@ -37,16 +38,19 @@ public class ValidationRuleExecutionService {
     private final MarketIndexJpaRepository marketIndices;
     private final SecurityJpaRepository securities;
     private final MarketIndexPayloadParser marketParser;
+    private final MarketPricePayloadParser marketPriceParser;
 
     public ValidationRuleExecutionService(
             RawPayloadJpaRepository rawPayloads,
             MarketIndexJpaRepository marketIndices,
             SecurityJpaRepository securities,
-            MarketIndexPayloadParser marketParser) {
+            MarketIndexPayloadParser marketParser,
+            MarketPricePayloadParser marketPriceParser) {
         this.rawPayloads = rawPayloads;
         this.marketIndices = marketIndices;
         this.securities = securities;
         this.marketParser = marketParser;
+        this.marketPriceParser = marketPriceParser;
     }
 
     public Outcome execute(ValidationRuleEntity rule, RawPayloadEntity raw) {
@@ -75,6 +79,7 @@ public class ValidationRuleExecutionService {
             case "RAW_ERROR_MESSAGE" -> errorMessage(raw.getPayload(), raw.getRawText());
             case "INDEX_OHLCV_PAYLOAD_VALID" -> indexOhlcv(raw);
             case "INDEX_MEMBERS_PAYLOAD_VALID" -> indexMembers(raw);
+            case "MARKET_PRICE_PAYLOAD_VALID" -> marketPrice(raw);
             default -> new Outcome("SKIP", null, null,
                     "No executor registered for " + rule.getExecutorKey());
         };
@@ -198,6 +203,28 @@ public class ValidationRuleExecutionService {
                     "Snapshot thành viên chỉ số hợp lệ");
         } catch (IllegalArgumentException exception) {
             return fail("payload", "valid INDEX_MEMBERS", exception.getMessage());
+        }
+    }
+
+    private Outcome marketPrice(RawPayloadEntity raw) {
+        if (!"QUOTE".equalsIgnoreCase(raw.getEntityType())
+                && !"OHLCV".equalsIgnoreCase(raw.getEntityType())) {
+            return new Outcome("SKIP", null, null, "Rule applies only to QUOTE/OHLCV");
+        }
+        try {
+            var batch = marketPriceParser.parse(raw.getPayload(), raw.getEntityType(),
+                    raw.getSourceSymbol(), raw.getFetchedAt());
+            var security = raw.getSecurityId() == null
+                    ? securities.findBySymbolIgnoreCase(batch.symbol())
+                    : securities.findById(raw.getSecurityId());
+            if (security.isEmpty() || !security.get().getSymbol().equalsIgnoreCase(batch.symbol())) {
+                return fail(batch.symbol(), "existing matching securities symbol/id",
+                        "Chưa có hoặc không khớp mã chứng khoán trong securities");
+            }
+            return new Outcome("PASS", String.valueOf(batch.rows().size()), "> 0",
+                    "Dữ liệu QUOTE/OHLCV hợp lệ");
+        } catch (IllegalArgumentException exception) {
+            return fail("payload", "valid QUOTE/OHLCV", exception.getMessage());
         }
     }
     private Outcome newsDate(JsonNode payload, JsonNode config) {

@@ -98,6 +98,15 @@ public class ValidationRuleCatalogService {
                         "{\"minimum\":0}",
                         "Records an open validation result for a payload containing a negative trading volume."),
                 new Definition(
+                        "MARKET_PRICE_PAYLOAD_VALID",
+                        "Valid quote or OHLCV market-price payload",
+                        "MARKET_PRICE",
+                        "CRITICAL",
+                        "BUSINESS",
+                        "MARKET_PRICE_PAYLOAD_VALID",
+                        "{\"quoteInterval\":\"15m\",\"ohlcvInterval\":\"1d\"}",
+                        "Validates symbol, timestamps, required close price, OHLC and non-negative volume/value."),
+                new Definition(
                         "STATEMENT_REQUIRED_KEYS",
                         "Financial statement payload present",
                         "FINANCIAL_STATEMENT",

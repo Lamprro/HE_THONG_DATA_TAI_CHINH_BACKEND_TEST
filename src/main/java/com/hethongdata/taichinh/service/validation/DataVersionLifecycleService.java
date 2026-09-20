@@ -2,13 +2,14 @@ package com.hethongdata.taichinh.service.validation;
 
 import com.hethongdata.taichinh.entity.validation.DataVersionEntity;
 import com.hethongdata.taichinh.repository.jpa.validation.DataVersionJpaRepository;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
-/** Persists terminal version transitions independently from a failed build transaction. */
+/** Persists a terminal data-version transition independently from a failed build transaction. */
 @Service
 public class DataVersionLifecycleService {
     private final DataVersionJpaRepository versions;
@@ -21,8 +22,10 @@ public class DataVersionLifecycleService {
     public void rejectBuildFailure(UUID versionId, String workflow, Throwable failure) {
         DataVersionEntity version = versions.findByIdForUpdate(versionId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy data version: " + versionId));
-        if (!"ACTIVE".equals(version.getStatus())) return;
-        String detail = failure == null || failure.getMessage() == null
+        if (!"ACTIVE".equals(version.getStatus())) {
+            return;
+        }
+        String detail = failure == null || failure.getMessage() == null || failure.getMessage().isBlank()
                 ? "Không xác định được chi tiết lỗi"
                 : failure.getMessage();
         version.markRejected("Workflow " + workflow + " không thể ghi dữ liệu: " + detail);

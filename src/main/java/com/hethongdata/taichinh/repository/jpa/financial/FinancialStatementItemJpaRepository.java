@@ -1,4 +1,4 @@
-package com.hethongdata.taichinh.repository.jpa;
+package com.hethongdata.taichinh.repository.jpa.financial;
 
 import com.hethongdata.taichinh.entity.FinancialStatementItemEntity;
 

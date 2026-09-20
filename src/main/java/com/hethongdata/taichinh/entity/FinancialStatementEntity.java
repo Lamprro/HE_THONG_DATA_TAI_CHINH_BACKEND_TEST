@@ -84,4 +84,38 @@ public class FinancialStatementEntity {
 
     @Column(name = "created_at")
     private Instant createdAt;
+
+    public static FinancialStatementEntity create(
+            UUID companyId,
+            UUID securityId,
+            UUID financialPeriodId,
+            String statementType,
+            String reportScope,
+            Long dataSourceId,
+            UUID rawPayloadId,
+            UUID dataVersionId,
+            Instant publishedAt) {
+        FinancialStatementEntity entity = new FinancialStatementEntity();
+        entity.companyId = companyId;
+        entity.securityId = securityId;
+        entity.financialPeriodId = financialPeriodId;
+        entity.statementType = statementType;
+        entity.reportScope = reportScope;
+        entity.currency = "VND";
+        entity.unitScale = 1L;
+        entity.audited = false;
+        entity.revisionNo = 1;
+        entity.isRestated = false;
+        entity.dataSourceId = dataSourceId;
+        entity.rawPayloadId = rawPayloadId;
+        entity.dataVersionId = dataVersionId;
+        entity.publishedAt = publishedAt;
+        entity.effectiveFrom = Instant.now();
+        entity.isCurrent = true;
+        // A build batch may contain the same statement from multiple sources. Canonical source
+        // selection is intentionally a later policy, so this job never displaces one.
+        entity.isCanonical = false;
+        entity.createdAt = entity.effectiveFrom;
+        return entity;
+    }
 }

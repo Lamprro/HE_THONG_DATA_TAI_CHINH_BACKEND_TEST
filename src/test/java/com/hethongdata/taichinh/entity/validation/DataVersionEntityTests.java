@@ -23,15 +23,16 @@ class DataVersionEntityTests {
     }
 
     @Test
-    void rejectsActiveBatchAndRecordsBuildFailure() {
+    void rejectsFailedDownstreamBatchAndRecordsTheReason() {
         DataVersionEntity version =
-                DataVersionEntity.acceptedForRun("MARKET_PRICE", UUID.randomUUID(), 1, "a".repeat(64));
+                DataVersionEntity.acceptedForRun(
+                        "FINANCIAL_STATEMENT", UUID.randomUUID(), 1, "b".repeat(64));
 
-        version.markRejected("Workflow MARKET_PRICE_BUILD không thể ghi dữ liệu: invalid symbol");
+        version.markRejected("Không thể ghi báo cáo tài chính");
 
         assertThat(version.getStatus()).isEqualTo("REJECTED");
         assertThat(version.getEffectiveTo()).isNotNull();
-        assertThat(version.getNotes()).contains("MARKET_PRICE_BUILD", "invalid symbol");
         assertThat(version.getActivatedAt()).isNull();
+        assertThat(version.getNotes()).isEqualTo("Không thể ghi báo cáo tài chính");
     }
 }

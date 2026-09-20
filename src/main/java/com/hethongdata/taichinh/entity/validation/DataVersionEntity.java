@@ -94,7 +94,7 @@ public class DataVersionEntity {
         activatedAt = Instant.now();
     }
 
-    /** Permanently removes a batch from the internal build queue after a materialization error. */
+    /** Permanently removes a batch from the downstream build queue after a materialization error. */
     public void markRejected(String reason) {
         if (!"ACTIVE".equals(status)) {
             throw new IllegalStateException("Only ACTIVE data versions can be rejected");
@@ -102,7 +102,7 @@ public class DataVersionEntity {
         status = "REJECTED";
         effectiveTo = Instant.now();
         notes = reason == null || reason.isBlank()
-                ? "Rejected by downstream workflow"
+                ? "Bị từ chối bởi workflow xử lý dữ liệu"
                 : reason.substring(0, Math.min(reason.length(), 4000));
     }
 }

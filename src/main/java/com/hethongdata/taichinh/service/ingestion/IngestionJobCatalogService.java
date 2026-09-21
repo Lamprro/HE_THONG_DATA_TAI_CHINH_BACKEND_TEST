@@ -6,6 +6,7 @@ import com.hethongdata.taichinh.common.AppParams;
 import com.hethongdata.taichinh.repository.ingestion.DataSourceRepository;
 import com.hethongdata.taichinh.repository.ingestion.IngestionJobRepository;
 import com.hethongdata.taichinh.service.market.IndexJobProvisioningService;
+import com.hethongdata.taichinh.service.financial.FinancialMetricCatalogService;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,22 +36,25 @@ public class IngestionJobCatalogService {
     private final IngestionJobRepository ingestionJobs;
     private final ObjectMapper objectMapper;
     private final IndexJobProvisioningService indexJobs;
+    private final FinancialMetricCatalogService metricCatalog;
 
     public IngestionJobCatalogService(
             DataSourceRepository dataSources,
             IngestionJobRepository ingestionJobs,
             ObjectMapper objectMapper,
-            IndexJobProvisioningService indexJobs) {
+            IndexJobProvisioningService indexJobs, FinancialMetricCatalogService metricCatalog) {
         this.dataSources = dataSources;
         this.ingestionJobs = ingestionJobs;
         this.objectMapper = objectMapper;
         this.indexJobs = indexJobs;
+        this.metricCatalog = metricCatalog;
     }
 
     @Transactional
     public int seed() {
         seedSources();
         int indexJobCount = indexJobs.seed();
+        metricCatalog.seed();
         // VnStock News requires a paid/API-key integration and is deliberately outside the free
         // Phase 1 catalog.
         ingestionJobs.deactivateByCodes(RETIRED_PAID_NEWS_JOB_CODES);
@@ -138,6 +142,7 @@ public class IngestionJobCatalogService {
                         "MARKET_PRICE_BUILD"));
         newsWorkflowJobs(jobs);
         financialStatementBuildJob(jobs);
+        financialMetricWorkflowJobs(jobs);
 
         return List.copyOf(jobs);
     }
@@ -302,6 +307,13 @@ public class IngestionJobCatalogService {
                         "FINANCIAL_STATEMENT",
                         EVERY_15_MINUTES,
                         "FINANCIAL_STATEMENT_BUILD"));
+    }
+
+    private void financialMetricWorkflowJobs(List<JobDefinition> jobs) {
+        jobs.add(workflowJob("FINANCIAL_METRIC_BUILD", "Build validated provider financial metrics",
+                "PYTHON_GATEWAY", "FINANCIAL_METRIC", EVERY_15_MINUTES, "FINANCIAL_METRIC_BUILD"));
+        jobs.add(workflowJob("FINANCIAL_METRIC_CALCULATE", "Calculate derived financial metrics",
+                "PYTHON_GATEWAY", "FINANCIAL_METRIC", EVERY_15_MINUTES, "FINANCIAL_METRIC_CALCULATE"));
     }
 
     private JobDefinition job(

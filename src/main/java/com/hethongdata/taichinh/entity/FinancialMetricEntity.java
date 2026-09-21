@@ -71,4 +71,51 @@ public class FinancialMetricEntity {
 
     @Column(name = "created_at")
     private Instant createdAt;
+
+    public static FinancialMetricEntity provider(UUID companyId, UUID securityId, Long definitionId,
+            LocalDate asOfDate, BigDecimal value, Long dataSourceId, UUID rawPayloadId, UUID dataVersionId) {
+        FinancialMetricEntity entity = base(companyId, securityId, null, definitionId, asOfDate,
+                value, dataSourceId, false, null);
+        entity.rawPayloadId = rawPayloadId;
+        entity.dataVersionId = dataVersionId;
+        return entity;
+    }
+
+    public static FinancialMetricEntity derived(UUID companyId, UUID securityId, UUID periodId,
+            Long definitionId, LocalDate asOfDate, BigDecimal value, Long dataSourceId,
+            String calculationVersion) {
+        return base(companyId, securityId, periodId, definitionId, asOfDate, value,
+                dataSourceId, true, calculationVersion);
+    }
+
+    private static FinancialMetricEntity base(UUID companyId, UUID securityId, UUID periodId,
+            Long definitionId, LocalDate asOfDate, BigDecimal value, Long dataSourceId,
+            boolean derived, String calculationVersion) {
+        FinancialMetricEntity entity = new FinancialMetricEntity();
+        entity.companyId = companyId;
+        entity.securityId = securityId;
+        entity.financialPeriodId = periodId;
+        entity.metricDefinitionId = definitionId;
+        entity.asOfDate = asOfDate;
+        entity.value = value;
+        entity.dataSourceId = dataSourceId;
+        entity.isDerived = derived;
+        entity.isCanonical = false;
+        entity.calculationVersion = calculationVersion;
+        entity.qualityStatus = "VALID";
+        entity.createdAt = Instant.now();
+        return entity;
+    }
+
+    public void correctProvider(BigDecimal value, UUID rawPayloadId, UUID dataVersionId) {
+        this.value = value;
+        this.rawPayloadId = rawPayloadId;
+        this.dataVersionId = dataVersionId;
+        this.qualityStatus = "VALID";
+    }
+
+    public void recalculate(BigDecimal value) {
+        this.value = value;
+        this.qualityStatus = "VALID";
+    }
 }

@@ -11,6 +11,8 @@ import com.hethongdata.taichinh.repository.ingestion.IngestionJobRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaRepository;
 import com.hethongdata.taichinh.service.news.NewsWorkflowService;
 import com.hethongdata.taichinh.service.financial.FinancialStatementBuildService;
+import com.hethongdata.taichinh.service.financial.FinancialMetricBuildService;
+import com.hethongdata.taichinh.service.financial.FinancialMetricCalculateService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +36,8 @@ public class IngestionJobService {
     private final RetryBudgetService retryBudgetService;
     private final NewsWorkflowService newsWorkflowService;
     private final FinancialStatementBuildService financialStatementBuildService;
+    private final FinancialMetricBuildService financialMetricBuildService;
+    private final FinancialMetricCalculateService financialMetricCalculateService;
 
     public IngestionJobService(
             IngestionJobRepository ingestionJobs,
@@ -41,13 +45,17 @@ public class IngestionJobService {
             IngestionService ingestionService,
             RetryBudgetService retryBudgetService,
             NewsWorkflowService newsWorkflowService,
-            FinancialStatementBuildService financialStatementBuildService) {
+            FinancialStatementBuildService financialStatementBuildService,
+            FinancialMetricBuildService financialMetricBuildService,
+            FinancialMetricCalculateService financialMetricCalculateService) {
         this.ingestionJobs = ingestionJobs;
         this.ingestionRuns = ingestionRuns;
         this.ingestionService = ingestionService;
         this.retryBudgetService = retryBudgetService;
         this.newsWorkflowService = newsWorkflowService;
         this.financialStatementBuildService = financialStatementBuildService;
+        this.financialMetricBuildService = financialMetricBuildService;
+        this.financialMetricCalculateService = financialMetricCalculateService;
     }
 
     public IngestionJobResponse create(CreateIngestionJobRequest request) {
@@ -160,7 +168,11 @@ public class IngestionJobService {
                     newsWorkflowService.supports(job.getCode())
                             ? newsWorkflowService.execute(job, triggerType)
                             : financialStatementBuildService.supports(job.getCode())
-                                    ? financialStatementBuildService.execute(job, triggerType)
+                            ? financialStatementBuildService.execute(job, triggerType)
+                            : financialMetricBuildService.supports(job.getCode())
+                                    ? financialMetricBuildService.execute(job, triggerType)
+                                    : financialMetricCalculateService.supports(job.getCode())
+                                            ? financialMetricCalculateService.execute(job, triggerType)
                                     : ingestionService.ingestJob(job, triggerType);
             retryBudgetService.resetAfterSuccess(job);
             return response;

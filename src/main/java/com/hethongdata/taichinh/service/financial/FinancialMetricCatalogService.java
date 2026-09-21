@@ -1,7 +1,7 @@
 package com.hethongdata.taichinh.service.financial;
 
 import com.hethongdata.taichinh.entity.MetricDefinitionEntity;
-import com.hethongdata.taichinh.repository.jpa.MetricDefinitionJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.financial.MetricDefinitionJpaRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;

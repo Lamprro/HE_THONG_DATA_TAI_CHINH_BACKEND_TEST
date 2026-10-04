@@ -10,6 +10,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -36,7 +37,8 @@ public class MarketIndexPayloadParser {
         Set<Instant> timestamps = new HashSet<>();
         for (JsonNode row : data) {
             if (!row.isObject()) throw new IllegalArgumentException("Dòng giá chỉ số phải là object");
-            Instant timestamp = timestamp(field(row, "time", "date", "timestamp", "trading_date"));
+            Instant timestamp = timestamp(field(row, "trading_date", "date", "time", "timestamp"))
+                    .atZone(VIETNAM_ZONE).toLocalDate().atStartOfDay(VIETNAM_ZONE).toInstant();
             if (!timestamps.add(timestamp)) {
                 throw new IllegalArgumentException("Trùng thời điểm nến chỉ số trong cùng payload: " + timestamp);
             }
@@ -130,6 +132,12 @@ public class MarketIndexPayloadParser {
         try { return Instant.parse(text); } catch (DateTimeParseException ignored) { }
         try { return OffsetDateTime.parse(text).toInstant(); } catch (DateTimeParseException ignored) { }
         try { return LocalDateTime.parse(text).atZone(VIETNAM_ZONE).toInstant(); }
+        catch (DateTimeParseException ignored) { }
+        try { return LocalDateTime.parse(text, DateTimeFormatter.ofPattern("MM/dd/uuuu HH:mm:ss", Locale.ROOT))
+                .atZone(VIETNAM_ZONE).toInstant(); }
+        catch (DateTimeParseException ignored) { }
+        try { return LocalDate.parse(text, DateTimeFormatter.ofPattern("MM/dd/uuuu", Locale.ROOT))
+                .atStartOfDay(VIETNAM_ZONE).toInstant(); }
         catch (DateTimeParseException ignored) { }
         try { return LocalDate.parse(text).atStartOfDay(VIETNAM_ZONE).toInstant(); }
         catch (DateTimeParseException exception) {

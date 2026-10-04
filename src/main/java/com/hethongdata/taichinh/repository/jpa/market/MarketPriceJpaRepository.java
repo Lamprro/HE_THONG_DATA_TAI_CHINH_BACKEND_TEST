@@ -21,6 +21,11 @@ public interface MarketPriceJpaRepository extends JpaRepository<MarketPriceEntit
     Optional<MarketPriceEntity> findBySecurityIdAndPriceTimestampAndIntervalCodeAndDataSourceId(
             UUID securityId, Instant timestamp, String intervalCode, Long dataSourceId);
 
+    boolean existsBySecurityIdAndPriceTimestampAndIntervalCodeAndDataSourceIdAndIdNot(
+            UUID securityId, Instant timestamp, String intervalCode, Long dataSourceId, Long id);
+
+    List<MarketPriceEntity> findByIntervalCodeOrderByPriceTimestampAsc(String intervalCode);
+
     Optional<MarketPriceEntity> findTopBySecurityIdAndIntervalCodeAndDataSourceIdOrderByPriceTimestampDesc(
             UUID securityId, String intervalCode, Long dataSourceId);
 
@@ -34,4 +39,7 @@ public interface MarketPriceJpaRepository extends JpaRepository<MarketPriceEntit
 
     Page<MarketPriceEntity> findBySecurityIdAndIsCanonicalTrueOrderByPriceTimestampDesc(
             UUID securityId, Pageable pageable);
+
+    Page<MarketPriceEntity> findBySecurityIdAndIntervalCodeAndIsCanonicalTrueOrderByPriceTimestampDesc(
+            UUID securityId, String intervalCode, Pageable pageable);
 }

@@ -22,9 +22,22 @@ public class MarketPriceReadService {
 
     @Transactional(readOnly = true)
     public Page<MarketPriceEntity> canonicalPrices(String symbol, int page, int size) {
+        return canonicalPrices(symbol, page, size, null);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<MarketPriceEntity> canonicalPrices(String symbol, int page, int size, String interval) {
         SecurityEntity security = securities.findBySymbolIgnoreCase(symbol)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Không tìm thấy mã chứng khoán: " + symbol));
+        if (interval != null && !interval.isBlank()) {
+            String normalized = interval.trim().toLowerCase(java.util.Locale.ROOT);
+            if (!"1d".equals(normalized) && !"snapshot".equals(normalized)) {
+                throw new IllegalArgumentException("interval phải là 1d hoặc snapshot");
+            }
+            return prices.findBySecurityIdAndIntervalCodeAndIsCanonicalTrueOrderByPriceTimestampDesc(
+                    security.getId(), normalized, PageRequest.of(page, size));
+        }
         return prices.findBySecurityIdAndIsCanonicalTrueOrderByPriceTimestampDesc(
                 security.getId(), PageRequest.of(page, size));
     }

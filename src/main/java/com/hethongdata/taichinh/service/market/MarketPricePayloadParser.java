@@ -11,12 +11,10 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
-import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
+import java.util.Map;
 
 /** Parses normalized market_price.v1 responses and compatible legacy provider envelopes. */
 @Component
@@ -43,25 +41,26 @@ public class MarketPricePayloadParser {
             throw new IllegalArgumentException("Mã trong payload khác source_symbol");
         }
         boolean quote = "QUOTE".equalsIgnoreCase(entityType);
-        List<PriceRow> rows = new ArrayList<>();
-        Set<String> keys = new HashSet<>();
+        String provider = text(payload, "provider");
+        boolean normalizedContract = "market_price.v1".equalsIgnoreCase(text(payload, "schema_version"));
+        BigDecimal priceMultiplier = priceMultiplier(provider, quote, normalizedContract);
+        BigDecimal valueMultiplier = !normalizedContract && "cafef".equalsIgnoreCase(provider)
+                ? new BigDecimal("1000000000") : BigDecimal.ONE;
+        Map<String, PriceRow> rows = new LinkedHashMap<>();
         for (JsonNode row : data) {
             if (!row.isObject()) throw new IllegalArgumentException("Dòng giá phải là object");
             String rowSymbol = text(row, "symbol", "Symbol", "code", "ticker");
             if (rowSymbol != null && !symbol.equals(normalizedSymbol(rowSymbol))) {
                 throw new IllegalArgumentException("Dòng dữ liệu chứa mã khác mã yêu cầu");
             }
-            String interval = quote ? "15m" : normalizedInterval(text(row, "interval_code", "interval"));
+            String interval = quote ? "snapshot" : normalizedInterval(text(row, "interval_code", "interval"));
             Instant timestamp = quote
-                    ? quoteTimestamp(row, payload, fetchedAt).truncatedTo(ChronoUnit.MINUTES)
+                    ? quoteTimestamp(row, payload, fetchedAt)
                     : dailyTimestamp(row);
-            if (!keys.add(timestamp + ":" + interval)) {
-                throw new IllegalArgumentException("Trùng thời điểm/interval trong cùng payload: " + timestamp);
-            }
-            BigDecimal open = decimal(row, false, "open_price", "open", "GiaMoCua");
-            BigDecimal high = decimal(row, false, "high_price", "high", "GiaCaoNhat");
-            BigDecimal low = decimal(row, false, "low_price", "low", "GiaThapNhat");
-            BigDecimal close = decimal(row, true, "close_price", "close", "price", "GiaDongCua");
+            BigDecimal open = scaledDecimal(row, priceMultiplier, false, "open_price", "open", "GiaMoCua");
+            BigDecimal high = scaledDecimal(row, priceMultiplier, false, "high_price", "high", "GiaCaoNhat");
+            BigDecimal low = scaledDecimal(row, priceMultiplier, false, "low_price", "low", "GiaThapNhat");
+            BigDecimal close = scaledDecimal(row, priceMultiplier, true, "close_price", "close", "price", "GiaDongCua");
             validateOhlc(open, high, low, close, timestamp);
             BigDecimal volume = decimal(row, false, "volume", "volume_accumulated",
                     "nmVolume", "KhoiLuongKhopLenh");
@@ -73,14 +72,19 @@ public class MarketPricePayloadParser {
             nonNegative(tradingValue, "trading_value");
             nonNegative(foreignBuy, "foreign_buy_volume");
             nonNegative(foreignSell, "foreign_sell_volume");
-            rows.add(new PriceRow(timestamp, interval, open, high, low, close,
-                    decimal(row, false, "adjusted_close", "adjusted_close_price", "adClose", "GiaDieuChinh"),
-                    decimal(row, false, "reference_price", "basicPrice"),
-                    decimal(row, false, "ceiling_price", "ceilingPrice"),
-                    decimal(row, false, "floor_price", "floorPrice"),
-                    volume, tradingValue, foreignBuy, foreignSell));
+            PriceRow parsed = new PriceRow(timestamp, interval, open, high, low, close,
+                    scaledDecimal(row, priceMultiplier, false, "adjusted_close", "adjusted_close_price", "adClose", "GiaDieuChinh"),
+                    scaledDecimal(row, priceMultiplier, false, "reference_price", "basicPrice"),
+                    scaledDecimal(row, priceMultiplier, false, "ceiling_price", "ceilingPrice"),
+                    scaledDecimal(row, priceMultiplier, false, "floor_price", "floorPrice"),
+                    volume, tradingValue == null ? null : tradingValue.multiply(valueMultiplier), foreignBuy, foreignSell);
+            String key = timestamp + ":" + interval;
+            PriceRow prior = rows.putIfAbsent(key, parsed);
+            if (prior != null && !sameObservation(prior, parsed)) {
+                throw new IllegalArgumentException("Xung đột dữ liệu trùng thời điểm/interval: " + timestamp);
+            }
         }
-        return new PriceBatch(symbol, List.copyOf(rows));
+        return new PriceBatch(symbol, List.copyOf(rows.values()));
     }
 
     private Instant quoteTimestamp(JsonNode row, JsonNode payload, Instant fetchedAt) {
@@ -90,14 +94,19 @@ public class MarketPricePayloadParser {
     }
 
     private Instant dailyTimestamp(JsonNode row) {
-        JsonNode value = field(row, "price_timestamp", "trading_date", "time", "date", "timestamp", "Ngay");
+        // Some daily providers return the trading date separately from an API retrieval-time
+        // field named "time" (for example, "15:08:06"). Prefer the actual date.
+        JsonNode value = field(row, "price_timestamp", "trading_date", "date", "Ngay", "time", "timestamp");
         if (value == null) throw new IllegalArgumentException("Thiếu ngày/thời điểm giao dịch");
         String raw = value.asText().trim();
         try {
             return LocalDate.parse(raw, DateTimeFormatter.ofPattern("dd/MM/uuuu"))
                     .atStartOfDay(VIETNAM_ZONE).toInstant();
         } catch (DateTimeParseException ignored) {
-            return timestamp(value);
+            // A daily candle is identified by its Vietnam trading date, not by the
+            // provider's arbitrary clock time (VnStock commonly returns 07:00).
+            return timestamp(value).atZone(VIETNAM_ZONE).toLocalDate()
+                    .atStartOfDay(VIETNAM_ZONE).toInstant();
         }
     }
 
@@ -164,6 +173,41 @@ public class MarketPricePayloadParser {
         catch (NumberFormatException exception) {
             throw new IllegalArgumentException("Trường " + names[0] + " phải là số hữu hạn", exception);
         }
+    }
+
+    private BigDecimal scaledDecimal(JsonNode row, BigDecimal multiplier, boolean required, String... names) {
+        BigDecimal value = decimal(row, required, names);
+        return value == null ? null : value.multiply(multiplier);
+    }
+
+    private BigDecimal priceMultiplier(String provider, boolean quote, boolean normalizedContract) {
+        if (normalizedContract) return BigDecimal.ONE;
+        if ("cafef".equalsIgnoreCase(provider) || "vndirect".equalsIgnoreCase(provider)
+                || ("vnstock".equalsIgnoreCase(provider) && !quote)) {
+            return new BigDecimal("1000");
+        }
+        return BigDecimal.ONE;
+    }
+
+    private boolean sameObservation(PriceRow left, PriceRow right) {
+        return left.timestamp().equals(right.timestamp())
+                && left.interval().equals(right.interval())
+                && sameDecimal(left.open(), right.open())
+                && sameDecimal(left.high(), right.high())
+                && sameDecimal(left.low(), right.low())
+                && sameDecimal(left.close(), right.close())
+                && sameDecimal(left.adjustedClose(), right.adjustedClose())
+                && sameDecimal(left.referencePrice(), right.referencePrice())
+                && sameDecimal(left.ceilingPrice(), right.ceilingPrice())
+                && sameDecimal(left.floorPrice(), right.floorPrice())
+                && sameDecimal(left.volume(), right.volume())
+                && sameDecimal(left.tradingValue(), right.tradingValue())
+                && sameDecimal(left.foreignBuyVolume(), right.foreignBuyVolume())
+                && sameDecimal(left.foreignSellVolume(), right.foreignSellVolume());
+    }
+
+    private boolean sameDecimal(BigDecimal left, BigDecimal right) {
+        return left == null ? right == null : right != null && left.compareTo(right) == 0;
     }
 
     private JsonNode field(JsonNode node, String... names) {

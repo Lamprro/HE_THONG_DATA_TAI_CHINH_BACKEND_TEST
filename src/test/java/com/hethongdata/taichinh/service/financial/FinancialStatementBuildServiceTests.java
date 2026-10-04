@@ -66,6 +66,46 @@ class FinancialStatementBuildServiceTests {
     }
 
     @Test
+    void skipsBlankEnglishLabelAndFallsBackToVietnameseItemLabel() throws Exception {
+        RawPayloadEntity raw = mock(RawPayloadEntity.class);
+        when(raw.getPayload())
+                .thenReturn(
+                        objectMapper.readTree(
+                                """
+                                {"symbol":"VCB","dataset":"cash_flow","report_type":"QUARTER","data":[
+                                  {"fiscalDate":"2026-06-30","itemCode":431375,"itemEnName":"","itemVnName":"Tăng/ (Giảm) phát hành GTCG (ngoại trừ GTCG phát hành được tính vào hoạt động tài chính)","numericValue":17526769000000}
+                                ]}
+                                """));
+
+        List<FinancialStatementBuildService.StatementDraft> drafts = service().parse(raw);
+
+        assertThat(drafts).hasSize(1);
+        assertThat(drafts.getFirst().items())
+                .singleElement()
+                .satisfies(
+                        item -> {
+                            assertThat(item.itemCode()).isNotBlank();
+                            assertThat(item.itemName()).isEqualTo("Tăng/ (Giảm) phát hành GTCG (ngoại trừ GTCG phát hành được tính vào hoạt động tài chính)");
+                            assertThat(item.value()).isEqualByComparingTo(new BigDecimal("17526769000000"));
+                        });
+    }
+
+    @Test
+    void usesStableProviderIdWhenLabelHasNoAsciiCharacters() throws Exception {
+        RawPayloadEntity raw = mock(RawPayloadEntity.class);
+        when(raw.getPayload()).thenReturn(objectMapper.readTree("""
+                {"symbol":"VCB","dataset":"cash_flow","report_type":"QUARTER","data":[
+                  {"fiscalDate":"2026-06-30","itemCode":431375.0,"itemEnName":null,
+                   "itemVnName":"Đỗ","numericValue":123}
+                ]}
+                """));
+        var item = service().parse(raw).getFirst().items().getFirst();
+        assertThat(item.itemCode()).isEqualTo("ITEM_431375");
+        assertThat(item.itemName()).isEqualTo("Đỗ");
+        assertThat(item.value()).isEqualByComparingTo("123");
+    }
+
+    @Test
     void parsesPeriodKeyedPayloadIntoStatementItems() throws Exception {
         RawPayloadEntity raw = mock(RawPayloadEntity.class);
         when(raw.getPayload())

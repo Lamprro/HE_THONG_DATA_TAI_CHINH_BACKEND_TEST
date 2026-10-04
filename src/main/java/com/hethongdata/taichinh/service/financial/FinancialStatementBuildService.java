@@ -177,7 +177,20 @@ public class FinancialStatementBuildService {
     private ItemDraft item(JsonNode entry, JsonNode periodValue, String provider) {
         String sourceCode = firstText(entry, "item_id", "itemCode", "item_code", "code");
         String name = firstText(entry, "item", "itemEnName", "item_name", "name", "itemVnName");
-        String itemCode = sourceCode != null && !sourceCode.matches("[0-9.]+") ? code(sourceCode) : code(name);
+        String normalizedNameCode = code(name);
+        String itemCode;
+        if (sourceCode != null && !sourceCode.matches("[0-9.]+")) {
+            itemCode = code(sourceCode);
+        } else if (normalizedNameCode != null && !normalizedNameCode.isBlank()) {
+            itemCode = normalizedNameCode;
+        } else if (sourceCode != null) {
+            // Some provider rows only have a Vietnamese label. ASCII normalization can erase
+            // that label completely, so preserve the stable provider item ID as a fallback.
+            String numericSourceCode = sourceCode.replaceFirst("\\.0+$", "");
+            itemCode = "ITEM_" + code(numericSourceCode);
+        } else {
+            itemCode = normalizedNameCode;
+        }
         if (itemCode == null || itemCode.isBlank()) throw new IllegalArgumentException("Statement item has no code/name");
         JsonNode rawValue = periodValue == null ? first(entry, "numericValue", "value", "amount") : periodValue;
         BigDecimal value = decimal(rawValue);
@@ -254,8 +267,13 @@ public class FinancialStatementBuildService {
     }
 
     private static String firstText(JsonNode node, String... names) {
-        JsonNode value = first(node, names);
-        return value == null || value.isNull() || value.asText().isBlank() ? null : value.asText().trim();
+        for (String name : names) {
+            JsonNode value = node.path(name);
+            if (!value.isValueNode() || value.isNull()) continue;
+            String text = value.asText().trim();
+            if (!text.isBlank()) return text;
+        }
+        return null;
     }
 
     private static BigDecimal decimal(JsonNode value) {

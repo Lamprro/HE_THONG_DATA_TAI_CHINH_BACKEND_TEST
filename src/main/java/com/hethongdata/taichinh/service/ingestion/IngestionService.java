@@ -81,14 +81,20 @@ public class IngestionService {
                         manualRequest.getEndDate(),
                         manualRequest.getInterval(),
                         manualRequest.safeParameters());
-        DataSourceEntity source =
-                dataSourceRepository
-                        .findEntityActiveByProvider(request.provider())
-                        .orElseThrow(
-                                () ->
-                                        new IllegalArgumentException(
-                                                "No active data source configured for provider "
-                                                        + request.provider()));
+        DataSourceEntity source;
+        if (manualRequest.getDataSourceCode() != null && !manualRequest.getDataSourceCode().isBlank()) {
+            source = dataSourceRepository.findEntityActiveByCode(manualRequest.getDataSourceCode().trim())
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "No active data source configured with code " + manualRequest.getDataSourceCode()));
+        } else {
+            source = dataSourceRepository.findEntityActiveByProvider(request.provider())
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "No active data source configured for provider " + request.provider()));
+        }
+        if (!"API".equalsIgnoreCase(source.getSourceType())) {
+            throw new IllegalArgumentException("Manual HTTP ingestion requires an API data source; selected "
+                    + source.getCode() + " has type " + source.getSourceType());
+        }
         return execute(request, source, null, "MANUAL");
     }
 

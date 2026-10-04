@@ -20,6 +20,8 @@ public final class ManualIngestionRequest {
 
     private String provider;
 
+    private String dataSourceCode;
+
     private String symbol;
 
     private LocalDate startDate;

@@ -83,10 +83,14 @@ public class DataSourceEntity {
         return entity;
     }
 
-    public void update(String name, String baseUrl, String provider, boolean active) {
+    public void update(String name, String sourceType, String baseUrl, String provider,
+            boolean official, String licenseStatus, boolean active) {
         this.name = name;
+        this.sourceType = sourceType;
         this.baseUrl = baseUrl;
         this.provider = provider;
+        this.official = official;
+        this.licenseStatus = licenseStatus;
         this.active = active;
         this.updatedAt = Instant.now();
     }

@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -21,5 +22,5 @@ public interface DataSourceJpaRepository extends JpaRepository<DataSourceEntity,
               AND (LOWER(source.code) = LOWER(:provider) OR LOWER(source.provider) = LOWER(:provider))
             ORDER BY CASE WHEN LOWER(source.code) = LOWER(:provider) THEN 0 ELSE 1 END, source.priority, source.id
             """)
-    Optional<DataSourceEntity> findActiveByProvider(@Param("provider") String provider);
+    List<DataSourceEntity> findActiveByProvider(@Param("provider") String provider);
 }

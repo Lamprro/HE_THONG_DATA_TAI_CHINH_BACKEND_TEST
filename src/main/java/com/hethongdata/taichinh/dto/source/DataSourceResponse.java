@@ -21,6 +21,14 @@ public final class DataSourceResponse {
 
     private final String provider;
 
+    private final String sourceType;
+
+    private final short priority;
+
+    private final boolean official;
+
+    private final String licenseStatus;
+
     private final String baseUrl;
 
     private final boolean active;
@@ -31,6 +39,10 @@ public final class DataSourceResponse {
                 entity.getCode(),
                 entity.getName(),
                 entity.getProvider(),
+                entity.getSourceType(),
+                entity.getPriority(),
+                entity.isOfficial(),
+                entity.getLicenseStatus(),
                 entity.getBaseUrl(),
                 entity.isActive());
     }

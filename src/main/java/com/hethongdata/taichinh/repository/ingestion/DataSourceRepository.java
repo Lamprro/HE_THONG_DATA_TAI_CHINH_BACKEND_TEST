@@ -19,7 +19,24 @@ public class DataSourceRepository {
     }
 
     public Optional<DataSourceEntity> findEntityActiveByProvider(String provider) {
-        return dataSources.findActiveByProvider(provider);
+        List<DataSourceEntity> candidates = dataSources.findActiveByProvider(provider);
+        List<DataSourceEntity> exactProvider = candidates.stream()
+                .filter(source -> source.getProvider() != null
+                        && source.getProvider().equalsIgnoreCase(provider))
+                .toList();
+        if (exactProvider.size() == 1) return Optional.of(exactProvider.get(0));
+        if (exactProvider.size() > 1) {
+            String codes = exactProvider.stream().map(DataSourceEntity::getCode).sorted()
+                    .reduce((left, right) -> left + ", " + right).orElse("");
+            throw new IllegalArgumentException(
+                    "Provider '" + provider + "' matches multiple active sources (" + codes
+                            + "); specify the exact data source code");
+        }
+        return Optional.empty();
+    }
+
+    public Optional<DataSourceEntity> findEntityActiveByCode(String code) {
+        return dataSources.findByCodeIgnoreCase(code).filter(DataSourceEntity::isActive);
     }
 
     public List<DataSourceEntity> findAllEntities() {
@@ -49,7 +66,7 @@ public class DataSourceRepository {
                                                 provider,
                                                 official,
                                                 licenseStatus));
-        entity.update(name, baseUrl, provider, active);
+        entity.update(name, sourceType, baseUrl, provider, official, licenseStatus, active);
         return dataSources.save(entity);
     }
 }

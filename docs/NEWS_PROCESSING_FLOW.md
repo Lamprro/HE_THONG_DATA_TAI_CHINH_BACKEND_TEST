@@ -1,5 +1,7 @@
 # Luồng xử lý NEWS
 
+> Bàn giao cập nhật 07/10/2026: đọc [PROJECT_HANDOVER.md](PROJECT_HANDOVER.md) trước. Code LLM đã push ở `feature/llm-processing` (`5343f81`), chưa merge/deploy. Các số liệu DB, kết quả API và nhận định bên dưới thuộc thời điểm kiểm tra được ghi trong tài liệu; không phải xác nhận runtime ngày 07/10. Implementation và việc còn dở cần đối chiếu với bàn giao mới.
+
 ## Mục tiêu và sơ đồ
 
 Luồng NEWS tách rõ lấy danh sách link, lấy HTML của từng trang và tạo bản ghi nghiệp vụ. `DataVersion` là batch của một `ingestion_run`, còn `RawPayload` là bản ghi thô trong batch. Vocabulary nghiệp vụ của workflow là `ACTIVATE` (đã validate, chờ job sau) và `ACTIVATED` (đã được job sau tiêu thụ). Trong code hiện tại, factory và query vẫn đang dùng `ACTIVE` cho trạng thái chờ; đây là điểm cần đồng bộ code/DB trước khi bật scheduler với vocabulary `ACTIVATE`.

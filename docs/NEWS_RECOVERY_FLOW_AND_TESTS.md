@@ -1,6 +1,8 @@
 # NEWS recovery: luồng thực tế, API admin và kiểm thử
 
-Ngày cập nhật: 04/10/2026. Java local, chưa push/deploy. Không thay dự án Python và không có Python fetcher phụ. Script `scripts/test_news_recovery_live.py` chỉ gọi HTTP API Java và đọc audit DB để kiểm thử.
+> Bàn giao cập nhật 07/10/2026: đọc [PROJECT_HANDOVER.md](PROJECT_HANDOVER.md) trước. Code LLM đã push ở `feature/llm-processing` (`5343f81`), chưa merge/deploy. Các số liệu DB, kết quả API và nhận định bên dưới thuộc thời điểm kiểm tra được ghi trong tài liệu; không phải xác nhận runtime ngày 07/10. Implementation và việc còn dở cần đối chiếu với bàn giao mới.
+
+Kiểm thử runtime được ghi nhận ngày 04/10/2026. Code đã push ngày 07/10/2026 trên `feature/llm-processing` (`5343f81`); chưa có xác nhận deploy. Không thay dự án Python và không có Python fetcher phụ. Script `scripts/test_news_recovery_live.py` chỉ gọi HTTP API Java và đọc audit DB để kiểm thử.
 
 ## 1. Phạm vi đã triển khai
 
@@ -83,7 +85,7 @@ Cloudinary không tự public tài liệu; backend gửi bytes trực tiếp cho
 
 ## 6. Chạy local và kết quả xác minh
 
-API test local ở `127.0.0.1:8081`; các scheduler tắt. Không dừng/chỉnh instance 8080 của người dùng. Không push Git.
+Tại lần kiểm thử ngày 04/10/2026, API local ở `127.0.0.1:8081`; các scheduler tắt và không dừng/chỉnh instance 8080 của người dùng. Code sau đó đã được push ở nhánh LLM. Không suy ra các instance này vẫn chạy ngày 07/10/2026.
 
 - Đã áp dụng migration additive và seed prompt qua API thật.
 - GET configuration có admin → 200; không token → 403.

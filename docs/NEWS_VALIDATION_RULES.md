@@ -1,5 +1,7 @@
 # Quy tắc validation NEWS và NEWS_DATA
 
+> Bàn giao cập nhật 07/10/2026: đọc [PROJECT_HANDOVER.md](PROJECT_HANDOVER.md) trước. Code LLM đã push ở `feature/llm-processing` (`5343f81`), chưa merge/deploy. Các số liệu DB, kết quả API và nhận định bên dưới thuộc thời điểm kiểm tra được ghi trong tài liệu; không phải xác nhận runtime ngày 07/10. Implementation và việc còn dở cần đối chiếu với bàn giao mới.
+
 ## Nơi quản lý
 
 - `validation_rules`: nguồn cấu hình runtime của 17 rule NEWS/NEWS_DATA; admin quản lý tên, nhóm, mức lỗi, trạng thái và cấu hình ở DB.

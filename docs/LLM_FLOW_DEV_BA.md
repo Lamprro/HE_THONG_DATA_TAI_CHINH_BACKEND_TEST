@@ -1,5 +1,7 @@
 # Luồng xử lý LLM cho tin tức và tài chính
 
+> Bàn giao cập nhật 07/10/2026: đọc [PROJECT_HANDOVER.md](PROJECT_HANDOVER.md) trước. Code LLM đã push ở `feature/llm-processing` (`5343f81`), chưa merge/deploy. Các số liệu DB, kết quả API và nhận định bên dưới thuộc thời điểm kiểm tra được ghi trong tài liệu; không phải xác nhận runtime ngày 07/10. Implementation và việc còn dở cần đối chiếu với bàn giao mới.
+
 Tài liệu bàn giao cho lập trình viên và chuyên viên phân tích nghiệp vụ. Ngày đối chiếu 04/10/2026, nhánh master, HEAD 918a253 và các thay đổi local chưa commit. Phạm vi gồm luồng NEWS có nội dung, luồng kịch bản tài chính, các bảng lưu vết và các API vận hành. Bản Word được dựng từ nội dung này.
 
 Hệ thống đã thực hiện được việc gửi dữ liệu sang Gemini, lưu response, kiểm tra theo luật trong DB và công bố kết quả JSON liên kết nguồn. Tuy nhiên, nghiệm thu kỹ thuật thành công chưa đủ để công bố các con số là dự báo tài chính đã kiểm định. Các điểm chặn production được trình bày riêng trong PRODUCTION_DATA_FLOW_REVIEW.md.

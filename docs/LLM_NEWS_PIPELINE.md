@@ -1,5 +1,7 @@
 # NEWS → LLM: hợp đồng, lưu trữ và vận hành
 
+> Bàn giao cập nhật 07/10/2026: đọc [PROJECT_HANDOVER.md](PROJECT_HANDOVER.md) trước. Code LLM đã push ở `feature/llm-processing` (`5343f81`), chưa merge/deploy. Các số liệu DB, kết quả API và nhận định bên dưới thuộc thời điểm kiểm tra được ghi trong tài liệu; không phải xác nhận runtime ngày 07/10. Implementation và việc còn dở cần đối chiếu với bàn giao mới.
+
 Cập nhật 04/10/2026. Java Spring Boot local; đã kiểm thử API Gemini thật.
 
 ## Phạm vi

@@ -1,5 +1,7 @@
 # Đánh giá luồng dữ liệu trước production
 
+> Bàn giao cập nhật 07/10/2026: đọc [PROJECT_HANDOVER.md](PROJECT_HANDOVER.md) trước. Code LLM đã push ở `feature/llm-processing` (`5343f81`), chưa merge/deploy. Các số liệu DB, kết quả API và nhận định bên dưới thuộc thời điểm kiểm tra được ghi trong tài liệu; không phải xác nhận runtime ngày 07/10. Implementation và việc còn dở cần đối chiếu với bàn giao mới.
+
 Ngày 04/10/2026, khoảng 16:51 giờ Việt Nam. Đối tượng: working tree Java Spring Boot tại nhánh `master`, HEAD `918a253`, gồm nhiều thay đổi local chưa commit và file chưa được Git theo dõi. Báo cáo đánh giá trạng thái đang thấy trong workspace và DB cấu hình local; không chứng nhận một commit release hay toàn bộ hạ tầng production.
 
 **Kết luận: chưa nên mở nhánh này trực tiếp ra production.** Có lỗi bảo vệ API đã tái hiện, lỗi ngày mục tiêu dự báo đã tái hiện và khoảng trống xử lý URL lỗi từ Python đang chạy. Luồng có nhiều cơ chế tốt về audit, chống trùng và transaction, nhưng các phép kiểm tra đó chưa giải quyết đầy đủ quyền truy cập, độ tin cậy nghiệp vụ dự báo và vận hành nhiều worker.
@@ -103,6 +105,13 @@ REJECTED không mặc nhiên là dữ liệu rác cần xóa; đây có thể l�
 ## 5 Phát hiện cần xử lý
 
 ### P0 01 API quản trị ngoài forecast chưa được bảo vệ
+
+**Đối chiếu code ngày 07/10/2026:** `ForecastAdminAccessConfiguration` hiện đã bảo vệ
+`/api/admin/forecasts/**`, `/api/admin/llm/**` và `/api/admin/news-recovery/**` bằng
+token admin riêng. Vì vậy quan sát ẩn danh 200 cho admin LLM bên dưới là bằng chứng
+trước thay đổi, không phải kết luận về code `5343f81`. Chưa có bằng chứng RBAC tập trung
+cho toàn bộ endpoint ingestion/master/validation và các API quản trị khác; phát hiện
+chỉ được xử lý một phần, không đánh dấu toàn hệ thống đã đạt quyền truy cập production.
 
 **Bằng chứng:** [ForecastAdminAccessConfiguration.addInterceptors dòng 28](D:/HeThong_PhanTichTaiChinh/HE_THONG_DATA_TAI_CHINH_TEST/src/main/java/com/hethongdata/taichinh/config/ForecastAdminAccessConfiguration.java:28) chỉ áp dụng `/api/admin/forecasts/**`. Không tìm thấy SecurityFilterChain hoặc PreAuthorize bảo vệ các controller còn lại. GET không Authorization trả 200 cho `/api/admin/llm/templates`, `/api/admin/llm/gemini/configuration`, `/api/ingestion-jobs`; forecast/configuration trả 403.
 

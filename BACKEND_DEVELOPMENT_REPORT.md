@@ -1,4 +1,6 @@
 # BÁO CÁO PHÁT TRIỂN HỆ THỐNG BACKEND TÀI CHÍNH
+
+> Bàn giao cập nhật 07/10/2026: đọc [docs/PROJECT_HANDOVER.md](docs/PROJECT_HANDOVER.md) trước. Code LLM đã push ở `feature/llm-processing` (`5343f81`), chưa merge/deploy. Các số liệu DB, kết quả API và nhận định bên dưới thuộc thời điểm kiểm tra được ghi trong tài liệu; không phải xác nhận runtime ngày 07/10. Implementation và việc còn dở cần đối chiếu với bàn giao mới.
 > **Dự án:** `HE_THONG_DATA_TAI_CHINH_TEST`  
 > **Nhánh phát triển hiện tại:** Backend API — Thu thập, Kiểm định, Phân tích dữ liệu tài chính  
 > **Mục đích tài liệu:** Cung cấp ngữ cảnh đầy đủ để Developer hoặc BA mới đọc và tiếp tục phát triển hệ thống  

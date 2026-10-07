@@ -23,11 +23,43 @@ import java.util.UUID;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class LlmRunEntity {
+    @Column(name="company_id")
+    private UUID companyId;
+
+    @Column(name="security_id")
+    private UUID securityId;
 
     @Id
     @UuidGenerator
     @Column(name = "id")
     private UUID id;
+
+    @Column(name = "prompt_template_id")
+    private UUID promptTemplateId;
+
+    @Column(name = "task_code")
+    private String taskCode;
+
+    @Column(name = "news_article_id")
+    private UUID newsArticleId;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "request_payload")
+    private JsonNode requestPayload;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "response_payload")
+    private JsonNode responsePayload;
+
+    @Column(name = "response_text")
+    private String responseText;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "validation_errors")
+    private JsonNode validationErrors;
+
+    @Column(name = "http_status")
+    private Integer httpStatus;
 
     @Column(name = "operation_type")
     private String operationType;

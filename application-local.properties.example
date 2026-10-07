@@ -1,7 +1,7 @@
 # application-local.properties
-spring.datasource.url=jdbc:postgresql://port/postgres?currentSchema=public
-spring.datasource.username=sa
-spring.datasource.password=root123
+spring.datasource.url=${DB_URL:jdbc:postgresql://localhost:5432/financial_data?currentSchema=public}
+spring.datasource.username=${DB_USERNAME:financial_app}
+spring.datasource.password=${DB_PASSWORD:}
 spring.datasource.driver-class-name=org.postgresql.Driver
 spring.datasource.hikari.connection-timeout=5000
 
@@ -16,3 +16,44 @@ financial.raw-diagnostics.include-body-enabled=false
 # Set true only after ingestion_jobs have been reviewed and activated.
 financial.ingestion.scheduler.enabled=false
 financial.ingestion.scheduler.poll-interval=60000
+
+# Copy to application-local.properties (gitignored), or supply these environment variables.
+# For localhost only. Do not place secrets in src/main/resources/application.properties.
+server.address=127.0.0.1
+server.port=${SERVER_PORT:8080}
+spring.data.redis.host=${REDIS_HOST:localhost}
+spring.data.redis.port=${REDIS_PORT:6380}
+spring.data.redis.password=${REDIS_PASSWORD:}
+financial.llm.enabled=${LLM_ENABLED:false}
+financial.llm.gemini.api-key=${GEMINI_API_KEY:}
+# Optional primary override. Blank uses the ordered list below.
+financial.llm.gemini.model=${GEMINI_MODEL:}
+financial.llm.gemini.models=${GEMINI_MODELS:gemini-3.5-flash-lite,gemini-3.5-flash,gemini-3.8-flash,gemini-3.1-flash-lite,gemini-3.6-flash,gemini-3.7-flash,gemini-2.5-flash,gemini-2.5-flash-lite}
+# Gemini 2.0 Flash/Flash-Lite are not exposed by ListModels for the checked key (2026-10-04).
+financial.llm.gemini.max-attempts=${GEMINI_MAX_ATTEMPTS:8}
+financial.llm.gemini.max-attempts-per-model=${GEMINI_MAX_ATTEMPTS_PER_MODEL:1}
+financial.llm.gemini.attempt-timeout-ms=${GEMINI_ATTEMPT_TIMEOUT_MS:45000}
+financial.llm.gemini.total-timeout-ms=${GEMINI_TOTAL_TIMEOUT_MS:180000}
+financial.llm.gemini.backoff-ms=${GEMINI_BACKOFF_MS:1000}
+financial.llm.gemini.max-backoff-ms=${GEMINI_MAX_BACKOFF_MS:8000}
+financial.llm.gemini.cooldown-ms=${GEMINI_COOLDOWN_MS:60000}
+financial.llm.gemini.max-output-tokens=${GEMINI_MAX_OUTPUT_TOKENS:16384}
+financial.llm.gemini.thinking-budget=${GEMINI_THINKING_BUDGET:1024}
+financial.llm.catalog.seed-enabled=false
+financial.llm.scheduler.enabled=false
+financial.validation.scheduler.enabled=false
+## Dedicated credential for forecast admin API only; keep private, >=32 characters. Never use Gemini key here.
+financial.admin.api-token=${FINANCIAL_ADMIN_API_TOKEN:}
+
+# Cloudinary document storage: fill values in the gitignored local file or environment.
+# Storage is used by the admin recovery API; the recovery scheduler remains separately opt-in.
+financial.documents.cloudinary.enabled=${CLOUDINARY_DOCUMENTS_ENABLED:false}
+financial.documents.cloudinary.cloud-name=${CLOUDINARY_CLOUD_NAME:}
+financial.documents.cloudinary.api-key=${CLOUDINARY_API_KEY:}
+financial.documents.cloudinary.api-secret=${CLOUDINARY_API_SECRET:}
+financial.documents.cloudinary.folder=${CLOUDINARY_DOCUMENT_FOLDER:financial/news-documents}
+financial.documents.cloudinary.max-file-bytes=${CLOUDINARY_MAX_FILE_BYTES:20971520}
+financial.documents.cloudinary.connect-timeout=${CLOUDINARY_CONNECT_TIMEOUT:5s}
+financial.documents.cloudinary.read-timeout=${CLOUDINARY_READ_TIMEOUT:45s}
+financial.news-recovery.scheduler.enabled=${NEWS_RECOVERY_SCHEDULER_ENABLED:false}
+financial.news-recovery.scheduler.delay-ms=300000

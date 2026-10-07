@@ -42,14 +42,14 @@ NEWS_DATA DataVersion / ACTIVATED
 | Tạo run Job 1/2 | `IngestionRunRepository.startInternalBatch` |
 | Lấy RAW NEWS/NEWS_DATA của batch | `RawPayloadJpaRepository.findByIngestionRunIdAndEntityTypeOrderByFetchedAtAsc` |
 | Java gọi Python | `PythonExternalFinancialDataAdapter` với `ExternalOperation.FETCH_URL` |
-| Python fetch URL | `app.api.v1.url_fetch.fetch_url` dùng `httpx.AsyncClient`, follow redirect |
+| Python fetch và tách bài | `app.api.v1.url_fetch.fetch_url` tải một lần, rồi dùng `CafeFNewsSource.parse_article` để trả tiêu đề, sapo, thân bài, tác giả, ngày đăng và trạng thái tách bài |
 | Ghi RAW NEWS_DATA và kích hoạt NEWS | `NewsWorkflowPersistenceService.persistFetchedNewsData` |
 | Validate NEWS/NEWS_DATA | `ValidationScheduler.validatePendingRawPayloads` → `ValidationJobService.validatePending` → `ValidationRuleExecutionService.execute` → `ValidationJobService.finalizeIngestionRun` |
-| Tạo article/company link và kích hoạt NEWS_DATA | `NewsWorkflowPersistenceService.persistBuiltArticles` |
+| Tạo article/company link và kích hoạt NEWS_DATA | `NewsWorkflowPersistenceService.persistBuiltArticles` dùng `NewsCompanyMatcher` để đọc title/sapo/content sạch và đối chiếu danh mục công ty, alias, chứng khoán active |
 
-`NEWS_DATA_FETCH` chỉ fetch và persist. Python không đọc/ghi database, không validation và không tạo article. NEWS lưu danh sách link trong `payload.data[]`; `source_url` là URL API lấy danh sách. NEWS_DATA lưu `requested_url`, `final_url`, `http_status`, `textual` trong `payload`, còn toàn bộ HTML giữ nguyên trong `raw_text`; `content_type` là `text/html`. Binary không được parse. `NEWS_ARTICLE_BUILD` đọc NEWS_DATA đã validate và tạo `news_articles`/`news_article_companies`.
+`NEWS_DATA_FETCH` chỉ fetch và persist. Python không đọc/ghi database, không validation và không tạo article. NEWS lưu từng mục trong `payload.data[]`, gồm URL và `publishedAt` riêng; `source_url` là URL API lấy danh sách. Mỗi NEWS_DATA ứng với một URL, lưu `requested_url`, `final_url`, `http_status`, `textual`, các trường bài đã tách và ngày đăng của mục NEWS trong `payload`; HTML gốc nằm trong `raw_text`. Ngày không có offset được hiểu theo `Asia/Ho_Chi_Minh`. Binary không được parse. `NEWS_ARTICLE_BUILD` chỉ dùng thân bài sạch đã tách để tạo `news_articles`/`news_article_companies`; `published_at` ưu tiên ngày trên bài, fallback ngày của mục NEWS, còn `crawled_at` là lúc tải.
 
-Các rule được quản lý trong `src/main/resources/validation/news-rules.json`, được `ValidationRuleCatalogService` đồng bộ vào `validation_rules`, và được thực thi bởi `ValidationRuleExecutionService`. NEWS có rule về cấu trúc danh sách, URL, title, ngày, symbol, URL trùng trong batch và checksum. NEWS_DATA có rule về metadata, URL, HTTP status, content type, raw HTML, cấu trúc HTML và dấu hiệu trang lỗi/chặn.
+Các rule được quản lý trực tiếp trong `validation_rules` và được thực thi bởi `ValidationRuleExecutionService`. Database mới khởi tạo qua `V20261004_04__news_validation_catalog.sql` (chỉ thêm luật chưa có); seed Java không còn ghi đè luật NEWS. NEWS có rule về cấu trúc danh sách, URL, title, ngày, symbol, URL trùng trong batch và checksum. NEWS_DATA có rule về metadata, URL, HTTP status, content type, raw HTML, cấu trúc HTML, trạng thái tách bài và dấu hiệu trang lỗi/chặn.
 
 Dispatcher chọn NEWS workflow theo `ingestion_jobs.code`, không theo `parameters.operation`. Vì vậy Job 1 giữ `{"operation":"FETCH_URL"}` để mô tả external fetch, còn Job 2 dùng `{"workflow":"NEWS_ARTICLE_BUILD"}` để mô tả internal build và không bị hiểu nhầm là một URL fetch.
 
@@ -64,7 +64,7 @@ Hai commit point dùng `@Transactional` trong `NewsWorkflowPersistenceService`: 
 - `data_versions`: batch validated, gồm `data_domain`, `status`, `ingestion_run_id`; code thêm chuyển trạng thái `ACTIVE → ACTIVATED`.
 - `validation_rules`: cấu hình rule theo domain, severity, executor và JSON config.
 - `validation_results`: do `ValidationJobService` tạo; workflow không ghi trực tiếp.
-- `news_articles` và `news_article_companies`: output của Job 2; hiện chống trùng theo `raw_payload_id` và `url_hash`, liên kết công ty theo source security nếu có.
+- `news_articles` và `news_article_companies`: output của Job 2; chống trùng theo `raw_payload_id`, `url_hash`, `content_hash` của thân bài sạch. Bài mới hoặc bài trùng đều được dò tên/mã thực sự xuất hiện trong title, sapo, thân bài; chỉ gắn công ty/chứng khoán active đã có trong DB. Mỗi quan hệ lưu `relevance_score` và `match_evidence` (trường, từ khớp, trích đoạn). Mã nguồn của job không tự tạo quan hệ nếu bài không nhắc đến mã đó. Quan hệ trùng được bỏ qua; nếu toàn bộ version không thêm bài hay quan hệ mới, run `FAILED` và version `REJECTED`.
 
 ## Migration từ flow cũ và trạng thái DB
 

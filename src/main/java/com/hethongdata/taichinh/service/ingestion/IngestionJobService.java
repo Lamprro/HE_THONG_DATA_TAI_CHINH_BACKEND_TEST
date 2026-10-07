@@ -11,9 +11,12 @@ import com.hethongdata.taichinh.repository.ingestion.IngestionJobRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaRepository;
 import com.hethongdata.taichinh.service.news.NewsWorkflowService;
 import com.hethongdata.taichinh.service.financial.FinancialStatementBuildService;
+import com.hethongdata.taichinh.service.market.MarketIndexWorkflowService;
+import com.hethongdata.taichinh.service.market.MarketPriceWorkflowService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Service;
 
@@ -21,6 +24,9 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.Arrays;
+import java.util.stream.Collectors;
 import java.util.UUID;
 
 @Service
@@ -34,6 +40,11 @@ public class IngestionJobService {
     private final RetryBudgetService retryBudgetService;
     private final NewsWorkflowService newsWorkflowService;
     private final FinancialStatementBuildService financialStatementBuildService;
+    private final MarketPriceWorkflowService marketPriceWorkflowService;
+    private final MarketIndexWorkflowService marketIndexWorkflowService;
+
+    @Value("${financial.ingestion.scheduler.allowed-job-codes:}")
+    private String scheduledJobCodes = "";
 
     public IngestionJobService(
             IngestionJobRepository ingestionJobs,
@@ -41,13 +52,17 @@ public class IngestionJobService {
             IngestionService ingestionService,
             RetryBudgetService retryBudgetService,
             NewsWorkflowService newsWorkflowService,
-            FinancialStatementBuildService financialStatementBuildService) {
+            FinancialStatementBuildService financialStatementBuildService,
+            MarketPriceWorkflowService marketPriceWorkflowService,
+            MarketIndexWorkflowService marketIndexWorkflowService) {
         this.ingestionJobs = ingestionJobs;
         this.ingestionRuns = ingestionRuns;
         this.ingestionService = ingestionService;
         this.retryBudgetService = retryBudgetService;
         this.newsWorkflowService = newsWorkflowService;
         this.financialStatementBuildService = financialStatementBuildService;
+        this.marketPriceWorkflowService = marketPriceWorkflowService;
+        this.marketIndexWorkflowService = marketIndexWorkflowService;
     }
 
     public IngestionJobResponse create(CreateIngestionJobRequest request) {
@@ -127,8 +142,16 @@ public class IngestionJobService {
     public void executeDueJobs() {
         Instant now = Instant.now();
         List<IngestionJobEntity> activeJobs = ingestionJobs.findActiveEntities();
+        Set<String> allowedCodes = Arrays.stream(scheduledJobCodes.split(","))
+                .map(String::trim).filter(value -> !value.isEmpty())
+                .map(value -> value.toUpperCase(java.util.Locale.ROOT))
+                .collect(Collectors.toSet());
         int dueCount = 0;
         for (IngestionJobEntity job : activeJobs) {
+
+            if (!allowedCodes.isEmpty() && !allowedCodes.contains(job.getCode().toUpperCase(java.util.Locale.ROOT))) {
+                continue;
+            }
 
             if (!isDue(job, now)) {
                 continue;
@@ -159,6 +182,10 @@ public class IngestionJobService {
             IngestionExecutionResponse response =
                     newsWorkflowService.supports(job.getCode())
                             ? newsWorkflowService.execute(job, triggerType)
+                            : marketPriceWorkflowService.supports(job.getCode())
+                                    ? marketPriceWorkflowService.execute(job, triggerType)
+                                    : marketIndexWorkflowService.supports(job.getCode())
+                                            ? marketIndexWorkflowService.execute(job, triggerType)
                             : financialStatementBuildService.supports(job.getCode())
                                     ? financialStatementBuildService.execute(job, triggerType)
                                     : ingestionService.ingestJob(job, triggerType);

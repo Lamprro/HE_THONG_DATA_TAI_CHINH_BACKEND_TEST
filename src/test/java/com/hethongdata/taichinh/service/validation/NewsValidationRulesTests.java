@@ -28,14 +28,14 @@ class NewsValidationRulesTests {
                     new MarketIndexPayloadParser(), new MarketPricePayloadParser());
 
     static Stream<String> catalogCodes() throws Exception {
-        try (var input = NewsValidationRulesTests.class.getResourceAsStream("/validation/news-rules.json")) {
+        try (var input = NewsValidationRulesTests.class.getResourceAsStream("/fixtures/news-validation-rules.json")) {
             return StreamSupport.stream(JSON.readTree(input).spliterator(), false)
                     .map(rule -> rule.path("code").asText()).toList().stream();
         }
     }
 
     static ValidationRuleEntity rule(String code) throws Exception {
-        try (var input = NewsValidationRulesTests.class.getResourceAsStream("/validation/news-rules.json")) {
+        try (var input = NewsValidationRulesTests.class.getResourceAsStream("/fixtures/news-validation-rules.json")) {
             for (JsonNode row : JSON.readTree(input))
                 if (code.equals(row.path("code").asText()))
                     return ValidationRuleEntity.create(code, row.path("name").asText(),
@@ -72,11 +72,50 @@ class NewsValidationRulesTests {
                           """
                         : """
                           {"requested_url":"https://cafef.vn/news.chn","final_url":"https://cafef.vn/news.chn",
-                          "http_status":200,"textual":true}
+                          "http_status":200,"textual":true,"extraction_status":"SUCCESS",
+                          "canonical_url":"https://cafef.vn/news.chn","title":"FPT news",
+                          "published_at":"2026-09-10T20:17:00+07:00",
+                          "content_text":"FPT reports quarterly business results and operational developments. FPT reports quarterly business results and operational developments. FPT reports quarterly business results and operational developments. FPT reports quarterly business results and operational developments. FPT reports quarterly business results and operational developments."}
                           """);
         raw.setContentType("text/html; charset=utf-8");
         raw.setRawText("<!DOCTYPE html><html><head><title>FPT news</title></head><body><p>Article content</p></body></html>");
         assertThat(executor.execute(rule, raw).status()).isEqualTo("PASS");
+    }
+
+    @Test
+    void financialStatementRuleRejectsAnEmptyDataArray() throws Exception {
+        var rule = ValidationRuleEntity.create("STATEMENT_REQUIRED_KEYS", "Statement rows",
+                "FINANCIAL_STATEMENT", "ERROR", "NOT_NULL", JSON.readTree("{\"dataField\":\"data\"}"),
+                "Requires statement rows", "STATEMENT_REQUIRED_KEYS");
+        var raw = raw("FINANCIAL_STATEMENT", "{\"symbol\":\"VCB\",\"dataset\":\"balance_sheet\",\"data\":[],\"count\":0}");
+
+        var outcome = executor.execute(rule, raw);
+
+        assertThat(outcome.status()).isEqualTo("FAIL");
+        assertThat(outcome.message()).contains("no data rows");
+    }
+
+    @Test
+    void financialStatementItemRuleAcceptsProviderItemLabelWithoutCode() throws Exception {
+        var rule = ValidationRuleEntity.create("STATEMENT_ITEM_CODE_REQUIRED", "Financial statement item code",
+                "FINANCIAL_STATEMENT", "ERROR", "NOT_NULL", JSON.readTree("{\"field\":\"itemCode\"}"),
+                "Each financial statement item must be identifiable", "STATEMENT_ITEM_CODE_REQUIRED");
+        var outcome = executor.execute(rule, raw("FINANCIAL_STATEMENT",
+                "{\"data\":[{\"item\":\"1. Doanh thu thuần\",\"2026-Q2\":123}],\"count\":1}"));
+
+        assertThat(outcome.status()).isEqualTo("PASS");
+    }
+
+    @Test
+    void financialStatementItemRuleRejectsRowsWithoutCodeOrLabel() throws Exception {
+        var rule = ValidationRuleEntity.create("STATEMENT_ITEM_CODE_REQUIRED", "Financial statement item code",
+                "FINANCIAL_STATEMENT", "ERROR", "NOT_NULL", JSON.readTree("{\"field\":\"itemCode\"}"),
+                "Each financial statement item must be identifiable", "STATEMENT_ITEM_CODE_REQUIRED");
+        var outcome = executor.execute(rule, raw("FINANCIAL_STATEMENT",
+                "{\"data\":[{\"2026-Q2\":123}],\"count\":1}"));
+
+        assertThat(outcome.status()).isEqualTo("FAIL");
+        assertThat(outcome.message()).contains("cannot be identified");
     }
 
     static Stream<String[]> invalidCases() {

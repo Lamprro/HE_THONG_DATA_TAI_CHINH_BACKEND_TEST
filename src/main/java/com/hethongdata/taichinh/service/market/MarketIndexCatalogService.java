@@ -7,7 +7,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
-/** Idempotent master data for the index collection jobs. */
+/** Lớp mồi (seed) danh mục chỉ số thị trường (VNINDEX, VN30, HNXINDEX...) ban đầu vào database, không thuộc luồng thu thập runtime chính. */
 @Service
 public class MarketIndexCatalogService {
     private final MarketIndexJpaRepository indices;

@@ -225,8 +225,8 @@ cho từng `raw_payload`; (2) finalization ở mức `ingestion_run`. Finalizati
 raw khác trong cùng run chưa hoàn thành; chỉ raw cuối cùng làm run đủ điều kiện mới nhận response
 `ACCEPTED` kèm `dataVersionId`.
 
-Hiện có executor cho các domain dữ liệu chung và bộ **14 rule NEWS/NEWS_DATA** được quản lý trong
-`src/main/resources/validation/news-rules.json`:
+Hiện có executor cho các domain dữ liệu chung; bộ luật NEWS/NEWS_DATA được quản lý trong
+`validation_rules` (database). File seed JSON runtime đã bỏ; database mới dùng migration SQL:
 
 | Executor Key | Domain | Mô Tả |
 |---|---|---|

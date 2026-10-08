@@ -288,7 +288,13 @@ public class FinancialStatementBuildService {
 
     private static String code(String value) {
         if (value == null || value.isBlank()) return null;
-        return value.trim().toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9]+", "_").replaceAll("^_+|_+$", "");
+        return boundedItemCode(value.trim().toUpperCase(Locale.ROOT)
+                .replaceAll("[^A-Z0-9]+", "_").replaceAll("^_+|_+$", ""));
+    }
+
+    /** Keep the DB key bounded without losing identity when provider labels share a long prefix. */
+    private static String boundedItemCode(String code) {
+        return code.length() <= 100 ? code : code.substring(0, 87) + "_" + shortSha256(code);
     }
 
     /**
@@ -315,7 +321,7 @@ public class FinancialStatementBuildService {
                 if (duplicateNumber > 1) candidate += "_" + duplicateNumber;
                 normalized.set(
                         index,
-                        new ItemDraft(candidate, item.itemName(), item.value(), item.rawValue(), item.displayOrder(), item.sourceItemCode(), item.sourceItemName(), item.provider()));
+                        new ItemDraft(boundedItemCode(candidate), item.itemName(), item.value(), item.rawValue(), item.displayOrder(), item.sourceItemCode(), item.sourceItemName(), item.provider()));
             }
         }
         return List.copyOf(normalized);

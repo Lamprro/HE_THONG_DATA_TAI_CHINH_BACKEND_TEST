@@ -64,6 +64,11 @@ Ingestion SUCCESS chỉ chứng minh đã lưu raw, không chứng minh builder/
 
 ## 4. Đầu vào/đầu ra LLM và cách lưu
 
+Cập nhật tài liệu 08/10/2026: xem [sơ đồ code NEWS → LLM](NEWS_LLM_CODE_DIAGRAMS.md).
+Sơ đồ phân biệt JSON bài báo với request Gemini đầy đủ, có prompt và schema output;
+đồng thời nối API/scheduler → claim → call → audit → validate → publish. Chỉ sửa tài liệu,
+không chạy lại DB/Gemini và không coi các lỗi tồn đọng dưới đây đã được xử lý.
+
 NEWS thường đọc `news_articles` có body đủ điều kiện cùng title, ngày đăng, quan hệ,
 provenance và hash nguồn. SUMMARY trả tổng quan/sections; DETAIL trả loại văn bản,
 sự kiện và tác động công ty; FINANCIAL_FACTS trích số liệu thực tế/dự báo/kế hoạch

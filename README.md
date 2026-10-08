@@ -13,6 +13,7 @@ và thứ tự công việc tiếp theo. Không coi số liệu DB trong báo c�
 - Cấu hình mẫu: [application-local.properties.example](application-local.properties.example).
 - Tổng quan kiến trúc: [BACKEND_DEVELOPMENT_REPORT.md](BACKEND_DEVELOPMENT_REPORT.md).
 - Luồng code NEWS và financial LLM: [LLM_FLOW_DEV_BA.md](docs/LLM_FLOW_DEV_BA.md).
+- Sơ đồ request và UML NEWS → LLM: [NEWS_LLM_CODE_DIAGRAMS.md](docs/NEWS_LLM_CODE_DIAGRAMS.md).
 - Rủi ro đã được ghi nhận: [PRODUCTION_DATA_FLOW_REVIEW.md](docs/PRODUCTION_DATA_FLOW_REVIEW.md).
 
 Không commit `application-local.properties`, khóa API, backup DB hoặc output trong `target/`.

@@ -55,7 +55,13 @@ URL trùng hoặc content_hash trùng sẽ tìm lại bài đã có. Nếu thêm
 
 Bộ lọc menu này chỉ nhận diện dấu hiệu đã biết. Không được diễn giải việc vượt kiểm tra thành đã loại mọi quảng cáo, nội dung gây nhiễu hoặc mọi chỉ dẫn độc hại trong bài.
 
-### 2.2 Hợp đồng đầu vào NEWS
+### 2.2 JSON dữ liệu bài báo — chưa phải request Gemini đầy đủ
+
+Xem [sơ đồ code NEWS → LLM](NEWS_LLM_CODE_DIAGRAMS.md) để theo toàn bộ luồng.
+Java dựng JSON này từ dữ liệu DB. Sau đó `GeminiLlmGateway.request()` mới ghép thêm
+`system_prompt` và `response_schema` của `llm_prompt_templates`, cùng cấu hình sinh
+kết quả, thành request Gemini đầy đủ. Chỉ `call()` mới gửi HTTP tới provider.
+Trong request hiện hành, schema output nằm ở `generationConfig.responseJsonSchema`.
 
 [NewsLlmContext.segmentText dòng 68](D:/HeThong_PhanTichTaiChinh/HE_THONG_DATA_TAI_CHINH_TEST/src/main/java/com/hethongdata/taichinh/service/llm/NewsLlmContext.java:68) chia thân bài thành các đoạn khoảng tối đa 1800 ký tự, cố giữ ranh giới câu và nguyên văn liên tục. ID p1, p2 và các ID kế tiếp là vị trí bằng chứng để Java kiểm tra quote.
 
@@ -66,8 +72,8 @@ Bộ lọc menu này chỉ nhận diện dấu hiệu đã biết. Không đư�
 | article.title và sapo | Tiêu đề và lời dẫn; sapo thiếu được gửi chuỗi rỗng |
 | article.published_at | Thời điểm đăng có offset +07:00 |
 | article.url và content_hash | URL chuẩn hóa và dấu nhận diện thân bài |
-| article.segments[] | id và text nguyên văn; nguồn duy nhất cho evidence.quote |
-| article.companies[] | company_id, security_id, name, symbol, match_method, match_evidence |
+| article.segments[] | Java chia news_articles.content_text thành đoạn và gán p1/p2; không có cột segments trong DB. Dùng để kiểm tra evidence.quote. |
+| article.companies[] | Java đọc news_article_companies join companies/securities của đúng bài; tạo company_id, security_id, name, symbol, match_method, match_evidence. Không có cột companies[] trong news_articles. |
 
 Input được kiểm tra bằng request_schema của prompt trước gọi model. Nội dung bài được đặt trong request như dữ liệu; system_prompt yêu cầu không thực hiện chỉ dẫn trong bài, không tự mở URL hoặc thêm kiến thức bên ngoài.
 

@@ -1,5 +1,7 @@
 # NEWS recovery: luồng thực tế, API admin và kiểm thử
 
+> Cập nhật 08/10/2026: lịch sử từng lần gọi model nằm trong mảng JSONB `llm_runs.attempts`, không còn bảng log attempts riêng. Xem [hướng dẫn chuyển đổi](LLM_ATTEMPTS_MERGE.md). Các kết quả kiểm thử cũ bên dưới là bằng chứng của thời điểm ghi báo cáo.
+
 > Bàn giao cập nhật 07/10/2026: đọc [PROJECT_HANDOVER.md](PROJECT_HANDOVER.md) trước. Code LLM đã push ở `feature/llm-processing` (`5343f81`), chưa merge/deploy. Các số liệu DB, kết quả API và nhận định bên dưới thuộc thời điểm kiểm tra được ghi trong tài liệu; không phải xác nhận runtime ngày 07/10. Implementation và việc còn dở cần đối chiếu với bàn giao mới.
 
 Kiểm thử runtime được ghi nhận ngày 04/10/2026. Code đã push ngày 07/10/2026 trên `feature/llm-processing` (`5343f81`); chưa có xác nhận deploy. Không thay dự án Python và không có Python fetcher phụ. Script `scripts/test_news_recovery_live.py` chỉ gọi HTTP API Java và đọc audit DB để kiểm thử.
@@ -22,7 +24,7 @@ Việc tải tài liệu có thể cần 2 lần gọi provider: đọc trang/t�
 |---|---|
 | llm_prompt_templates | NEWS_CONTENT_RECOVERY v1, schema request/response, prompt và checksum |
 | llm_runs | operation NEWS_PARSE, task riêng; snapshot bài cũ trong request_metadata.source, source hash, template checksum, fingerprint luật; proposal trong response_text; manifest tài liệu và trạng thái duyệt trong response_metadata |
-| llm_run_attempts | Từng lần gọi/fallback, request, response và token; binary inline được thay bằng hash/kích thước trong log, không phải request có thể replay nguyên trạng |
+| llm_runs.attempts | Từng lần gọi/fallback, request, response và token; binary inline được thay bằng hash/kích thước trong log, không phải request có thể replay nguyên trạng |
 | validation_rules / validation_results | 5 luật NEWS_RECOVERY; validation_target LLM_OUTPUT; mỗi lần kiểm tra có round riêng và llm_run_id |
 | news_articles | Chỉ cập nhật khi approve: title/content/hash/author/date, metadata recovery và manifest tài liệu; giữ nguyên ID/URL/raw_payload gốc |
 | news_article_companies | Giữ quan hệ nguồn job; xây lại TEXT_MATCH trên nội dung được duyệt |

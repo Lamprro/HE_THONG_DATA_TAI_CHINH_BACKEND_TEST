@@ -1,5 +1,7 @@
 # NEWS: khôi phục nội dung và tài liệu đính kèm
 
+> Cập nhật 08/10/2026: lịch sử từng lần gọi model nằm trong mảng JSONB `llm_runs.attempts`, không còn bảng log attempts riêng. Xem [hướng dẫn chuyển đổi](LLM_ATTEMPTS_MERGE.md). Các kết quả kiểm thử cũ bên dưới là bằng chứng của thời điểm ghi báo cáo.
+
 > Bàn giao cập nhật 07/10/2026: đọc [PROJECT_HANDOVER.md](PROJECT_HANDOVER.md) trước. Code LLM đã push ở `feature/llm-processing` (`5343f81`), chưa merge/deploy. Các số liệu DB, kết quả API và nhận định bên dưới thuộc thời điểm kiểm tra được ghi trong tài liệu; không phải xác nhận runtime ngày 07/10. Implementation và việc còn dở cần đối chiếu với bàn giao mới.
 
 Ngày chốt yêu cầu: 04/10/2026. Đây là bản thiết kế ban đầu. **Đã triển khai nhánh admin recovery; xem [luồng thực tế và kết quả test](NEWS_RECOVERY_FLOW_AND_TESTS.md) để biết trạng thái mới nhất.** Các bảng đề xuất dưới đây KHÔNG được tạo: triển khai tận dụng bảng LLM hiện có.
@@ -33,7 +35,7 @@ Ngày chốt yêu cầu: 04/10/2026. Đây là bản thiết kế ban đầu. **
 
 - news_article_documents: quan hệ article–document, URL nguồn, asset ID, SHA-256, MIME, size, trạng thái tải/lưu/đọc, thời điểm.
 - news_content_revisions: article, base source hash, proposed content, provenance, recovery run, assessment, trạng thái, reviewer và lý do duyệt/từ chối.
-- Tiếp tục dùng llm_runs/llm_run_attempts cho các lần gọi AI, validation_rules/validation_results cho kiểm tra, llm_results cho kết quả đã được chấp nhận. Không đưa bản đề xuất chưa duyệt vào API kết quả hiện hành.
+- Tiếp tục dùng llm_runs/llm_runs.attempts cho các lần gọi AI, validation_rules/validation_results cho kiểm tra, llm_results cho kết quả đã được chấp nhận. Không đưa bản đề xuất chưa duyệt vào API kết quả hiện hành.
 - Admin approve phải khóa bài và kiểm tra base hash; nếu nguồn đổi thì trả conflict thay vì đè. Sau approve: hash lại, kiểm tra duplicate, cập nhật quan hệ theo quy tắc hiện tại, làm mất hiệu lực kết quả của revision cũ. Không tạo bài trùng chỉ vì có file hoặc nội dung khôi phục mới.
 - Duyệt nội dung không đồng nghĩa duyệt phân tích. Phân tích đính kèm phải qua validation riêng; nếu thất bại có thể chạy lại trên revision đã duyệt.
 

@@ -1,5 +1,7 @@
 # Luồng xử lý LLM cho tin tức và tài chính
 
+> Cập nhật 08/10/2026: lịch sử từng lần gọi model nằm trong mảng JSONB `llm_runs.attempts`, không còn bảng log attempts riêng. Xem [hướng dẫn chuyển đổi](LLM_ATTEMPTS_MERGE.md). Các kết quả kiểm thử cũ bên dưới là bằng chứng của thời điểm ghi báo cáo.
+
 > Bàn giao cập nhật 07/10/2026: đọc [PROJECT_HANDOVER.md](PROJECT_HANDOVER.md) trước. Code LLM đã push ở `feature/llm-processing` (`5343f81`), chưa merge/deploy. Các số liệu DB, kết quả API và nhận định bên dưới thuộc thời điểm kiểm tra được ghi trong tài liệu; không phải xác nhận runtime ngày 07/10. Implementation và việc còn dở cần đối chiếu với bàn giao mới.
 
 Tài liệu bàn giao cho lập trình viên và chuyên viên phân tích nghiệp vụ. Ngày đối chiếu 04/10/2026, nhánh master, HEAD 918a253 và các thay đổi local chưa commit. Phạm vi gồm luồng NEWS có nội dung, luồng kịch bản tài chính, các bảng lưu vết và các API vận hành. Bản Word được dựng từ nội dung này.
@@ -17,7 +19,7 @@ BA nên đọc phần 2 đến 6 để xác định ý nghĩa đầu vào, đầ
 | data_versions | Đơn vị phê duyệt theo ingestion run; ACTIVE đang chờ dựng, ACTIVATED đã được xử lý, REJECTED bị loại |
 | canonical | Bản được chính sách chọn làm nguồn ưu tiên giữa các nhà cung cấp; không tự chứng minh độ chính xác kinh tế |
 | llm_runs | Một tác vụ AI có input snapshot, request, response, trạng thái và template |
-| llm_run_attempts | Từng lần gọi model trong cùng một run, gồm fallback, HTTP, token và độ trễ |
+| llm_runs.attempts | Từng lần gọi model trong cùng một run, gồm fallback, HTTP, token và độ trễ |
 | validation_results | Kết quả từng luật theo vòng kiểm tra; AI dùng validation_target LLM_OUTPUT và llm_run_id |
 | llm_results | Kết quả AI được chấp nhận, JSON có version, liên kết nguồn và vòng validation |
 | source_hash | Dấu nhận diện nội dung và thông tin nguồn dùng trong phân tích |
@@ -330,7 +332,7 @@ Các giới hạn trên áp dụng cho một task, không phải một lần exe
 |---|---|---|
 | llm_prompt_templates | task_code, version, domain, prompt, request_schema, response_schema, checksum, enabled | Catalog runtime; file resource phục vụ seed có kiểm soát |
 | llm_runs | prompt_template_id; news_article_id hoặc company_id/security_id; request/response và state | Điều phối và điều tra một tác vụ |
-| llm_run_attempts | llm_run_id, attempt_no, model, HTTP, token, latency | Xác định fallback, lỗi provider và tiêu thụ |
+| llm_runs.attempts | llm_run_id, attempt_no, model, HTTP, token, latency | Xác định fallback, lỗi provider và tiêu thụ |
 | validation_rules | domain, executor_key, rule_config, severity, is_active | Điều khiển luật, không thay thế mã executor |
 | validation_results | llm_run_id, validation_round_id, snapshot luật, PASS/FAIL/SKIP | Audit từng vòng; kết quả raw dùng quan hệ riêng |
 | llm_results | run, template, task, domain, source hash, input hash, JSON, quality, is_current | Dữ liệu đã qua kiểm tra để trả frontend |

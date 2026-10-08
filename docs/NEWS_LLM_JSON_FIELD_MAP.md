@@ -1,5 +1,7 @@
 # NEWS LLM: trường JSON và nguồn dữ liệu
 
+> Cập nhật 08/10/2026: lịch sử từng lần gọi model nằm trong mảng JSONB `llm_runs.attempts`, không còn bảng log attempts riêng. Xem [hướng dẫn chuyển đổi](LLM_ATTEMPTS_MERGE.md). Các kết quả kiểm thử cũ bên dưới là bằng chứng của thời điểm ghi báo cáo.
+
 Đối chiếu code/schema ngày 08/10/2026. Đọc cùng [sơ đồ tuần tự](NEWS_LLM_CODE_DIAGRAMS.md).
 Tên trường dưới đây lấy từ NewsLlmContext, GeminiLlmGateway và ba template NEWS.
 Các giá trị trong ví dụ là ký hiệu minh họa cấu trúc, không phải bản ghi DB hoặc
@@ -152,7 +154,7 @@ chưa có DETAIL thì WAITING_FOR_DETAIL, không có cả hai thì NOT_APPLICABL
 | llm_runs.request_metadata.input | JSON input mục 2; kèm source/prompt/policy fingerprint ở metadata |
 | llm_runs.response_payload | Response provider thô, gồm envelope |
 | llm_runs.response_text | Chuỗi JSON LLM sinh được trích từ envelope |
-| llm_run_attempts | Request và response từng attempt, model/HTTP/error/token/latency |
+| llm_runs.attempts | Request và response từng attempt, model/HTTP/error/token/latency |
 | validation_results | llm_run_id, validation_round_id, rule snapshot và PASS/FAIL/SKIP |
 | llm_results.result_json | Toàn bộ JSON output hợp lệ, không chỉ overview |
 | llm_results.news_article_id | ID bài nguồn; task_code, llm_run_id, prompt_template_id giữ liên kết tác vụ |

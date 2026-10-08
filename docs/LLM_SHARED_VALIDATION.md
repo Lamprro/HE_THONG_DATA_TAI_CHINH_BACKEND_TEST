@@ -1,12 +1,14 @@
 # NEWS → LLM → validation dùng chung
 
+> Cập nhật 08/10/2026: lịch sử từng lần gọi model nằm trong mảng JSONB `llm_runs.attempts`, không còn bảng log attempts riêng. Xem [hướng dẫn chuyển đổi](LLM_ATTEMPTS_MERGE.md). Các kết quả kiểm thử cũ bên dưới là bằng chứng của thời điểm ghi báo cáo.
+
 > Bàn giao cập nhật 07/10/2026: đọc [PROJECT_HANDOVER.md](PROJECT_HANDOVER.md) trước. Code LLM đã push ở `feature/llm-processing` (`5343f81`), chưa merge/deploy. Các số liệu DB, kết quả API và nhận định bên dưới thuộc thời điểm kiểm tra được ghi trong tài liệu; không phải xác nhận runtime ngày 07/10. Implementation và việc còn dở cần đối chiếu với bàn giao mới.
 
 Bằng chứng Java/database local bên dưới ghi nhận ngày 04/10/2026. Code đã push ngày 07/10/2026 trên `feature/llm-processing` (`5343f81`); chưa có xác nhận deploy hoặc migrate môi trường khác.
 
 ## Luồng
 
-news_articles → prompt có version → llm_runs / llm_run_attempts → response lưu bền vững
+news_articles → prompt có version → llm_runs / llm_runs.attempts → response lưu bền vững
 → PENDING_VALIDATION → validation_rules (LLM_OUTPUT) → validation_results → llm_results nếu hợp lệ.
 
 Không tạo thêm ingestion_job, ingestion_run, raw_payload hoặc data_version cho đầu ra AI.

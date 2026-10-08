@@ -1,5 +1,7 @@
 # Financial/market/macro → LLM: luồng dự báo và API admin
 
+> Cập nhật 08/10/2026: lịch sử từng lần gọi model nằm trong mảng JSONB `llm_runs.attempts`, không còn bảng log attempts riêng. Xem [hướng dẫn chuyển đổi](LLM_ATTEMPTS_MERGE.md). Các kết quả kiểm thử cũ bên dưới là bằng chứng của thời điểm ghi báo cáo.
+
 > Bàn giao cập nhật 07/10/2026: đọc [PROJECT_HANDOVER.md](PROJECT_HANDOVER.md) trước. Code LLM đã push ở `feature/llm-processing` (`5343f81`), chưa merge/deploy. Các số liệu DB, kết quả API và nhận định bên dưới thuộc thời điểm kiểm tra được ghi trong tài liệu; không phải xác nhận runtime ngày 07/10. Implementation và việc còn dở cần đối chiếu với bàn giao mới.
 
 Cập nhật 04/10/2026. Chỉ triển khai Java/database local, chưa push hoặc deploy. API khách hàng và giao diện dashboard không nằm trong thay đổi này.
@@ -43,7 +45,7 @@ Admin Bearer credential → FinancialForecastAdminController → DTO đã kiểm
     → FinancialRatioCalculator: tính tỷ lệ bằng BigDecimal
     → ForecastPromptService: prompt/schema có version trong DB
     → ForecastRunStore.claim: cache, retry cap, khóa nhận việc
-    → GeminiLlmGateway: HTTP thật + fallback, llm_run_attempts
+    → GeminiLlmGateway: HTTP thật + fallback, llm_runs.attempts
     → ForecastRunStore.stage: lưu response PENDING_VALIDATION
     → ForecastValidationService: luật DB + validation_results
     → Java tính projected value từ base và giả định đã validate
@@ -156,7 +158,7 @@ Vì có limitations nguồn, SUFFICIENT bị từ chối; kết quả hiện t�
 
 ## 7. Lưu và truy nguồn
 
-Tái sử dụng llm_runs, llm_run_attempts, validation_rules, validation_results, llm_results.
+Tái sử dụng llm_runs, llm_runs.attempts, validation_rules, validation_results, llm_results.
 Migration V20261004_05__financial_forecasts.sql bổ sung:
 
 - company_id/security_id FK ở runs/results; as_of_date ở results.

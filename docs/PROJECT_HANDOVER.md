@@ -1,8 +1,16 @@
 # Bàn giao dự án và ngữ cảnh công việc đang tiếp tục
 
-Cập nhật **07/10/2026, giờ Việt Nam**. Đây là điểm đọc đầu tiên cho dev, BA hoặc AI
-tiếp quản. Đợt cập nhật này đọc code/Git và kết quả kiểm thử đã chạy cùng phiên làm việc;
-không truy vấn lại DB, không gọi Gemini/Python thật và không triển khai server.
+> Cập nhật 08/10/2026: lịch sử từng lần gọi model nằm trong mảng JSONB `llm_runs.attempts`, không còn bảng log attempts riêng. Xem [hướng dẫn chuyển đổi](LLM_ATTEMPTS_MERGE.md). Các kết quả kiểm thử cũ bên dưới là bằng chứng của thời điểm ghi báo cáo.
+
+Đây là điểm đọc đầu tiên cho dev, BA hoặc AI tiếp quản. Snapshot nền ngày
+**07/10/2026, giờ Việt Nam** chỉ đọc code/Git và tests, không truy vấn lại DB.
+Đợt **08/10/2026** đã gộp log model vào `llm_runs.attempts` cho NEWS, forecast và
+recovery, thực hiện migration DB thật: giữ nguyên 42 runs, 59 attempts, 22 results,
+đối chiếu toàn bộ nội dung từng log trước khi bỏ bảng log cũ. Backup riêng tư ngoài Git.
+185 tests pass (144 unit/contract, 41 integration PostgreSQL schema cô lập); provider
+trong integration là mock, không gọi Gemini/Python thật hoặc triển khai server.
+Code mới chỉ cập nhật `feature/llm-processing`; không đổi `master`.
+Chi tiết migration, giới hạn nghiệm thu và cách deploy: [LLM_ATTEMPTS_MERGE.md](LLM_ATTEMPTS_MERGE.md).
 
 ## 1. Git và phạm vi công việc
 
@@ -89,7 +97,7 @@ kịch bản bear/base/bull. Đây chưa phải forecast được backtest hoặ
 | --- | --- |
 | llm_prompt_templates | task/version, prompt, request/response schema, checksum và enabled |
 | llm_runs | input snapshot, nguồn, template, output, trạng thái và lỗi |
-| llm_run_attempts | từng lần gọi/fallback model, HTTP, latency, token, request/response audit |
+| llm_runs.attempts | từng lần gọi/fallback model, HTTP, latency, token, request/response audit |
 | validation_rules | catalog cấu hình; executor Java thực hiện các loại luật hỗ trợ |
 | validation_results | audit từng round; LLM_OUTPUT có llm_run_id/validation_round_id, tách RAW_PAYLOAD |
 | llm_results | kết quả JSON đã validate, liên kết nguồn NEWS hoặc company/security; lịch sử và current |

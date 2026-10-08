@@ -1,5 +1,7 @@
 # Báo cáo luồng NEWS → LLM: code, dữ liệu, validation và các tình huống xử lý
 
+> Cập nhật 08/10/2026: lịch sử từng lần gọi model nằm trong mảng JSONB `llm_runs.attempts`, không còn bảng log attempts riêng. Xem [hướng dẫn chuyển đổi](LLM_ATTEMPTS_MERGE.md). Các kết quả kiểm thử cũ bên dưới là bằng chứng của thời điểm ghi báo cáo.
+
 > Bàn giao cập nhật 07/10/2026: đọc [PROJECT_HANDOVER.md](PROJECT_HANDOVER.md) trước. Code LLM đã push ở `feature/llm-processing` (`5343f81`), chưa merge/deploy. Các số liệu DB, kết quả API và nhận định bên dưới thuộc thời điểm kiểm tra được ghi trong tài liệu; không phải xác nhận runtime ngày 07/10. Implementation và việc còn dở cần đối chiếu với bàn giao mới.
 
 Ngày đối chiếu: **04/10/2026**. Phạm vi: code Java Spring Boot trong project local hiện tại.
@@ -37,7 +39,7 @@ Admin API hoặc NewsLlmScheduler → NewsLlmService
   → kiểm tra đầu vào, cấu hình luật, cache và quyền nhận việc
   → llm_runs RUNNING
   → GeminiLlmGateway: HTTP thật, fallback có giới hạn
-  → llm_run_attempts: lưu từng lần gọi mạng
+  → llm_runs.attempts: lưu từng lần gọi mạng
   → lưu response vào llm_runs: PENDING_VALIDATION
   → LlmValidationService + NewsLlmValidator
   → validation_results: từng luật và từng round
@@ -78,7 +80,7 @@ Các lớp LLM nằm tại `src/main/java/com/hethongdata/taichinh/service/llm/`
 | `LlmValidationService` | `rules()`, `ensureComplete()`, `fingerprint()`, `evaluate()` | Đọc luật DB, kiểm tra đủ luật bắt buộc, thực thi và ghi audit từng luật |
 | `NewsLlmValidator` | `schema()`, `response()`, `execute()`, `inspect()` | Executor kiểm tra JSON Schema, nguồn, công ty, trích dẫn và số liệu |
 | `LlmRunStore` | `claim()`, `lock()` | Nhận việc có khóa; chống trùng/chạy đồng thời, kiểm tra cache và retry limit |
-| `LlmRunStore` | `recordAttempt()` | Lưu từng lần gọi mạng vào llm_run_attempts |
+| `LlmRunStore` | `recordAttempt()` | Lưu từng lần gọi mạng vào llm_runs.attempts |
 | `LlmRunStore` | `stageResponse()` | Lưu response bền vững trước validation |
 | `LlmRunStore` | `finish()`, `fail()` | Hoàn tất run; chỉ publish result khi đạt điều kiện |
 | `LlmRunStore` | `results()`, `run()` | Trả kết quả còn phù hợp và log đầy đủ |
@@ -285,7 +287,7 @@ Số dự báo của tác giả/công ty vẫn là thông tin NEWS, không tự 
 ## 7. Các bảng lưu gì và nối với nhau thế nào
 
 ```text
-news_articles ────────────┬──── llm_runs ───── llm_run_attempts
+news_articles ────────────┬──── llm_runs ───── llm_runs.attempts
                          │         │
                          │         ├──────── validation_results ─── validation_rules
                          │         │
@@ -300,7 +302,7 @@ llm_prompt_templates ───────────────┴───�
 | news_article_companies | Quan hệ bài với công ty/chứng khoán; LLM đọc để biết ID hợp lệ |
 | llm_prompt_templates | Prompt và schema theo task/version; một phiên bản enabled cho mỗi task |
 | llm_runs | Một lần xử lý nghiệp vụ: nguồn, template, provider/model, input_hash, snapshot input, request/response cuối, trạng thái, lỗi/token/latency |
-| llm_run_attempts | Từng lần gọi HTTP/fallback trong một run; response_body giữ phản hồi attempt ngay cả khi chưa là JSON hợp lệ |
+| llm_runs.attempts | Từng lần gọi HTTP/fallback trong một run; response_body giữ phản hồi attempt ngay cả khi chưa là JSON hợp lệ |
 | validation_rules | Catalog luật; nhóm LLM_OUTPUT tách với NEWS/NEWS_DATA dù cùng một bảng |
 | validation_results | Từng luật đã kiểm tra: llm_run_id, round, rule_snapshot, severity, PASS/FAIL/SKIP, expected/observed/message |
 | llm_results | JSON được chấp nhận: article/run/template FK, source_hash, input_hash, overview, schema_version, quality_status, current, validation round/policy |
@@ -398,7 +400,7 @@ Không nhầm AI status PARTIAL với run FAILED, hoặc result WARNING với va
 ### 10.1. Hai tầng retry khác nhau
 
 **Trong một run — retry mạng/model:** gateway thử model khác với cùng request khi lỗi thuộc nhóm cho phép.
-Mỗi lần là một llm_run_attempts, chưa phải run mới.
+Mỗi lần là một llm_runs.attempts, chưa phải run mới.
 
 **Giữa các run — sửa output nghiệp vụ:** một lần execute mới sau REJECTED có thể gửi feedback cụ thể
 để model trả lại toàn bộ JSON đúng theo nguồn. Đây là provider call mới và có chi phí.

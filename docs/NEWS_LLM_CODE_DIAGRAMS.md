@@ -1,5 +1,7 @@
 # NEWS → LLM: sơ đồ bám code
 
+> Cập nhật 08/10/2026: lịch sử từng lần gọi model nằm trong mảng JSONB `llm_runs.attempts`, không còn bảng log attempts riêng. Xem [hướng dẫn chuyển đổi](LLM_ATTEMPTS_MERGE.md). Các kết quả kiểm thử cũ bên dưới là bằng chứng của thời điểm ghi báo cáo.
+
 Đối chiếu code ngày 08/10/2026. Phạm vi: phân tích bài đã có nội dung, từ API/scheduler
 đến kết quả đã validate. Sơ đồ mô tả implementation, không phải kết quả chạy Gemini mới.
 
@@ -71,7 +73,7 @@ sequenceDiagram
         loop Từng attempt trong giới hạn retry/deadline
             G->>AI: generateContent; model và key dùng ở tầng HTTP
             AI-->>G: HTTP response + output text
-            G->>DB: callback store.recordAttempt(): llm_run_attempts
+            G->>DB: callback store.recordAttempt(): llm_runs.attempts
         end
         G-->>S: Reply cuối
         Note over S: Kiểm tra HTTP, output và parse JSON<br/>Lỗi vận chuyển/audit: store.fail(), không publish

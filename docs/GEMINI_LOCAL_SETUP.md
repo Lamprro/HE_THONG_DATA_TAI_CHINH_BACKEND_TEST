@@ -1,5 +1,7 @@
 # NEWS → Gemini: cấu hình và kiểm thử local
 
+> Cập nhật 08/10/2026: lịch sử từng lần gọi model nằm trong mảng JSONB `llm_runs.attempts`, không còn bảng log attempts riêng. Xem [hướng dẫn chuyển đổi](LLM_ATTEMPTS_MERGE.md). Các kết quả kiểm thử cũ bên dưới là bằng chứng của thời điểm ghi báo cáo.
+
 > Bàn giao cập nhật 07/10/2026: đọc [PROJECT_HANDOVER.md](PROJECT_HANDOVER.md) trước. Code LLM đã push ở `feature/llm-processing` (`5343f81`), chưa merge/deploy. Các số liệu DB, kết quả API và nhận định bên dưới thuộc thời điểm kiểm tra được ghi trong tài liệu; không phải xác nhận runtime ngày 07/10. Implementation và việc còn dở cần đối chiếu với bàn giao mới.
 
 Cập nhật 04/10/2026. Thay đổi Java chỉ ở local, chưa push/deploy.
@@ -16,7 +18,7 @@ Không biến số dự báo của bài thành dự báo của hệ thống; kh�
 
 - `llm_prompt_templates`: prompt và request/response JSON Schema có phiên bản bất biến.
 - `llm_runs`: một lần xử lý nghiệp vụ, snapshot đầu vào, template, raw response cuối, lỗi validation và trạng thái.
-- `llm_run_attempts`: từng lần gọi mạng trong run, đúng mô hình, request/response, HTTP, latency, token.
+- `llm_runs.attempts`: từng lần gọi mạng trong run, đúng mô hình, request/response, HTTP, latency, token.
 - `llm_results`: chỉ kết quả qua validation, JSON cùng cấu trúc cho FE; liên kết bài gốc và run.
 - `validation_rules` / `validation_results`: luật LLM_OUTPUT và kết quả từng luật gắn llm_run_id, round, snapshot. Xem [luồng validation](LLM_SHARED_VALIDATION.md).
 

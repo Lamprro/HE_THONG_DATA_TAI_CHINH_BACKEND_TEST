@@ -64,6 +64,10 @@ Ingestion SUCCESS chỉ chứng minh đã lưu raw, không chứng minh builder/
 
 ## 4. Đầu vào/đầu ra LLM và cách lưu
 
+Bổ sung 08/10/2026: [NEWS_LLM_JSON_FIELD_MAP](NEWS_LLM_JSON_FIELD_MAP.md) ghi rõ
+tất cả trường input/output NEWS, nguồn DB, prompt/schema và mapping lưu trữ.
+Các ví dụ cấu trúc là minh họa, không phải dữ liệu chạy thật; không đổi code/runtime.
+
 Cập nhật tài liệu 08/10/2026: xem [sơ đồ code NEWS → LLM](NEWS_LLM_CODE_DIAGRAMS.md).
 Sơ đồ phân biệt JSON bài báo với request Gemini đầy đủ, có prompt và schema output;
 đồng thời nối API/scheduler → claim → call → audit → validate → publish. Chỉ sửa tài liệu,

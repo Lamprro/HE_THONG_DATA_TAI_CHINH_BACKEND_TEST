@@ -57,6 +57,9 @@ Bộ lọc menu này chỉ nhận diện dấu hiệu đã biết. Không đư�
 
 ### 2.2 JSON dữ liệu bài báo — chưa phải request Gemini đầy đủ
 
+[Bản đồ từng trường JSON](NEWS_LLM_JSON_FIELD_MAP.md) có đủ input, nguồn DB,
+prompt/schema, request provider và output riêng cho SUMMARY/DETAIL/FACTS.
+
 Xem [sơ đồ code NEWS → LLM](NEWS_LLM_CODE_DIAGRAMS.md) để theo toàn bộ luồng.
 Java dựng JSON này từ dữ liệu DB. Sau đó `GeminiLlmGateway.request()` mới ghép thêm
 `system_prompt` và `response_schema` của `llm_prompt_templates`, cùng cấu hình sinh

@@ -5,6 +5,9 @@
 
 ## 1. Request được ghép đầy đủ ở đâu?
 
+Xem [bản đồ trường JSON](NEWS_LLM_JSON_FIELD_MAP.md): nguồn từng trường, kiểu,
+nullable/required, JSON input, prompt/schema, output từng task và nơi lưu.
+
 Đọc từ trên xuống. **Hai nguồn được ghép: bài báo trong DB và template trong DB.**
 
 ```mermaid

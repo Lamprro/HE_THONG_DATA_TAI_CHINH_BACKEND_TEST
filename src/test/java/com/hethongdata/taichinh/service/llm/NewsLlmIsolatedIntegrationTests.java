@@ -44,6 +44,9 @@ class NewsLlmIsolatedIntegrationTests {
             try(var input=new ClassPathResource("db/manual/V20261004_02__llm_shared_validation.sql").getInputStream()) {
                 s.execute(new String(input.readAllBytes(),java.nio.charset.StandardCharsets.UTF_8));
             }
+            try(var input=new ClassPathResource("db/manual/V20261008_01__merge_llm_attempts_into_runs.sql").getInputStream()) {
+                s.execute(new String(input.readAllBytes(),java.nio.charset.StandardCharsets.UTF_8));
+            }
             s.execute("CREATE TABLE news_ai_analyses(id uuid)");
             try(var input=new ClassPathResource("db/manual/V20261004_03__remove_empty_legacy_news_ai.sql").getInputStream()) {
                 s.execute(new String(input.readAllBytes(),java.nio.charset.StandardCharsets.UTF_8));
@@ -126,7 +129,7 @@ class NewsLlmIsolatedIntegrationTests {
         var run=store.run(result.runId());
         assertThat(run.path("model_name").asText()).isEqualTo("gemini-fallback");
         assertThat(run.path("attempts").size()).isEqualTo(2);
-        assertThat(db.queryForObject("SELECT count(*) FROM llm_run_attempts WHERE request_payload IS NOT NULL",Integer.class)).isEqualTo(2);
+        assertThat(db.queryForObject("SELECT count(*) FROM llm_runs r CROSS JOIN LATERAL jsonb_array_elements(r.attempts) a WHERE a->'request_payload' IS NOT NULL",Integer.class)).isEqualTo(2);
         service.execute(article,"NEWS_SUMMARY");
         verify(gateway,times(1)).call(any(),any());
     }

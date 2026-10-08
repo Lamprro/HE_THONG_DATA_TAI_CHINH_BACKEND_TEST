@@ -59,7 +59,6 @@ class NewsRecoveryIsolatedIntegrationTests {
               "news_article_companies",
               "llm_prompt_templates",
               "llm_runs",
-              "llm_run_attempts",
               "llm_results",
               "validation_rules",
               "validation_results"))
@@ -79,6 +78,10 @@ class NewsRecoveryIsolatedIntegrationTests {
           new ClassPathResource("db/manual/V20261004_06__news_recovery.sql").getInputStream()) {
         s.execute(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
       }
+    }
+    try (var c = connect(); var s = c.createStatement(); var in = new ClassPathResource("db/manual/V20261008_01__merge_llm_attempts_into_runs.sql").getInputStream()) {
+      s.execute("SET search_path TO " + SCHEMA);
+      s.execute(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
     }
     registry.add(
         "spring.datasource.url",
@@ -120,7 +123,6 @@ class NewsRecoveryIsolatedIntegrationTests {
   @BeforeEach
   void setup() throws Exception {
     db.update("DELETE FROM validation_results");
-    db.update("DELETE FROM llm_run_attempts");
     db.update("DELETE FROM llm_results");
     db.update("DELETE FROM llm_runs");
     db.update(
@@ -250,6 +252,17 @@ class NewsRecoveryIsolatedIntegrationTests {
                 .asText())
         .isEqualTo("REJECTED");
     assertThat(store.article(article)).isEqualTo(original);
+  }
+
+  @Test
+  void failureBeforeProviderCallKeepsUnknownTokensAndZeroLatency() {
+    UUID run = execute();
+    db.update("UPDATE llm_runs SET status='RUNNING',attempts='[]'::jsonb WHERE id=?", run);
+    store.fail(run, article, "ISOLATED_TEST_BEFORE_PROVIDER");
+    var row = db.queryForMap("SELECT input_tokens,output_tokens,latency_ms FROM llm_runs WHERE id=?", run);
+    assertThat(row.get("input_tokens")).isNull();
+    assertThat(row.get("output_tokens")).isNull();
+    assertThat(row.get("latency_ms")).isEqualTo(0);
   }
 
   @Test

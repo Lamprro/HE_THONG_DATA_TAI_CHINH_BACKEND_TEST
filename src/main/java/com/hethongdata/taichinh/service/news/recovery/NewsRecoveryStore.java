@@ -256,15 +256,15 @@ ORDER BY published_at DESC NULLS LAST,id LIMIT ?
   }
 
   private void totals(UUID id) {
-    db.update(
-        "UPDATE llm_runs SET input_tokens=(SELECT sum(input_tokens) FROM llm_run_attempts WHERE"
-            + " llm_run_id=?),output_tokens=(SELECT sum(output_tokens) FROM llm_run_attempts WHERE"
-            + " llm_run_id=?),latency_ms=(SELECT least(sum(latency_ms),2147483647) FROM"
-            + " llm_run_attempts WHERE llm_run_id=?) WHERE id=?",
-        id,
-        id,
-        id,
-        id);
+    db.update("""
+        UPDATE llm_runs SET
+          input_tokens=(SELECT CASE WHEN count(a->>'input_tokens')=0 THEN NULL
+                        ELSE least(sum((a->>'input_tokens')::bigint),2147483647) END FROM jsonb_array_elements(attempts) a),
+          output_tokens=(SELECT CASE WHEN count(a->>'output_tokens')=0 THEN NULL
+                         ELSE least(sum((a->>'output_tokens')::bigint),2147483647) END FROM jsonb_array_elements(attempts) a),
+          latency_ms=(SELECT least(coalesce(sum((a->>'latency_ms')::bigint),0),2147483647) FROM jsonb_array_elements(attempts) a)
+        WHERE id=?
+        """, id);
   }
 
   @Transactional

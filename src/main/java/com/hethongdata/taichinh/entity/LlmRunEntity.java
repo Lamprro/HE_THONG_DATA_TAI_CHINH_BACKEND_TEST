@@ -48,6 +48,10 @@ public class LlmRunEntity {
     private JsonNode requestPayload;
 
     @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "attempts", nullable = false)
+    private JsonNode attempts;
+
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "response_payload")
     private JsonNode responsePayload;
 

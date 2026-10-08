@@ -220,8 +220,7 @@ public class LlmRunStore {
         var result=db.query("SELECT row_to_json(r)::text FROM llm_runs r WHERE id=?",(rs,n)->json.read(rs.getString(1)),run)
                 .stream().findFirst().orElseThrow(()->new IllegalArgumentException("Run not found"));
         ((com.fasterxml.jackson.databind.node.ObjectNode)result).set("attempts",json.mapper().valueToTree(
-                db.query("SELECT row_to_json(a)::text FROM llm_run_attempts a WHERE llm_run_id=? ORDER BY attempt_no",
-                        (rs,n)->json.read(rs.getString(1)),run)));
+                LlmAttemptAudit.read(db,json,run)));
         ((com.fasterxml.jackson.databind.node.ObjectNode)result).set("validations",json.mapper().valueToTree(
                 db.query("SELECT row_to_json(v)::text FROM validation_results v WHERE llm_run_id=? ORDER BY checked_at,rule_code",
                         (rs,n)->json.read(rs.getString(1)),run)));
@@ -229,11 +228,6 @@ public class LlmRunStore {
     }
     @Transactional
     public void recordAttempt(UUID run,JsonNode request,LlmGateway.Attempt attempt) {
-        db.update("""
-            INSERT INTO llm_run_attempts(id,llm_run_id,attempt_no,model_name,http_status,error_category,
-                request_payload,response_body,response_text,input_tokens,output_tokens,latency_ms)
-            VALUES (?,?,?,?,?,?,?::jsonb,?,?,?,?,?)
-            """,UUID.randomUUID(),run,attempt.number(),attempt.model(),attempt.httpStatus(),attempt.error(),request.toString(),
-                attempt.rawBody(),attempt.outputText(),attempt.inputTokens(),attempt.outputTokens(),attempt.latencyMs());
+        LlmAttemptAudit.append(db,json,run,request,attempt);
     }
 }

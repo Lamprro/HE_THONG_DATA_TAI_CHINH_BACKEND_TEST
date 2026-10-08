@@ -69,7 +69,6 @@ class ForecastPipelineIntegrationTests {
               "llm_runs",
               "llm_prompt_templates",
               "llm_results",
-              "llm_run_attempts",
               "validation_rules",
               "validation_results"))
         s.execute("CREATE TABLE " + t + " (LIKE public." + t + " INCLUDING ALL)");
@@ -94,6 +93,10 @@ class ForecastPipelineIntegrationTests {
               .getInputStream()) {
         s.execute(new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
       }
+    }
+    try (var c = connection(); var s = c.createStatement(); var in = new ClassPathResource("db/manual/V20261008_01__merge_llm_attempts_into_runs.sql").getInputStream()) {
+      s.execute("SET search_path TO " + SCHEMA);
+      s.execute(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
     }
     registry.add(
         "spring.datasource.url",
@@ -129,7 +132,6 @@ class ForecastPipelineIntegrationTests {
   void setup() throws Exception {
     db.update("DELETE FROM validation_results");
     db.update("DELETE FROM llm_results");
-    db.update("DELETE FROM llm_run_attempts");
     db.update("DELETE FROM llm_runs");
     db.update("DELETE FROM financial_metrics WHERE calculation_key IS NOT NULL");
     db.update(

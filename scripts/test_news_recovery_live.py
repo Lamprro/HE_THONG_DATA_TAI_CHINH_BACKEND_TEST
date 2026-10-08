@@ -32,7 +32,7 @@ def snapshot():
             'url_only': "SELECT id,canonical_url,title,length(content_text) FROM news_articles WHERE coalesce(length(content_text),0)<200 ORDER BY published_at DESC LIMIT 5",
             'recent_articles': "SELECT id,canonical_url,title,length(content_text) FROM news_articles WHERE length(content_text)>200 ORDER BY published_at DESC LIMIT 5",
             'recovery_runs': "SELECT id,news_article_id,status,model_name,http_status,error_message,response_metadata->>'review_state' AS review_state,validation_errors FROM llm_runs WHERE task_code='NEWS_CONTENT_RECOVERY' ORDER BY created_at DESC LIMIT 10",
-            'recovery_attempts': "SELECT a.llm_run_id,a.attempt_no,a.model_name,a.http_status,a.error_category,a.latency_ms FROM llm_run_attempts a JOIN llm_runs r ON r.id=a.llm_run_id WHERE r.task_code='NEWS_CONTENT_RECOVERY' ORDER BY a.created_at",
+            'recovery_attempts': "SELECT r.id AS llm_run_id,(a->>'attempt_no')::int AS attempt_no,a->>'model_name' AS model_name,(a->>'http_status')::int AS http_status,a->>'error_category' AS error_category,(a->>'latency_ms')::int AS latency_ms FROM llm_runs r CROSS JOIN LATERAL jsonb_array_elements(r.attempts) a WHERE r.task_code='NEWS_CONTENT_RECOVERY' ORDER BY (a->>'created_at')::timestamptz",
             'recovery_validations': "SELECT v.llm_run_id,v.rule_code,v.result_status,v.message FROM validation_results v JOIN llm_runs r ON r.id=v.llm_run_id WHERE r.task_code='NEWS_CONTENT_RECOVERY' ORDER BY v.checked_at,v.rule_code",
         }
         result={}

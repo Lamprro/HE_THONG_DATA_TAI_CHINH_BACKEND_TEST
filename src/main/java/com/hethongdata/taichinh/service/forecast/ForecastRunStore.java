@@ -108,22 +108,7 @@ public class ForecastRunStore {
 
   @Transactional
   public void attempt(UUID run, JsonNode request, LlmGateway.Attempt a) {
-    db.update(
-        "INSERT INTO"
-            + " llm_run_attempts(id,llm_run_id,attempt_no,model_name,http_status,error_category,request_payload,response_body,response_text,input_tokens,output_tokens,latency_ms)"
-            + " VALUES (?,?,?,?,?,?,?::jsonb,?,?,?,?,?)",
-        UUID.randomUUID(),
-        run,
-        a.number(),
-        a.model(),
-        a.httpStatus(),
-        a.error(),
-        request.toString(),
-        a.rawBody(),
-        a.outputText(),
-        a.inputTokens(),
-        a.outputTokens(),
-        a.latencyMs());
+    com.hethongdata.taichinh.service.llm.LlmAttemptAudit.append(db, json, run, request, a);
   }
 
   @Transactional
@@ -356,12 +341,7 @@ public class ForecastRunStore {
             "SELECT * FROM llm_runs WHERE id=? AND task_code=?", id, ForecastPromptService.TASK);
     if (rows.isEmpty()) throw new IllegalArgumentException("Forecast run not found");
     var r = rows.getFirst();
-    var attempts =
-        db.query(
-            "SELECT row_to_json(a)::text FROM llm_run_attempts a WHERE llm_run_id=? ORDER BY"
-                + " attempt_no",
-            (rs, n) -> json.read(rs.getString(1)),
-            id);
+    var attempts = com.hethongdata.taichinh.service.llm.LlmAttemptAudit.read(db, json, id);
     var audit =
         db.query(
             "SELECT row_to_json(v)::text FROM validation_results v WHERE llm_run_id=? ORDER BY"

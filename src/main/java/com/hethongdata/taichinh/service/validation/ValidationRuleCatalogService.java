@@ -153,6 +153,7 @@ public class ValidationRuleCatalogService {
                         "Records an open validation result for a transport-success payload that carries an upstream error marker.")));
         all.addAll(newsDefinitions());
         all.addAll(marketIndexDefinitions());
+        all.add(new Definition("MACRO_PAYLOAD_VALID","Vietnam macro contract","MACRO","CRITICAL","BUSINESS","MACRO_PAYLOAD_VALID","{\"schema\":\"macro_observations.v1\",\"country\":\"VNM\"}","Requires official-source evidence, native periods, units, counts and duplicate-free observations."));
         return List.copyOf(all);
     }
 

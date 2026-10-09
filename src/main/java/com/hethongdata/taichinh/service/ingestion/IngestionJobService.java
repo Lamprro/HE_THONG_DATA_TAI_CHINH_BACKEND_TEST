@@ -11,6 +11,7 @@ import com.hethongdata.taichinh.repository.ingestion.IngestionJobRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaRepository;
 import com.hethongdata.taichinh.service.news.NewsWorkflowService;
 import com.hethongdata.taichinh.service.financial.FinancialStatementBuildService;
+import com.hethongdata.taichinh.service.macro.MacroWorkflowService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,6 +22,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -34,6 +36,7 @@ public class IngestionJobService {
     private final RetryBudgetService retryBudgetService;
     private final NewsWorkflowService newsWorkflowService;
     private final FinancialStatementBuildService financialStatementBuildService;
+    private final MacroWorkflowService macroWorkflowService;
 
     public IngestionJobService(
             IngestionJobRepository ingestionJobs,
@@ -41,13 +44,15 @@ public class IngestionJobService {
             IngestionService ingestionService,
             RetryBudgetService retryBudgetService,
             NewsWorkflowService newsWorkflowService,
-            FinancialStatementBuildService financialStatementBuildService) {
+            FinancialStatementBuildService financialStatementBuildService,
+            MacroWorkflowService macroWorkflowService) {
         this.ingestionJobs = ingestionJobs;
         this.ingestionRuns = ingestionRuns;
         this.ingestionService = ingestionService;
         this.retryBudgetService = retryBudgetService;
         this.newsWorkflowService = newsWorkflowService;
         this.financialStatementBuildService = financialStatementBuildService;
+        this.macroWorkflowService = macroWorkflowService;
     }
 
     public IngestionJobResponse create(CreateIngestionJobRequest request) {
@@ -125,10 +130,19 @@ public class IngestionJobService {
 
     /** Polls active jobs; cron evaluation uses the last recorded run in UTC. */
     public void executeDueJobs() {
+        executeDueJobs(Set.of());
+    }
+
+    public void executeDueMacroJobs() {
+        executeDueJobs(MacroWorkflowService.JOBS);
+    }
+
+    private void executeDueJobs(Set<String> allowedCodes) {
         Instant now = Instant.now();
         List<IngestionJobEntity> activeJobs = ingestionJobs.findActiveEntities();
         int dueCount = 0;
         for (IngestionJobEntity job : activeJobs) {
+            if (!allowedCodes.isEmpty() && !allowedCodes.contains(job.getCode())) continue;
 
             if (!isDue(job, now)) {
                 continue;
@@ -157,7 +171,9 @@ public class IngestionJobService {
             IngestionJobEntity job, String triggerType) {
         try {
             IngestionExecutionResponse response =
-                    newsWorkflowService.supports(job.getCode())
+                    macroWorkflowService.supports(job.getCode())
+                            ? macroWorkflowService.execute(job, triggerType)
+                            : newsWorkflowService.supports(job.getCode())
                             ? newsWorkflowService.execute(job, triggerType)
                             : financialStatementBuildService.supports(job.getCode())
                                     ? financialStatementBuildService.execute(job, triggerType)

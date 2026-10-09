@@ -278,6 +278,7 @@ public class ValidationJobService {
             case "FINANCIAL_STATEMENT" -> "FINANCIAL_STATEMENT";
             case "NEWS", "NEWS_COMPANY" -> "NEWS";
             case "NEWS_DATA" -> "NEWS_DATA";
+            case "MACRO_OBSERVATIONS" -> "MACRO";
             default -> "RAW";
         };
     }

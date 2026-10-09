@@ -229,6 +229,9 @@ public class IngestionService {
                         : Map.of();
         LocalDate startDate = parseDate(optionalText(config, "startDate"));
         LocalDate endDate = parseDate(optionalText(config, "endDate"));
+        if (operation == ExternalOperation.MACRO_OBSERVATIONS && endDate == null) {
+            endDate = LocalDate.now(VIETNAM_ZONE);
+        }
         Integer lookbackDays = optionalPositiveInt(config, "lookbackDays");
         if (lookbackDays != null) {
             // A scheduled price job needs a moving window, not fixed calendar dates from its seed

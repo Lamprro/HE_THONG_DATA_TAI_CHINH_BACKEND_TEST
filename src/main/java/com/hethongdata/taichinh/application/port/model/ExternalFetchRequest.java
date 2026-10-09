@@ -35,8 +35,10 @@ public record ExternalFetchRequest(
         if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
             throw new IllegalArgumentException("Ngày bắt đầu không được sau ngày kết thúc.");
         }
-        if (startDate != null && endDate != null && startDate.plusYears(10).isBefore(endDate)) {
-            throw new IllegalArgumentException("Khoảng thời gian truy vấn không được vượt quá 10 năm.");
+        int maximumYears = operation == ExternalOperation.MACRO_OBSERVATIONS ? 20 : 10;
+        if (startDate != null && endDate != null
+                && startDate.plusYears(maximumYears).isBefore(endDate)) {
+            throw new IllegalArgumentException("Khoảng thời gian truy vấn vượt quá giới hạn của operation.");
         }
     }
 

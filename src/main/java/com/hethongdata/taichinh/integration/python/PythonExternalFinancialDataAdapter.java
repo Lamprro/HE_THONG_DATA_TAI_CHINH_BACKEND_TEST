@@ -56,7 +56,8 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
         UriComponentsBuilder builder =
                 UriComponentsBuilder.fromUri(properties.getBaseUrl()).path(pathFor(request));
         if (request.operation() == ExternalOperation.OHLCV
-                || request.operation() == ExternalOperation.INDEX_OHLCV) {
+                || request.operation() == ExternalOperation.INDEX_OHLCV
+                || request.operation() == ExternalOperation.MACRO_OBSERVATIONS) {
             addIfPresent(builder, "start", request.startDate());
             addIfPresent(builder, "end", request.endDate());
         }
@@ -197,6 +198,7 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
             case NEWS_COMPANY -> "/api/v1/vnstock-news/company/" + symbol;
             case PROXY_PROVIDERS -> "/api/v1/proxy/providers";
             case RAW_PROXY -> rawProxyPath(provider, requiredParameter(request, "upstream_path"));
+            case MACRO_OBSERVATIONS -> macroPath(provider);
             case FETCH_URL -> "/api/v1/url-fetch";
         };
     }
@@ -257,6 +259,13 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
         return "/api/v1/proxy/" + provider + "/" + upstreamPath;
     }
 
+    private String macroPath(String provider) {
+        if (!Set.of("worldbank", "bis").contains(provider)) {
+            throw new IllegalArgumentException("Unsupported Vietnam macro provider");
+        }
+        return "/api/v1/macro/" + provider + "/observations";
+    }
+
     private Map<String, String> allowedQueryParameters(ExternalFetchRequest request) {
         Set<String> allowed =
                 switch (request.operation()) {
@@ -264,6 +273,7 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
                     case NEWS, EVENTS, NEWS_COMPANY -> NEWS_PARAMETERS;
                     case NEWS_LATEST, NEWS_HISTORY -> NEWS_FEED_PARAMETERS;
                     case RAW_PROXY -> request.parameters().keySet();
+                    case MACRO_OBSERVATIONS -> Set.of("country");
                     case FETCH_URL -> URL_FETCH_PARAMETERS;
                     default -> Set.of();
                 };

@@ -80,6 +80,7 @@ public class ValidationRuleExecutionService {
             case "INDEX_OHLCV_PAYLOAD_VALID" -> indexOhlcv(raw);
             case "INDEX_MEMBERS_PAYLOAD_VALID" -> indexMembers(raw);
             case "MARKET_PRICE_PAYLOAD_VALID" -> marketPrice(raw);
+            case "MACRO_PAYLOAD_VALID" -> macro(raw);
             default -> new Outcome("SKIP", null, null,
                     "No executor registered for " + rule.getExecutorKey());
         };
@@ -95,6 +96,18 @@ public class ValidationRuleExecutionService {
                     return fail(key + "=" + number, ">= 0", "Negative price is invalid");
             }
         return new Outcome("PASS", null, null, "No negative price found");
+    }
+
+    private Outcome macro(RawPayloadEntity raw) {
+        try {
+            new com.hethongdata.taichinh.service.macro.MacroPayloadParser()
+                    .parse(raw.getPayload(), raw.getDataSource().getProvider());
+            return new Outcome("PASS", null, null,
+                    "Vietnam macro contract and observations are valid");
+        } catch (RuntimeException e) {
+            return fail(e.getMessage(), "macro_observations.v1/VNM",
+                    "Macro batch rejected: " + e.getMessage());
+        }
     }
 
     private Outcome ohlc(JsonNode payload) {

@@ -16,3 +16,7 @@ financial.raw-diagnostics.include-body-enabled=false
 # Set true only after ingestion_jobs have been reviewed and activated.
 financial.ingestion.scheduler.enabled=false
 financial.ingestion.scheduler.poll-interval=60000
+
+# Enable the quarterly Vietnam macro jobs independently of other ingestion jobs.
+financial.macro.scheduler.enabled=false
+financial.macro.scheduler.poll-interval=60000

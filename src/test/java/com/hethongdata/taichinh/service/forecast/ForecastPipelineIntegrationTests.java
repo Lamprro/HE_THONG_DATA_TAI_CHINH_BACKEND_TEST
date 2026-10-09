@@ -46,7 +46,11 @@ class ForecastPipelineIntegrationTests {
 
   @DynamicPropertySource
   static void database(DynamicPropertyRegistry registry) throws Exception {
-    try (var reader = Files.newBufferedReader(Path.of("application-local.properties"))) {
+    try (var reader =
+        Files.newBufferedReader(
+            Path.of(
+                System.getenv()
+                    .getOrDefault("LLM_TEST_CONFIG", "../application-local.properties")))) {
       CONFIG.load(reader);
     }
     url = CONFIG.getProperty("spring.datasource.url");
@@ -56,6 +60,9 @@ class ForecastPipelineIntegrationTests {
       s.execute("SET search_path TO " + SCHEMA);
       for (String t :
           List.of(
+              "data_sources",
+              "raw_payloads",
+              "data_versions",
               "companies",
               "securities",
               "financial_periods",
@@ -74,6 +81,9 @@ class ForecastPipelineIntegrationTests {
         s.execute("CREATE TABLE " + t + " (LIKE public." + t + " INCLUDING ALL)");
       for (String t :
           List.of(
+              "data_sources",
+              "raw_payloads",
+              "data_versions",
               "companies",
               "securities",
               "financial_periods",
@@ -94,7 +104,11 @@ class ForecastPipelineIntegrationTests {
         s.execute(new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
       }
     }
-    try (var c = connection(); var s = c.createStatement(); var in = new ClassPathResource("db/manual/V20261008_01__merge_llm_attempts_into_runs.sql").getInputStream()) {
+    try (var c = connection();
+        var s = c.createStatement();
+        var in =
+            new ClassPathResource("db/manual/V20261008_01__merge_llm_attempts_into_runs.sql")
+                .getInputStream()) {
       s.execute("SET search_path TO " + SCHEMA);
       s.execute(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
     }
@@ -171,7 +185,7 @@ class ForecastPipelineIntegrationTests {
     var input =
         json.read(payload.path("contents").path(0).path("parts").path(0).path("text").asText());
     var o = json.mapper().createObjectNode();
-    o.put("schema_version", "financial.forecast.output.v1")
+    o.put("schema_version", "financial.forecast.output.v2")
         .put("task_code", "FINANCIAL_SCENARIOS")
         .put("company_id", input.path("company_id").asText())
         .put("security_id", input.path("security_id").asText())
@@ -186,7 +200,8 @@ class ForecastPipelineIntegrationTests {
     for (var target : input.path("targets")) {
       var history = new ArrayList<JsonNode>();
       for (var p : input.path("points"))
-        if (p.path("code").asText().equals(target.asText())) history.add(p);
+        if (ForecastRequest.Target.valueOf(target.asText())
+            .matches(p.path("domain").asText(), p.path("code").asText())) history.add(p);
       history.sort(Comparator.comparing(p -> p.path("periodEnd").asText()));
       var latest = history.getLast();
       var f =
@@ -394,5 +409,101 @@ class ForecastPipelineIntegrationTests {
                         request.targets(),
                         false)))
         .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  ForecastRequest priceRequest() {
+    return new ForecastRequest(
+        request.securityId(),
+        LocalDate.of(2026, 10, 9),
+        1,
+        EnumSet.of(ForecastRequest.Target.STOCK_PRICE),
+        false);
+  }
+
+  @Test
+  void priceFlowUsesVerifiedVndClosesJavaIndicatorsAndThreeCalculatedPrices() {
+    var price = priceRequest();
+    var preview = service.preview(price);
+    assertThat(preview.eligible()).as(preview.issues().toString()).isTrue();
+    assertThat(preview.forecastPeriodEnd()).isEqualTo("2027-03-31");
+    assertThat(preview.input().path("derived_metrics").toString())
+        .contains("SMA_20", "SMA_60", "PRICE_RETURN_20_SESSIONS");
+    var run = service.execute(price);
+    assertThat(run.status()).isEqualTo("SUCCESS");
+    var result = store.results(price.securityId(), 10).getFirst().data();
+    var calc = result.path("calculated_values").get(0);
+    assertThat(calc.path("metric_code").asText()).isEqualTo("STOCK_PRICE");
+    assertThat(calc.path("unit").asText()).isEqualTo("VND_PER_SHARE");
+    assertThat(calc.path("base").decimalValue())
+        .isEqualByComparingTo(
+            calc.path("base_value").decimalValue().multiply(new java.math.BigDecimal("1.05")));
+    assertThat(service.execute(price).status()).isEqualTo("CACHED");
+    assertThat(store.run(run.runId()).validations()).hasSize(7);
+  }
+
+  @Test
+  void priceCannotUseStoredNumbersWithoutMatchingRawEvidence() {
+    db.update(
+        "UPDATE market_prices SET close_price=close_price+1 WHERE id=(SELECT id FROM market_prices"
+            + " WHERE security_id=? AND is_canonical AND interval_code='1d' ORDER BY"
+            + " price_timestamp DESC LIMIT 1)",
+        request.securityId());
+    try {
+      var preview = service.preview(priceRequest());
+      assertThat(preview.eligible()).isFalse();
+      assertThat(preview.issues()).contains("PRICE_UNIT_OR_RAW_PROVENANCE_UNVERIFIED");
+      assertThat(service.execute(priceRequest()).status()).isEqualTo("SKIPPED");
+      verify(gateway, never()).call(any(), any());
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    } finally {
+      db.update(
+          "UPDATE market_prices SET close_price=close_price-1 WHERE id=(SELECT id FROM"
+              + " market_prices WHERE security_id=? AND is_canonical AND interval_code='1d' ORDER"
+              + " BY price_timestamp DESC LIMIT 1)",
+          request.securityId());
+    }
+  }
+
+  @Test
+  void zeroOrNegativePriceScenarioIsRejectedWithoutPublishing() throws Exception {
+    doAnswer(
+            i -> {
+              var response = output(i.getArgument(0));
+              ((com.fasterxml.jackson.databind.node.ObjectNode)
+                      response.path("forecasts").get(0).path("bear"))
+                  .put("growth_percent", -100);
+              return new LlmGateway.Reply(200, "{}", response.toString(), 1, 1);
+            })
+        .when(gateway)
+        .call(any(), any());
+    assertThat(service.execute(priceRequest()).status()).isEqualTo("REJECTED");
+    assertThat(store.results(request.securityId(), 10)).isEmpty();
+  }
+
+  @Test
+  void apiAcceptsSixTargetsAndPublishesPriceAlongsideFinancials() {
+    var headers = new HttpHeaders();
+    headers.setBearerAuth("isolated-test-admin-credential-not-production");
+    var all =
+        new ForecastRequest(
+            request.securityId(),
+            LocalDate.of(2026, 10, 9),
+            1,
+            EnumSet.allOf(ForecastRequest.Target.class),
+            false);
+    var response =
+        http.exchange(
+            "/api/admin/forecasts/execute",
+            HttpMethod.POST,
+            new HttpEntity<>(all, headers),
+            JsonNode.class);
+    assertThat(response.getStatusCode().value()).isEqualTo(200);
+    assertThat(response.getBody().path("status").asText()).isEqualTo("SUCCESS");
+    var result = store.results(request.securityId(), 10).getFirst().data();
+    assertThat(result.path("forecasts")).hasSize(6);
+    assertThat(result.path("calculated_values")).hasSize(6);
+    assertThat(result.path("calculated_values").toString())
+        .contains("STOCK_PRICE", "VND_PER_SHARE");
   }
 }

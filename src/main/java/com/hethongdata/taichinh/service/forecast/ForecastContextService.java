@@ -34,13 +34,22 @@ public class ForecastContextService {
   private final LlmJson json;
   private final ChecksumService hashes;
   private final FinancialRatioCalculator calculator;
+  private final ForecastMarketEvidence marketEvidence;
+  private final MarketScenarioCalculator marketCalculator;
 
   public ForecastContextService(
-      JdbcTemplate db, LlmJson json, ChecksumService hashes, FinancialRatioCalculator calculator) {
+      JdbcTemplate db,
+      LlmJson json,
+      ChecksumService hashes,
+      FinancialRatioCalculator calculator,
+      ForecastMarketEvidence marketEvidence,
+      MarketScenarioCalculator marketCalculator) {
     this.db = db;
     this.json = json;
     this.hashes = hashes;
     this.calculator = calculator;
+    this.marketEvidence = marketEvidence;
+    this.marketCalculator = marketCalculator;
   }
 
   @Transactional(
@@ -69,7 +78,7 @@ public class ForecastContextService {
     var points =
         new ArrayList<SourcePoint>(
             db.query(
-                """
+"""
 SELECT i.id,s.statement_type,i.item_code,i.value*s.unit_scale AS amount,s.currency,p.start_date,p.end_date,
     p.period_type,s.report_scope,coalesce(s.published_at,s.created_at)::text AS available_at
 FROM financial_statement_items i JOIN financial_statements s ON s.id=i.financial_statement_id
@@ -114,6 +123,7 @@ ORDER BY p.end_date,s.statement_type,i.item_code,i.id
         "Profit period values are provider-reported; cumulative/standalone basis is not verified."
             + " Do not annualize or claim TTM.");
     for (var target : request.targets()) {
+      if (target == ForecastRequest.Target.STOCK_PRICE) continue;
       var history = points.stream().filter(p -> p.code().equals(target.name())).toList();
       if (history.stream().map(SourcePoint::periodEnd).distinct().count() < 4)
         issues.add("INSUFFICIENT_HISTORY:" + target);
@@ -125,10 +135,12 @@ ORDER BY p.end_date,s.statement_type,i.item_code,i.id
         issues.add("STALE_FINANCIAL:" + target);
     }
     int financialPeriods = (int) points.stream().map(SourcePoint::periodEnd).distinct().count();
+    boolean priceRequested = request.targets().contains(ForecastRequest.Target.STOCK_PRICE);
+    var rawPrices = new HashMap<UUID, ForecastMarketEvidence.RawPrices>();
     var market =
         db.query(
-            """
-SELECT id,close_price,(price_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS d,created_at::text
+"""
+SELECT id,close_price,(price_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS d,created_at::text,raw_payload_id,data_version_id
 FROM market_prices WHERE security_id=? AND is_canonical AND interval_code='1d'
     AND close_price>0 AND price_timestamp<? AND created_at<?
 ORDER BY price_timestamp DESC,id DESC LIMIT 60
@@ -139,7 +151,16 @@ ORDER BY price_timestamp DESC,id DESC LIMIT 60
                     "MARKET",
                     "CLOSE",
                     r.getBigDecimal(2),
-                    "SOURCE_PRICE_UNIT_UNVERIFIED",
+                    priceRequested
+                            && marketEvidence.verified(
+                                security.getFirst().get("symbol").toString(),
+                                r.getObject(5, UUID.class),
+                                r.getObject(6, UUID.class),
+                                r.getDate(3).toLocalDate(),
+                                r.getBigDecimal(2),
+                                rawPrices)
+                        ? "VND_PER_SHARE"
+                        : "SOURCE_PRICE_UNIT_UNVERIFIED",
                     r.getDate(3).toLocalDate(),
                     r.getDate(3).toLocalDate(),
                     "DAILY",
@@ -154,9 +175,21 @@ ORDER BY price_timestamp DESC,id DESC LIMIT 60
     if (!market.isEmpty()
         && market.getFirst().periodEnd().isBefore(request.asOfDate().minusDays(15)))
       limitations.add("Market data older than 15 calendar days.");
+    if (priceRequested) {
+      if (market.size() < 60) issues.add("INSUFFICIENT_PRICE_HISTORY: require 60 daily sessions");
+      if (market.stream().anyMatch(p -> !"VND_PER_SHARE".equals(p.unit())))
+        issues.add("PRICE_UNIT_OR_RAW_PROVENANCE_UNVERIFIED");
+      if (!market.isEmpty()
+          && market.getFirst().periodEnd().isBefore(request.asOfDate().minusDays(15)))
+        issues.add("STALE_PRICE_BASE");
+      limitations.add(
+          "Stock price scenario uses unadjusted nominal VND/share close; corporate actions and"
+              + " dividends are not forecast. Growth is relative to latest close, not total return"
+              + " or fair value. Not backtested/calibrated.");
+    }
     limitations.add(
-        "Prices are unadjusted and source unit is not verified: no PE/PB or calibrated price"
-            + " forecast is calculated.");
+        "Prices are unadjusted; no PE/PB or calibrated price forecast is calculated. Price units"
+            + " must be proven against raw for STOCK_PRICE.");
     points.addAll(market);
     points.addAll(
         db.query(
@@ -186,7 +219,7 @@ ORDER BY price_timestamp DESC,id DESC LIMIT 60
             cutoff));
     var macro =
         db.query(
-            """
+"""
 SELECT o.id,s.code,o.value,s.unit,o.observation_date,s.frequency,o.created_at::text
 FROM macro_observations o JOIN macro_series s ON s.id=o.macro_series_id
 WHERE s.is_active AND o.value IS NOT NULL AND o.observation_date BETWEEN ? AND ? AND o.created_at<?
@@ -215,17 +248,14 @@ ORDER BY o.observation_date DESC,s.code,o.id DESC LIMIT 120
           "Macro release/vintage timestamps are not modeled; ingestion time is only an availability"
               + " proxy.");
     points.addAll(macro);
-    var metrics = calculator.calculate(points);
+    var metrics = new ArrayList<>(calculator.calculate(points));
+    if (priceRequested
+        && issues.stream().noneMatch(i -> i.contains("PRICE") || i.contains("PRICES")))
+      metrics.addAll(marketCalculator.calculate(market));
     var root = json.mapper().createObjectNode();
     LocalDate date =
-        YearMonth.of(
-                request.asOfDate().getYear(),
-                ((request.asOfDate().getMonthValue() - 1) / 3 + 1) * 3)
-            .plusMonths((request.horizonQuarters() - 1L) * 3)
-            .atEndOfMonth();
-    if (!date.isAfter(request.asOfDate()))
-      date = date.plusMonths(3).withDayOfMonth(1).plusMonths(1).minusDays(1);
-    root.put("schema_version", "financial.forecast.input.v1")
+        ForecastHorizon.endOfFutureQuarter(request.asOfDate(), request.horizonQuarters());
+    root.put("schema_version", "financial.forecast.input.v2")
         .put("company_id", company.toString())
         .put("security_id", request.securityId().toString())
         .put("symbol", security.getFirst().get("symbol").toString())
@@ -233,6 +263,8 @@ ORDER BY o.observation_date DESC,s.code,o.id DESC LIMIT 120
         .put("industry", Objects.toString(security.getFirst().get("industry_name"), "UNKNOWN"))
         .put("as_of_date", request.asOfDate().toString())
         .put("forecast_period_end", date.toString())
+        .put("horizon_quarters", request.horizonQuarters())
+        .put("horizon_basis", "END_OF_NTH_CALENDAR_QUARTER_AFTER_AS_OF_QUARTER")
         .put("forecast_basis", "SCENARIO_RELATIVE_TO_LAST_REPORTED_COMPARABLE_VALUE_NOT_TTM");
     root.set(
         "targets",
@@ -248,7 +280,7 @@ ORDER BY o.observation_date DESC,s.code,o.id DESC LIMIT 120
         request,
         date,
         List.copyOf(points),
-        metrics,
+        List.copyOf(metrics),
         coverage,
         List.copyOf(issues),
         root,
@@ -298,6 +330,8 @@ ORDER BY o.observation_date DESC,s.code,o.id DESC LIMIT 120
     var context = build(request);
     int inserted = 0;
     for (var metric : context.metrics()) {
+      if (metric.sourcePointIds().isEmpty()
+          || !metric.sourcePointIds().getFirst().startsWith("FSI:")) continue;
       var sourceId = UUID.fromString(metric.sourcePointIds().getFirst().substring(4));
       var source =
           db.queryForList(
@@ -331,7 +365,7 @@ ORDER BY o.observation_date DESC,s.code,o.id DESC LIMIT 120
                   + json.canonical(json.mapper().valueToTree(metric)));
       inserted +=
           db.update(
-              """
+"""
 INSERT INTO financial_metrics(id,company_id,security_id,financial_period_id,metric_definition_id,as_of_date,
     value,data_source_id,raw_payload_id,data_version_id,is_derived,is_canonical,calculation_version,quality_status,input_snapshot,calculation_key)
 VALUES (?,?,?,?,?,?,?,?,?,?,true,false,'balance-ratios-v1','WARNING',?::jsonb,?)

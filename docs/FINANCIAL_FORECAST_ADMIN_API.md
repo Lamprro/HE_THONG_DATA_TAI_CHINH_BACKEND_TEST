@@ -1,5 +1,10 @@
 # Financial/market/macro → LLM: luồng dự báo và API admin
 
+> Cập nhật 10/10/2026, branch feature/stock-price-scenarios: hỗ trợ thêm STOCK_PRICE
+> (tổng 6 targets), horizon 1 là cuối quý kế tiếp; prompt v3, input/output schema v2.
+> Xem [luồng giá và bằng chứng](STOCK_PRICE_SCENARIOS.md). Những con số macro rỗng
+> và ví dụ schema v1 bên dưới là snapshot lịch sử, không mô tả bản mới.
+
 > Cập nhật 08/10/2026: lịch sử từng lần gọi model nằm trong mảng JSONB `llm_runs.attempts`, không còn bảng log attempts riêng. Xem [hướng dẫn chuyển đổi](LLM_ATTEMPTS_MERGE.md). Các kết quả kiểm thử cũ bên dưới là bằng chứng của thời điểm ghi báo cáo.
 
 > Bàn giao cập nhật 07/10/2026: đọc [PROJECT_HANDOVER.md](PROJECT_HANDOVER.md) trước. Code LLM đã push ở `feature/llm-processing` (`5343f81`), chưa merge/deploy. Các số liệu DB, kết quả API và nhận định bên dưới thuộc thời điểm kiểm tra được ghi trong tài liệu; không phải xác nhận runtime ngày 07/10. Implementation và việc còn dở cần đối chiếu với bàn giao mới.

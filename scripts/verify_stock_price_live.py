@@ -39,7 +39,8 @@ evidence = {'checked_at': datetime.datetime.now(ZoneInfo('Asia/Ho_Chi_Minh')).is
             'mode': 'real Spring Boot API and configured Gemini provider; no mock'}
 evidence['configuration'] = api('/configuration')
 assert evidence['configuration']['providerConfigured'], 'Real provider is not configured'
-evidence['seed'] = api('/template/seed', {})
+evidence['seed'] = ({'status': 'SKIPPED', 'reason': 'Read-only preview uses the existing template'}
+                    if a.preview_only else api('/template/seed', {}))
 security = next(s for s in api('/securities?limit=500') if s['symbol'] == a.symbol.upper())
 targets = ['STOCK_PRICE'] if a.price_only else ['NET_PROFIT_AFTER_TAX', 'PRETAX_PROFIT',
                                              'TOTAL_ASSETS', 'OWNERS_EQUITY', 'LIABILITIES', 'STOCK_PRICE']

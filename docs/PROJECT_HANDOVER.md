@@ -1,3 +1,11 @@
+# Bàn giao hiện hành — nhánh main, hợp nhất 10/10/2026
+
+Nhánh mặc định GitHub là **main**. Bản source hợp nhất giữ MACRO, NEWS/LLM,
+enrichment, metrics và STOCK_PRICE; xem [MAIN_CONSOLIDATION_20261010.md](MAIN_CONSOLIDATION_20261010.md)
+để đọc PRs, xung đột đã xử lý, 244 kiểm thử pass và smoke localhost của bản tổng hợp.
+Deploy là thao tác thủ công từ main; chưa deploy/áp migration server trong đợt này.
+Các phần dưới giữ snapshot lịch sử theo ngày/nhánh, không ghi đè trạng thái hiện hành.
+
 > Tích hợp metrics 10/10/2026: giữ một writer provider và một calculator actual có provenance; job legacy dùng chung HistoricalFinancialMetricService. Bản tổng hợp pass 172 unit/contract và 72 PostgreSQL integration schema cô lập (provider mock), 0 failed/errors/skipped; chưa deploy server.
 
 > Tích hợp 10/10/2026: giữ pipeline MACRO từ master và luồng LLM. Bằng chứng macro: [MACRO_HANDOVER_20261009.md](MACRO_HANDOVER_20261009.md). Bản hợp nhất đang kiểm thử, chưa triển khai server.

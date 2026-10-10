@@ -5,8 +5,9 @@
 
 - Backend Java ở repo này; nguồn Python là repo độc lập được gọi qua adapter hiện có.
   Dùng pipeline thật để nghiệm thu tích hợp; không thay nó bằng fetcher/script Python tự dựng.
-- Nhánh chính hiện là `master`; công việc còn dở nằm trên `feature/llm-processing`.
-  Bản nhánh LLM được push để tiếp tục sửa, chưa được chứng nhận production.
+- Nhánh chính là `main` theo đợt hợp nhất 10/10/2026; đọc
+  `docs/MAIN_CONSOLIDATION_20261010.md` và phần đầu bàn giao để xác định bằng chứng.
+  Code đã hợp nhất không đồng nghĩa đã deploy hay được chứng nhận production.
 - Người dùng muốn tên branch/commit thông thường, không dùng tên `codex`.
 - Validation raw và validation response LLM dùng chung catalog luật nhưng có target/audit riêng.
   Giữ provenance, phiên bản prompt, source hash, attempts và validation rounds.

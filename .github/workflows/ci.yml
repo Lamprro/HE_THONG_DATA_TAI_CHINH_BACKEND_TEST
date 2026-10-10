@@ -1,0 +1,38 @@
+name: Backend CI
+
+on:
+  pull_request:
+    branches: [main, 'integration/**']
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Build and run unit and contract tests without business DB credentials
+        run: >-
+          mvn -B -ntp
+          '-Dtest=*,!FinancialDataApplicationTests,!NewsPipelineIntegrationFlowTests,!RealDatabaseNewsFlowVerificationTest,!NewsLlmIsolatedIntegrationTests,!ForecastPipelineIntegrationTests,!NewsRecoveryIsolatedIntegrationTests,!MacroPipelineIntegrationTests,!LlmAttemptAuditIntegrationTests,!DataEnrichmentIsolatedIntegrationTests,!MarketBackfillIsolatedJpaIntegrationTests'
+          verify
+      - name: Save test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-contract-reports
+          path: target/surefire-reports/

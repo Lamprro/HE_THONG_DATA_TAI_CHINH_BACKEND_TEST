@@ -14,10 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Versioned, idempotent catalog of Phase 1 endpoint jobs. It seeds a small FPT scope only; a
- * full-market universe is a later backfill decision.
- */
+/** Lớp mồi (seed) danh mục Ingestion Jobs ban đầu vào database, không thuộc luồng thu thập runtime chính. */
 @Service
 public class IngestionJobCatalogService {
     private static final List<String> RETIRED_PAID_NEWS_JOB_CODES =
@@ -30,6 +27,9 @@ public class IngestionJobCatalogService {
     private static final String WEEKDAY_AFTER_MARKET_CLOSE_UTC = "0 15 9 * * MON-FRI";
     private static final String DAILY_UTC = "0 0 18 * * *";
     private static final String WEEKLY_UTC = "0 0 2 * * SUN";
+    // The provider APIs accept a 10-year maximum. Seed five calendar years for equity OHLCV;
+    // the same window is retained on scheduled runs so late corrections are reconciled.
+    private static final int EQUITY_OHLCV_LOOKBACK_DAYS = 365 * 5 + 2;
 
     private final DataSourceRepository dataSources;
     private final IngestionJobRepository ingestionJobs;
@@ -171,7 +171,7 @@ public class IngestionJobCatalogService {
                         "OHLCV",
                         provider,
                         "FPT",
-                        7,
+                        EQUITY_OHLCV_LOOKBACK_DAYS,
                         Map.of()));
         jobs.add(
                 job(

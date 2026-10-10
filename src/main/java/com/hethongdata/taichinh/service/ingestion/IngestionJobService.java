@@ -12,9 +12,12 @@ import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaReposito
 import com.hethongdata.taichinh.service.news.NewsWorkflowService;
 import com.hethongdata.taichinh.service.financial.FinancialStatementBuildService;
 import com.hethongdata.taichinh.service.macro.MacroWorkflowService;
+import com.hethongdata.taichinh.service.market.MarketIndexWorkflowService;
+import com.hethongdata.taichinh.service.market.MarketPriceWorkflowService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Service;
 
@@ -23,6 +26,8 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.Arrays;
+import java.util.stream.Collectors;
 import java.util.UUID;
 
 @Service
@@ -37,6 +42,11 @@ public class IngestionJobService {
     private final NewsWorkflowService newsWorkflowService;
     private final FinancialStatementBuildService financialStatementBuildService;
     private final MacroWorkflowService macroWorkflowService;
+    private final MarketPriceWorkflowService marketPriceWorkflowService;
+    private final MarketIndexWorkflowService marketIndexWorkflowService;
+
+    @Value("${financial.ingestion.scheduler.allowed-job-codes:}")
+    private String scheduledJobCodes = "";
 
     public IngestionJobService(
             IngestionJobRepository ingestionJobs,
@@ -45,7 +55,9 @@ public class IngestionJobService {
             RetryBudgetService retryBudgetService,
             NewsWorkflowService newsWorkflowService,
             FinancialStatementBuildService financialStatementBuildService,
-            MacroWorkflowService macroWorkflowService) {
+            MacroWorkflowService macroWorkflowService,
+            MarketPriceWorkflowService marketPriceWorkflowService,
+            MarketIndexWorkflowService marketIndexWorkflowService) {
         this.ingestionJobs = ingestionJobs;
         this.ingestionRuns = ingestionRuns;
         this.ingestionService = ingestionService;
@@ -53,6 +65,8 @@ public class IngestionJobService {
         this.newsWorkflowService = newsWorkflowService;
         this.financialStatementBuildService = financialStatementBuildService;
         this.macroWorkflowService = macroWorkflowService;
+        this.marketPriceWorkflowService = marketPriceWorkflowService;
+        this.marketIndexWorkflowService = marketIndexWorkflowService;
     }
 
     public IngestionJobResponse create(CreateIngestionJobRequest request) {
@@ -130,7 +144,10 @@ public class IngestionJobService {
 
     /** Polls active jobs; cron evaluation uses the last recorded run in UTC. */
     public void executeDueJobs() {
-        executeDueJobs(Set.of());
+        executeDueJobs(Arrays.stream(scheduledJobCodes.split(","))
+                .map(String::trim).filter(value -> !value.isEmpty())
+                .map(value -> value.toUpperCase(java.util.Locale.ROOT))
+                .collect(Collectors.toSet()));
     }
 
     public void executeDueMacroJobs() {
@@ -142,7 +159,10 @@ public class IngestionJobService {
         List<IngestionJobEntity> activeJobs = ingestionJobs.findActiveEntities();
         int dueCount = 0;
         for (IngestionJobEntity job : activeJobs) {
-            if (!allowedCodes.isEmpty() && !allowedCodes.contains(job.getCode())) continue;
+
+            if (!allowedCodes.isEmpty() && !allowedCodes.contains(job.getCode().toUpperCase(java.util.Locale.ROOT))) {
+                continue;
+            }
 
             if (!isDue(job, now)) {
                 continue;
@@ -175,6 +195,10 @@ public class IngestionJobService {
                             ? macroWorkflowService.execute(job, triggerType)
                             : newsWorkflowService.supports(job.getCode())
                             ? newsWorkflowService.execute(job, triggerType)
+                            : marketPriceWorkflowService.supports(job.getCode())
+                                    ? marketPriceWorkflowService.execute(job, triggerType)
+                                    : marketIndexWorkflowService.supports(job.getCode())
+                                            ? marketIndexWorkflowService.execute(job, triggerType)
                             : financialStatementBuildService.supports(job.getCode())
                                     ? financialStatementBuildService.execute(job, triggerType)
                                     : ingestionService.ingestJob(job, triggerType);

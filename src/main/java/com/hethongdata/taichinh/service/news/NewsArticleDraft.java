@@ -10,6 +10,7 @@ public record NewsArticleDraft(
         String title,
         String sapo,
         String contentText,
+        String author,
         Instant publishedAt,
         String urlHash,
         String contentHash,

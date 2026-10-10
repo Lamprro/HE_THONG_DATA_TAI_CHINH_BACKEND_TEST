@@ -10,7 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
-/** Provisions index jobs without creating security collection jobs. Cron is evaluated in UTC. */
+/** Lớp mồi (seed) cấu hình các Job thu thập và build cho chỉ số thị trường (VNINDEX, VN30, HNXINDEX) vào database. */
 @Service
 public class IndexJobProvisioningService {
     private final MarketIndexCatalogService indices;
@@ -32,7 +32,7 @@ public class IndexJobProvisioningService {
         indices.seed();
         for (String code : List.of("VNINDEX", "VN30", "HNXINDEX")) {
             collection("VNSTOCK_" + code + "_INDEX_OHLCV_DAILY", code, "INDEX_OHLCV",
-                    "0 15 9 * * MON-FRI", 7);
+                    "0 15 9 * * MON-FRI", 120);
             collection("VNSTOCK_" + code + "_INDEX_MEMBERS_DAILY", code, "INDEX_MEMBERS",
                     "0 20 9 * * MON-FRI", null);
         }

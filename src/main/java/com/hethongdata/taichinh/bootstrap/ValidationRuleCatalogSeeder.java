@@ -9,6 +9,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
+/** Khởi động server: mồi dữ liệu danh mục quy tắc kiểm định (validation rules) vào database (nếu bật seed-enabled). */
 @Component
 @ConditionalOnProperty(
         prefix = "financial.validation.catalog",

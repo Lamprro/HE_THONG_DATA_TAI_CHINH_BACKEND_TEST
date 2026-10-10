@@ -13,6 +13,7 @@ import com.hethongdata.taichinh.service.news.NewsWorkflowService;
 import com.hethongdata.taichinh.service.financial.FinancialStatementBuildService;
 import com.hethongdata.taichinh.service.macro.MacroWorkflowService;
 import com.hethongdata.taichinh.service.financial.FinancialMetricWorkflowService;
+import com.hethongdata.taichinh.service.financial.FinancialMetricCalculateService;
 import com.hethongdata.taichinh.service.market.MarketIndexWorkflowService;
 import com.hethongdata.taichinh.service.market.MarketPriceWorkflowService;
 
@@ -44,6 +45,7 @@ public class IngestionJobService {
     private final FinancialStatementBuildService financialStatementBuildService;
     private final MacroWorkflowService macroWorkflowService;
     private final FinancialMetricWorkflowService financialMetricWorkflowService;
+    private final FinancialMetricCalculateService financialMetricCalculateService;
     private final MarketPriceWorkflowService marketPriceWorkflowService;
     private final MarketIndexWorkflowService marketIndexWorkflowService;
 
@@ -59,6 +61,7 @@ public class IngestionJobService {
             FinancialStatementBuildService financialStatementBuildService,
             MacroWorkflowService macroWorkflowService,
             FinancialMetricWorkflowService financialMetricWorkflowService,
+            FinancialMetricCalculateService financialMetricCalculateService,
             MarketPriceWorkflowService marketPriceWorkflowService,
             MarketIndexWorkflowService marketIndexWorkflowService) {
         this.ingestionJobs = ingestionJobs;
@@ -69,6 +72,7 @@ public class IngestionJobService {
         this.financialStatementBuildService = financialStatementBuildService;
         this.macroWorkflowService = macroWorkflowService;
         this.financialMetricWorkflowService = financialMetricWorkflowService;
+        this.financialMetricCalculateService = financialMetricCalculateService;
         this.marketPriceWorkflowService = marketPriceWorkflowService;
         this.marketIndexWorkflowService = marketIndexWorkflowService;
     }
@@ -194,20 +198,7 @@ public class IngestionJobService {
     private IngestionExecutionResponse executeWithBudget(
             IngestionJobEntity job, String triggerType) {
         try {
-            IngestionExecutionResponse response =
-                    macroWorkflowService.supports(job.getCode())
-                            ? macroWorkflowService.execute(job, triggerType)
-                            : newsWorkflowService.supports(job.getCode())
-                            ? newsWorkflowService.execute(job, triggerType)
-                            : marketPriceWorkflowService.supports(job.getCode())
-                                    ? marketPriceWorkflowService.execute(job, triggerType)
-                                    : marketIndexWorkflowService.supports(job.getCode())
-                                            ? marketIndexWorkflowService.execute(job, triggerType)
-                            : financialStatementBuildService.supports(job.getCode())
-                                    ? financialStatementBuildService.execute(job, triggerType)
-                                    : financialMetricWorkflowService.supports(job.getCode())
-                                            ? financialMetricWorkflowService.execute(job, triggerType)
-                                    : ingestionService.ingestJob(job, triggerType);
+            IngestionExecutionResponse response = dispatch(job, triggerType);
             retryBudgetService.resetAfterSuccess(job);
             return response;
         } catch (IngestionExecutionException exception) {
@@ -220,6 +211,18 @@ public class IngestionJobService {
             }
             throw exception;
         }
+    }
+
+    private IngestionExecutionResponse dispatch(IngestionJobEntity job, String trigger) {
+        String code = job.getCode();
+        if (macroWorkflowService.supports(code)) return macroWorkflowService.execute(job, trigger);
+        if (newsWorkflowService.supports(code)) return newsWorkflowService.execute(job, trigger);
+        if (marketPriceWorkflowService.supports(code)) return marketPriceWorkflowService.execute(job, trigger);
+        if (marketIndexWorkflowService.supports(code)) return marketIndexWorkflowService.execute(job, trigger);
+        if (financialStatementBuildService.supports(code)) return financialStatementBuildService.execute(job, trigger);
+        if (financialMetricWorkflowService.supports(code)) return financialMetricWorkflowService.execute(job, trigger);
+        if (financialMetricCalculateService.supports(code)) return financialMetricCalculateService.execute(job, trigger);
+        return ingestionService.ingestJob(job, trigger);
     }
 
     private boolean isDue(IngestionJobEntity job, Instant now) {

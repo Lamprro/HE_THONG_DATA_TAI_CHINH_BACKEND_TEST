@@ -39,6 +39,7 @@ class NewsLlmIsolatedIntegrationTests {
             for(String table:List.of("companies","securities","news_articles","news_article_companies","llm_runs","validation_rules","validation_results"))
                 s.execute("CREATE TABLE "+SCHEMA+"."+table+" (LIKE public."+table+" INCLUDING ALL)");
             s.execute("SET search_path TO "+SCHEMA);
+            com.hethongdata.taichinh.support.IsolatedSchemaSupport.detachSequences(c, SCHEMA);
             ScriptUtils.executeSqlScript(c,new ClassPathResource("db/manual/V20260930_01__llm_news_pipeline.sql"));
             ScriptUtils.executeSqlScript(c,new ClassPathResource("db/manual/V20261004_01__llm_attempt_audit.sql"));
             try(var input=new ClassPathResource("db/manual/V20261004_02__llm_shared_validation.sql").getInputStream()) {

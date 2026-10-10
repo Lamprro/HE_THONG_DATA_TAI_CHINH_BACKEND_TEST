@@ -5,6 +5,8 @@ import com.hethongdata.taichinh.entity.NewsArticleEntity;
 import com.hethongdata.taichinh.entity.FinancialPeriodEntity;
 import com.hethongdata.taichinh.entity.FinancialStatementEntity;
 import com.hethongdata.taichinh.entity.FinancialStatementItemEntity;
+import com.hethongdata.taichinh.entity.FinancialMetricEntity;
+import com.hethongdata.taichinh.entity.MetricDefinitionEntity;
 import com.hethongdata.taichinh.entity.IndexPriceEntity;
 import com.hethongdata.taichinh.entity.MarketIndexEntity;
 import com.hethongdata.taichinh.entity.MarketPriceEntity;
@@ -25,6 +27,8 @@ import com.hethongdata.taichinh.repository.jpa.news.NewsArticleJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.financial.FinancialPeriodJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.financial.FinancialStatementJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.financial.FinancialStatementItemJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.financial.FinancialMetricJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.financial.MetricDefinitionJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionJobJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.RawPayloadJpaRepository;
@@ -57,6 +61,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
             NewsArticleEntity.class, NewsArticleCompanyEntity.class,
             FinancialPeriodEntity.class, FinancialStatementEntity.class,
                     FinancialStatementItemEntity.class,
+            FinancialMetricEntity.class, MetricDefinitionEntity.class,
             MarketIndexEntity.class, IndexPriceEntity.class, MarketPriceEntity.class,
                     SecurityIndexMembershipEntity.class
         })
@@ -70,6 +75,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
             NewsArticleJpaRepository.class, NewsArticleCompanyJpaRepository.class,
             FinancialPeriodJpaRepository.class, FinancialStatementJpaRepository.class,
                     FinancialStatementItemJpaRepository.class,
+            FinancialMetricJpaRepository.class, MetricDefinitionJpaRepository.class,
             MarketIndexJpaRepository.class, IndexPriceJpaRepository.class,
                     MarketPriceJpaRepository.class,
                     SecurityIndexMembershipJpaRepository.class

@@ -65,6 +65,7 @@ class NewsRecoveryIsolatedIntegrationTests {
         s.execute(
             "CREATE TABLE " + SCHEMA + "." + table + " (LIKE public." + table + " INCLUDING ALL)");
       s.execute("SET search_path TO " + SCHEMA);
+      com.hethongdata.taichinh.support.IsolatedSchemaSupport.detachSequences(c, SCHEMA);
       for (String table : List.of("companies", "company_aliases", "securities"))
         s.execute("INSERT INTO " + table + " SELECT * FROM public." + table);
       s.execute(

@@ -2,6 +2,8 @@ package com.hethongdata.taichinh.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
@@ -18,6 +20,7 @@ import java.time.Instant;
 public class MetricDefinitionEntity {
 
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "id")
     private Long id;
 
@@ -47,4 +50,30 @@ public class MetricDefinitionEntity {
 
     @Column(name = "updated_at")
     private Instant updatedAt;
+
+    public static MetricDefinitionEntity create(String code, String name, String category,
+            String description, String formula, String unit, boolean higherIsBetter) {
+        MetricDefinitionEntity entity = new MetricDefinitionEntity();
+        entity.code = code;
+        entity.name = name;
+        entity.category = category;
+        entity.description = description;
+        entity.formula = formula;
+        entity.unit = unit;
+        entity.higherIsBetter = higherIsBetter;
+        entity.createdAt = Instant.now();
+        entity.updatedAt = entity.createdAt;
+        return entity;
+    }
+
+    public void refresh(String name, String category, String description, String formula,
+            String unit, boolean higherIsBetter) {
+        this.name = name;
+        this.category = category;
+        this.description = description;
+        this.formula = formula;
+        this.unit = unit;
+        this.higherIsBetter = higherIsBetter;
+        this.updatedAt = Instant.now();
+    }
 }

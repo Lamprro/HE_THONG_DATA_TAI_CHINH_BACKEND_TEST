@@ -1,5 +1,13 @@
 # Bàn giao dự án và ngữ cảnh công việc đang tiếp tục
 
+> Kiểm nghiệm localhost mở rộng 10/10/2026: 32 integration schema cô lập (Gemini
+> mock) + 146 regression pass, 4 skipped. API thêm validationRoundId; nghiệm thu
+> đúng 7 luật ở vòng hiện hành khi audit có nhiều round. FPT thật đã lưu revalidate
+> SUCCESS, 8 concurrent cache requests đều CACHED, không thêm provider attempt.
+> Kiểm horizons 1–8, cutoff, stale/provenance, response lỗi và claim đồng thời đạt.
+> Chỉ chạy localhost theo yêu cầu, chưa đo accuracy/backtest. Xem
+> [biên bản kiểm nghiệm mở rộng](FORECAST_LOCALHOST_VERIFICATION_20261010.md).
+
 > Bổ sung 10/10/2026 trên `feature/stock-price-scenarios` (checkout riêng): thêm
 > STOCK_PRICE vào forecast, sửa horizon thành cuối quý tương lai thứ n, chứng minh
 > đơn vị/giá nền từ raw, thêm SMA20/SMA60/return20 và schema v2/prompt version 4.

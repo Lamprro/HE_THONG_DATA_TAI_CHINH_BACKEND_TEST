@@ -92,6 +92,13 @@ như số liệu doanh nghiệp. Không tuyên bố chúng là thuật toán d�
 
 ## Kiểm thử và runtime
 
+Đợt localhost mở rộng: **32 integration + 146 regression pass, 4 skipped**;
+revalidate output thật giữ audit 14 rows với 7 PASS ở validationRoundId hiện hành,
+8 concurrent cache requests không gọi model mới. Test cutoff/provenance/giá cũ,
+claim đồng thời và response sai đạt. Xem
+[biên bản đầy đủ](FORECAST_LOCALHOST_VERIFICATION_20261010.md). Các số 18 integration
+bên dưới là bằng chứng đợt sửa prompt trước đó.
+
 - Regression: 150 tests được xét, 146 pass, 4 opt-in skipped; không chạy tests cũ
   có thể ghi mẫu vào DB nghiệp vụ. Không có failure/error.
 - Forecast integration sau sửa prompt v4: 18 pass, PostgreSQL schema `forecast_test_<uuid>` cô lập,
@@ -127,6 +134,11 @@ Script chỉ gọi `/api/admin/forecasts`: seed → preview → execute → read
 → execute lại để kiểm cache. Không tự gọi model, không fetch nguồn ngoài pipeline,
 không ghi trực tiếp DB. Kiểm 6 targets, evidence, phép tính Decimal và 7 luật PASS.
 Evidence đầy đủ trong ignored `target/stock-price-release/FPT-live.json`.
+
+Kiểm nghiệm mở rộng có thể thêm `--revalidate --extended-checks`. Run API trả
+`validationRoundId`; công cụ nghiệm thu dùng đúng vòng này và giữ mọi vòng audit,
+không yêu cầu cả lịch sử chỉ có 7 rows sau revalidation. Các historical previews
+chỉ đánh giá readiness/cutoff, không sinh backtest hoặc tự gọi model cho từng kỳ.
 
 Admin token/config private không vào Git. Không cần migration schema nghiệp vụ mới;
 seed prompt mới qua API, version cũ giữ để audit. Bản root/port khác còn code cũ

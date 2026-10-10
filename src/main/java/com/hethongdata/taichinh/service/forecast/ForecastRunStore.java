@@ -368,7 +368,8 @@ public class ForecastRunStore {
         r.get("response_payload") == null ? null : json.read(r.get("response_payload").toString()),
         attempts,
         audit,
-        errors);
+        errors,
+        (UUID) r.get("validation_round_id"));
   }
 
   public List<Result> results(UUID security, int limit) {

@@ -1,5 +1,9 @@
 # Kiểm tra live forecast và WARNING ngày 10/10/2026
 
+Đợt tiếp theo chỉ chạy localhost: [32 integration + 146 regression và nghiệm thu
+API/audit/cache mở rộng](FORECAST_LOCALHOST_VERIFICATION_20261010.md). Response
+thật dưới đây được tái sử dụng và revalidate; không gọi model mới trong đợt đó.
+
 ## Kết quả mới nhất sau cập nhật cấu hình và prompt
 
 Người dùng cập nhật private config và yêu cầu gọi lại. Restart đúng runtime Java

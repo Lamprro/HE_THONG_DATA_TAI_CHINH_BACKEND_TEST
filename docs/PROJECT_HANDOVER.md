@@ -2,6 +2,16 @@
 
 # Bàn giao dự án và ngữ cảnh công việc đang tiếp tục
 
+> **09/10/2026 — làm giàu dữ liệu nguồn, nhánh `fix/data-enrichment`:** DB thật đã
+> tăng 10→25 mã, 66.006 nến ngày canonical; mỗi mã 42 quý × 3 báo cáo đến Q2/2026
+> và 10 năm × 3 báo cáo năm 2016–2025. Có 6.660 chỉ số mới canonical/VALID,
+> tính/ghi bằng Java qua API và pipeline Python thật; không chạy NEWS/LLM.
+> Còn gap giá GAS/VND 2019, TCB bắt đầu IPO 2018 và Q3/2026 chưa có nguồn.
+> Sửa item_code dài, daily backfill và nối FINANCIAL_METRIC_BUILD/API tỷ lệ lịch sử.
+> 153 unit/contract + 5 PostgreSQL schema cô lập pass (integration dùng provider mock,
+> backfill live dùng provider thật). Chưa merge/deploy; không coi các lỗi LLM hoặc
+> metadata/replay cũ đã được xử lý. Chi tiết/nghiệm thu: [DATA_ENRICHMENT_20261009](DATA_ENRICHMENT_20261009.md).
+
 > Cập nhật 08/10/2026: lịch sử từng lần gọi model nằm trong mảng JSONB `llm_runs.attempts`, không còn bảng log attempts riêng. Xem [hướng dẫn chuyển đổi](LLM_ATTEMPTS_MERGE.md). Các kết quả kiểm thử cũ bên dưới là bằng chứng của thời điểm ghi báo cáo.
 
 Đây là điểm đọc đầu tiên cho dev, BA hoặc AI tiếp quản. Snapshot nền ngày

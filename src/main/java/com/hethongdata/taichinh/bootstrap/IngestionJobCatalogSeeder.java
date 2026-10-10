@@ -9,7 +9,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-/** Enables an explicit, repeatable catalog seed without running any ingestion job. */
+/** Khởi động server: mồi dữ liệu danh mục Ingestion Jobs vào database (nếu bật seed-enabled). */
 @Component
 @ConditionalOnProperty(
         prefix = "financial.ingestion.catalog",

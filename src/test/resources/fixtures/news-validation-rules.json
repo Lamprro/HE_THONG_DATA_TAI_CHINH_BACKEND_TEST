@@ -114,7 +114,30 @@
     "config": {
       "strategy": "raw-checksum"
     },
-    "description": "Existing policy: identical raw checksum within a source blocks a new version."
+    "description": "Warn when the same source returns an identical news list; keep the version so new article relationships can still be resolved."
+  },
+  {
+    "code": "NEWS_URL_PREVIOUSLY_FETCHED",
+    "name": "News URL already fetched",
+    "domain": "NEWS",
+    "severity": "WARNING",
+    "type": "UNIQUE",
+    "executor": "NEWS_URL_PREVIOUSLY_FETCHED",
+    "config": {
+      "dataField": "data",
+      "fields": ["url", "link", "href"]
+    },
+    "description": "Warn when a listed URL already has NEWS_DATA; the fetch job reuses that content."
+  },
+  {
+    "code": "NEWS_DATA_URL_PREVIOUSLY_SEEN",
+    "name": "News article data URL already seen",
+    "domain": "NEWS_DATA",
+    "severity": "WARNING",
+    "type": "UNIQUE",
+    "executor": "NEWS_DATA_URL_PREVIOUSLY_SEEN",
+    "config": {},
+    "description": "Warn when another NEWS_DATA raw payload has the requested URL; article build resolves links and rejects unchanged repeats."
   },
   {
     "code": "NEWS_DATA_METADATA_REQUIRED",
@@ -192,6 +215,16 @@
     "executor": "NEWS_DATA_HTML_STRUCTURE",
     "config": {},
     "description": "Require HTML document markup and parsed visible body text; tolerate recoverable HTML syntax."
+  },
+  {
+    "code": "NEWS_DATA_ARTICLE_EXTRACTED",
+    "name": "News publisher article extracted",
+    "domain": "NEWS_DATA",
+    "severity": "WARNING",
+    "type": "NOT_NULL",
+    "executor": "NEWS_DATA_ARTICLE_EXTRACTED",
+    "config": {},
+    "description": "Validate extracted article fields and body quality; extraction_version is optional provenance and does not determine whether the response can be mapped."
   },
   {
     "code": "NEWS_DATA_BLOCK_PAGE_DETECTED",

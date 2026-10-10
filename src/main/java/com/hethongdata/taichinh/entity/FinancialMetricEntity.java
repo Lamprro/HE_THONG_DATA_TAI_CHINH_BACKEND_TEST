@@ -21,6 +21,12 @@ import java.util.UUID;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class FinancialMetricEntity {
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+    @Column(name="input_snapshot")
+    private com.fasterxml.jackson.databind.JsonNode inputSnapshot;
+
+    @Column(name="calculation_key")
+    private String calculationKey;
 
     @Id
     @UuidGenerator

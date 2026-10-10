@@ -147,6 +147,13 @@ public class MarketPriceEntity {
         isCanonical = canonical;
     }
 
+    /** Corrects legacy quote rows that were bucketed as 15-minute candles. */
+    public void reclassifyAsSnapshot(Instant observedAt) {
+        this.priceTimestamp = observedAt;
+        this.intervalCode = "snapshot";
+        this.updatedAt = Instant.now();
+    }
+
     private boolean applyValues(
             BigDecimal openPrice,
             BigDecimal highPrice,

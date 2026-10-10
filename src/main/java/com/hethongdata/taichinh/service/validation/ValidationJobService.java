@@ -17,14 +17,18 @@ import com.hethongdata.taichinh.service.ingestion.ChecksumService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Comparator;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.stream.Collectors;
 
 @Service
@@ -38,6 +42,9 @@ public class ValidationJobService {
     private final DataVersionJpaRepository versions;
     private final ChecksumService checksums;
     private final ValidationRuleExecutionService ruleExecutor;
+
+    @Value("${financial.validation.scheduler.allowed-symbols:}")
+    private String allowedSymbols = "";
 
     public ValidationJobService(
             RawPayloadJpaRepository rawPayloads,
@@ -63,7 +70,14 @@ public class ValidationJobService {
                         .findById(rawPayloadId)
                         .orElseThrow(
                                 () -> new IllegalArgumentException("Raw payload was not found"));
-        if (results.existsByRawPayloadId(rawPayloadId)) {
+        List<ValidationResultEntity> priorResults =
+                results.findByRawPayloadIdOrderByCheckedAtAsc(rawPayloadId);
+        Set<String> priorRuleCodes = new HashSet<>();
+        for (ValidationResultEntity result : priorResults) priorRuleCodes.add(result.getRuleCode());
+        List<ValidationRuleEntity> activeRules = rules.findByIsActiveTrueOrderByIdAsc();
+        boolean hasMissingApplicableRule = activeRules.stream()
+                .anyMatch(rule -> applies(rule, raw) && !priorRuleCodes.contains(rule.getCode()));
+        if (!priorResults.isEmpty() && !hasMissingApplicableRule) {
             LOGGER.debug("Payload {} has already been validated, returning existing result", rawPayloadId);
             return existing(raw);
         }
@@ -74,8 +88,8 @@ public class ValidationJobService {
         int passed = 0, failed = 0, skipped = 0;
         boolean blockingFailure = false;
         boolean duplicate = false;
-        for (ValidationRuleEntity rule : rules.findByIsActiveTrueOrderByIdAsc()) {
-            if (!applies(rule, raw)) continue;
+        for (ValidationRuleEntity rule : activeRules) {
+            if (!applies(rule, raw) || priorRuleCodes.contains(rule.getCode())) continue;
             ValidationRuleExecutionService.Outcome outcome = ruleExecutor.execute(rule, raw);
             results.save(
                     ValidationResultEntity.create(
@@ -108,7 +122,7 @@ public class ValidationJobService {
         }
         UUID versionId = finalizeIngestionRun(raw.getIngestionRun().getId());
         String finalStatus =
-                duplicate
+                duplicate && versionId == null
                         ? "DUPLICATE"
                         : blockingFailure ? "REJECTED" : versionId == null ? "VALIDATED" : "ACCEPTED";
         LOGGER.info(
@@ -133,7 +147,13 @@ public class ValidationJobService {
 
     @Transactional
     public List<ValidationExecutionResponse> validatePending(int limit) {
-        var unvalidated = rawPayloads.findUnvalidated(PageRequest.of(0, Math.max(1, Math.min(limit, 100))));
+        var page = PageRequest.of(0, Math.max(1, Math.min(limit, 100)));
+        List<String> symbols = Arrays.stream(allowedSymbols.split(","))
+                .map(String::trim).filter(value -> !value.isEmpty())
+                .map(value -> value.toUpperCase(Locale.ROOT)).distinct().toList();
+        var unvalidated = symbols.isEmpty()
+                ? rawPayloads.findUnvalidated(page)
+                : rawPayloads.findUnvalidatedForSymbols(symbols, page);
         LOGGER.info("Executing batch validation for {} pending payloads (requested limit={})", unvalidated.size(), limit);
         List<ValidationExecutionResponse> list = unvalidated.stream()
                 .map(raw -> validate(raw.getId()))
@@ -170,7 +190,7 @@ public class ValidationJobService {
         return new ValidationExecutionResponse(
                 raw.getId(),
                 raw.getIngestionRun().getId(),
-                duplicate
+                duplicate && version == null
                         ? "DUPLICATE"
                         : blockingFailure ? "REJECTED" : version == null ? "VALIDATED" : "ACCEPTED",
                 pass,
@@ -218,9 +238,7 @@ public class ValidationJobService {
 
         boolean blockingFailure =
                 results.existsByIngestionRunIdAndStatusAndSeverityIn(
-                                ingestionRunId, "FAIL", List.of("ERROR", "CRITICAL"))
-                        || results.existsByIngestionRunIdAndStatusAndRuleCode(
-                                ingestionRunId, "FAIL", "NEWS_DUPLICATE_HASH");
+                        ingestionRunId, "FAIL", List.of("ERROR", "CRITICAL"));
         if (blockingFailure) {
             LOGGER.warn(
                     "Data version rejected for ingestionRunId={}: a blocking validation result exists",

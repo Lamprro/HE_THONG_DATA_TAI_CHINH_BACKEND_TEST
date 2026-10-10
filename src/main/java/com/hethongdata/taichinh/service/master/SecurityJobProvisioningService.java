@@ -16,10 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Converts one active tradable security into the complete Phase-1 raw collection plan. Job codes
- * are deterministic, so create, update, and reconciliation are idempotent.
- */
+/** Lớp mồi (seed) cấu hình tự động trọn bộ các Job thu thập cho từng mã chứng khoán (FPT, VNM...) vào database. */
 @Service
 public class SecurityJobProvisioningService {
     private static final Logger LOGGER = LoggerFactory.getLogger(SecurityJobProvisioningService.class);
@@ -28,6 +25,7 @@ public class SecurityJobProvisioningService {
     private static final String WEEKDAY_AFTER_MARKET_CLOSE_UTC = "0 15 9 * * MON-FRI";
     private static final String DAILY_UTC = "0 0 18 * * *";
     private static final String WEEKLY_UTC = "0 0 2 * * SUN";
+    private static final int EQUITY_OHLCV_LOOKBACK_DAYS = 365 * 5 + 2;
 
     private final DataSourceRepository dataSources;
     private final IngestionJobRepository ingestionJobs;
@@ -149,7 +147,7 @@ public class SecurityJobProvisioningService {
                         WEEKDAY_AFTER_MARKET_CLOSE_UTC,
                         "OHLCV",
                         provider,
-                        Map.of("lookbackDays", "7")));
+                        Map.of("lookbackDays", Integer.toString(EQUITY_OHLCV_LOOKBACK_DAYS))));
         jobs.add(
                 job(
                         security, source, "COMPANY", "COMPANY", DAILY_UTC, "COMPANY", provider,

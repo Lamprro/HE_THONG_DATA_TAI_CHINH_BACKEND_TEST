@@ -1,15 +1,17 @@
 # Quy tắc validation NEWS và NEWS_DATA
 
+> Bàn giao cập nhật 07/10/2026: đọc [PROJECT_HANDOVER.md](PROJECT_HANDOVER.md) trước. Code LLM đã push ở `feature/llm-processing` (`5343f81`), chưa merge/deploy. Các số liệu DB, kết quả API và nhận định bên dưới thuộc thời điểm kiểm tra được ghi trong tài liệu; không phải xác nhận runtime ngày 07/10. Implementation và việc còn dở cần đối chiếu với bàn giao mới.
+
 ## Nơi quản lý
 
-- `src/main/resources/validation/news-rules.json`: tên, nhóm, mức lỗi và cấu hình của 14 rule NEWS/NEWS_DATA.
-- `ValidationRuleCatalogService.newsDefinitions()`: đọc file trên; `seed()` đồng bộ vào `validation_rules`.
+- `validation_rules`: nguồn cấu hình runtime của 17 rule NEWS/NEWS_DATA; admin quản lý tên, nhóm, mức lỗi, trạng thái và cấu hình ở DB.
+- `V20261004_04__news_validation_catalog.sql`: khởi tạo database mới, chỉ thêm code chưa tồn tại; không ghi đè thay đổi admin.
 - `ValidationRuleExecutionService.execute()`: chạy method theo `executor_key`.
 - `ValidationJobService.domain()`: NEWS/NEWS_COMPANY dùng nhóm NEWS; NEWS_DATA dùng nhóm NEWS_DATA.
 
-Khi runtime chạy, cấu hình lấy từ bảng `validation_rules`. Sửa file JSON cần seed lại;
-sửa trực tiếp DB có hiệu lực ở lượt validate mới, nhưng lần seed sau sẽ lấy lại cấu hình trong file.
-Thêm executor mới phải bổ sung code Java; JSON không chứa mã thực thi.
+Khi runtime chạy, cấu hình chỉ lấy từ bảng `validation_rules`; seed Java không còn quản lý NEWS.
+File JSON trong main/resources đã bỏ. Fixture trong test/resources chỉ phục vụ test và không đóng gói runtime.
+Thêm executor mới vẫn phải bổ sung code Java; database lưu cấu hình, không chứa mã thực thi.
 
 ## Rule và dữ liệu kiểm tra
 
@@ -52,11 +54,9 @@ tuân theo envelope danh sách NEWS. DATA_COUNT_MATCH kiểm tra count là số 
 
 ## Đồng bộ và kiểm tra
 
-`scripts/SyncNewsValidationRules.java --apply` dùng cùng file JSON để thêm/cập nhật đúng 14 rule.
-Cần PostgreSQL JDBC và Jackson trên classpath, chạy từ thư mục gốc dự án.
-Script đọc kết nối từ application-local.properties, xuất bản sao các rule cũ vào target,
-giữ ID của rule đã có, kiểm tra dữ liệu trước COMMIT. `--inspect` chỉ đọc rule.
-Không ghi raw_payloads, validation_results hoặc data_versions.
+`scripts/SyncNewsValidationRules.java --inspect` chỉ đọc luật trong DB, dùng PostgreSQL JDBC.
+`--apply` không còn được hỗ trợ, tránh ghi đè cấu hình admin bằng file cũ.
+Database mới dùng migration SQL; database hiện tại đã có đầy đủ luật nên không cần seed lại.
 
 Lần đồng bộ này: thêm 11 rule, cập nhật 3 rule NEWS, gồm đổi NEWS_TITLE_REQUIRED sang WARNING.
 Kiểm tra: 44 unit test PASS. Chạy thử executor chỉ đọc trên 2 NEWS và 100 NEWS_DATA:

@@ -1,3 +1,5 @@
+> Tích hợp metrics 10/10/2026: giữ một writer provider và một calculator actual có provenance; job legacy dùng chung HistoricalFinancialMetricService. Bản tổng hợp pass 172 unit/contract và 72 PostgreSQL integration schema cô lập (provider mock), 0 failed/errors/skipped; chưa deploy server.
+
 > Tích hợp 10/10/2026: giữ pipeline MACRO từ master và luồng LLM. Bằng chứng macro: [MACRO_HANDOVER_20261009.md](MACRO_HANDOVER_20261009.md). Bản hợp nhất đang kiểm thử, chưa triển khai server.
 
 # Bàn giao dự án và ngữ cảnh công việc đang tiếp tục

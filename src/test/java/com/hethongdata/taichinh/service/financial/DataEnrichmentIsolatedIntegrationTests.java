@@ -120,4 +120,23 @@ class DataEnrichmentIsolatedIntegrationTests {
         assertThat(tx.execute(s->service.calculate(req)).inserted()).isZero();
         assertThat(db.queryForObject("SELECT count(*) FROM financial_metrics",Integer.class)).isZero();
     }
+
+    @Test void legacyCalculateJobUsesAuditedCanonicalWriterAndReplayKeepsHistory() {
+        statement("BALANCE_SHEET",Map.of("TOTAL_ASSETS","100","LIABILITIES","60","OWNERS_EQUITY","40"));
+        var actual=new HistoricalFinancialMetricService(db,new FinancialRatioCalculator(),json,new ChecksumService());
+        var audit=mock(com.hethongdata.taichinh.repository.ingestion.IngestionRunRepository.class);
+        var run=mock(IngestionRunEntity.class);var job=mock(IngestionJobEntity.class);
+        UUID id=UUID.randomUUID();when(run.getId()).thenReturn(id);
+        when(job.getParameters()).thenReturn(json.createObjectNode().put("symbol","FPT")
+                .put("startDate","2016-01-01").put("endDate","2016-12-31"));
+        when(audit.startInternalBatch(any(),eq(job),eq("MANUAL"),eq("FINANCIAL_METRIC_CALCULATE"))).thenReturn(run);
+        var workflow=new FinancialMetricCalculateService(db,actual,audit,runs,json);
+        assertThat(tx.execute(s->workflow.execute(job,"MANUAL")).getStatus()).isEqualTo("SUCCESS");
+        assertThat(tx.execute(s->workflow.execute(job,"MANUAL")).getRunId()).isEqualTo(id);
+        assertThat(db.queryForObject("SELECT count(*) FROM financial_metrics WHERE is_canonical "
+                + "AND input_snapshot->'inputs' IS NOT NULL AND raw_payload_id IS NOT NULL "
+                + "AND data_version_id IS NOT NULL",Integer.class)).isEqualTo(3);
+        assertThat(db.queryForObject("SELECT count(*) FROM financial_metrics",Integer.class)).isEqualTo(3);
+        verify(runs,times(2)).save(run);
+    }
 }

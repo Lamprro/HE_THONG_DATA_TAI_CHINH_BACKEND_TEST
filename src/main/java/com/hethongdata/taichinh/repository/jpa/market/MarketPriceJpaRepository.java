@@ -18,6 +18,8 @@ import java.util.UUID;
 
 @Repository
 public interface MarketPriceJpaRepository extends JpaRepository<MarketPriceEntity, Long> {
+    List<MarketPriceEntity> findBySecurityIdAndIntervalCodeAndPriceTimestampBetween(
+            UUID securityId, String intervalCode, Instant start, Instant end);
     Optional<MarketPriceEntity> findBySecurityIdAndPriceTimestampAndIntervalCodeAndDataSourceId(
             UUID securityId, Instant timestamp, String intervalCode, Long dataSourceId);
 

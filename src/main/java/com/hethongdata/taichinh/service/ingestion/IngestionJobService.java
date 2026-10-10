@@ -12,6 +12,7 @@ import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaReposito
 import com.hethongdata.taichinh.service.news.NewsWorkflowService;
 import com.hethongdata.taichinh.service.financial.FinancialStatementBuildService;
 import com.hethongdata.taichinh.service.macro.MacroWorkflowService;
+import com.hethongdata.taichinh.service.financial.FinancialMetricWorkflowService;
 import com.hethongdata.taichinh.service.market.MarketIndexWorkflowService;
 import com.hethongdata.taichinh.service.market.MarketPriceWorkflowService;
 
@@ -42,6 +43,7 @@ public class IngestionJobService {
     private final NewsWorkflowService newsWorkflowService;
     private final FinancialStatementBuildService financialStatementBuildService;
     private final MacroWorkflowService macroWorkflowService;
+    private final FinancialMetricWorkflowService financialMetricWorkflowService;
     private final MarketPriceWorkflowService marketPriceWorkflowService;
     private final MarketIndexWorkflowService marketIndexWorkflowService;
 
@@ -56,6 +58,7 @@ public class IngestionJobService {
             NewsWorkflowService newsWorkflowService,
             FinancialStatementBuildService financialStatementBuildService,
             MacroWorkflowService macroWorkflowService,
+            FinancialMetricWorkflowService financialMetricWorkflowService,
             MarketPriceWorkflowService marketPriceWorkflowService,
             MarketIndexWorkflowService marketIndexWorkflowService) {
         this.ingestionJobs = ingestionJobs;
@@ -65,6 +68,7 @@ public class IngestionJobService {
         this.newsWorkflowService = newsWorkflowService;
         this.financialStatementBuildService = financialStatementBuildService;
         this.macroWorkflowService = macroWorkflowService;
+        this.financialMetricWorkflowService = financialMetricWorkflowService;
         this.marketPriceWorkflowService = marketPriceWorkflowService;
         this.marketIndexWorkflowService = marketIndexWorkflowService;
     }
@@ -201,6 +205,8 @@ public class IngestionJobService {
                                             ? marketIndexWorkflowService.execute(job, triggerType)
                             : financialStatementBuildService.supports(job.getCode())
                                     ? financialStatementBuildService.execute(job, triggerType)
+                                    : financialMetricWorkflowService.supports(job.getCode())
+                                            ? financialMetricWorkflowService.execute(job, triggerType)
                                     : ingestionService.ingestJob(job, triggerType);
             retryBudgetService.resetAfterSuccess(job);
             return response;

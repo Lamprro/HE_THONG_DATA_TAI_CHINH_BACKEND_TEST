@@ -35,6 +35,27 @@ class FinancialStatementBuildServiceTests {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
+    void keepsLongProviderKeysBoundedDistinctAndStableAcrossRowOrder() {
+        String label = "Net cash flows arising from transactions involving financial assets and liabilities ".repeat(3);
+        var first = objectMapper.createObjectNode().put("fiscalDate", "2016-03-31")
+                .put("itemCode", 10001).put("itemEnName", label + "first").put("numericValue", 1);
+        var second = first.deepCopy().put("itemCode", 10002).put("itemEnName", label + "second");
+        var third = first.deepCopy().put("itemCode", 10003);
+        var root = objectMapper.createObjectNode().put("symbol", "HCM").put("dataset", "cash_flow");
+        root.putArray("data").add(first).add(second).add(third);
+        RawPayloadEntity raw = mock(RawPayloadEntity.class);
+        when(raw.getPayload()).thenReturn(root);
+        var forward = service().parse(raw).getFirst().items();
+        root.putArray("data").add(third).add(second).add(first);
+        var reverse = service().parse(raw).getFirst().items();
+        assertThat(forward).extracting(FinancialStatementBuildService.ItemDraft::itemCode)
+                .doesNotHaveDuplicates().allSatisfy(code -> assertThat(code.length()).isLessThanOrEqualTo(100));
+        assertThat(forward).containsExactlyInAnyOrderElementsOf(reverse);
+        assertThat(forward.getFirst().itemName()).isEqualTo(label + "first");
+        assertThat(forward.getFirst().sourceItemCode()).isEqualTo("10001");
+    }
+
+    @Test
     void parsesProviderArrayIntoOneQuarterlyStatementAndItems() throws Exception {
         RawPayloadEntity raw = mock(RawPayloadEntity.class);
         when(raw.getPayload())

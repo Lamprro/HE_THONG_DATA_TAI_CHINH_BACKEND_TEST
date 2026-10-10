@@ -12,6 +12,27 @@
 > backfill live dùng provider thật). Chưa merge/deploy; không coi các lỗi LLM hoặc
 > metadata/replay cũ đã được xử lý. Chi tiết/nghiệm thu: [DATA_ENRICHMENT_20261009](DATA_ENRICHMENT_20261009.md).
 
+> Kiểm nghiệm localhost mở rộng 10/10/2026: 32 integration schema cô lập (Gemini
+> mock) + 146 regression pass, 4 skipped. API thêm validationRoundId; nghiệm thu
+> đúng 7 luật ở vòng hiện hành khi audit có nhiều round. FPT thật đã lưu revalidate
+> SUCCESS, 8 concurrent cache requests đều CACHED, không thêm provider attempt.
+> Kiểm horizons 1–8, cutoff, stale/provenance, response lỗi và claim đồng thời đạt.
+> Chỉ chạy localhost theo yêu cầu, chưa đo accuracy/backtest. Xem
+> [biên bản kiểm nghiệm mở rộng](FORECAST_LOCALHOST_VERIFICATION_20261010.md).
+
+> Bổ sung 10/10/2026 trên `feature/stock-price-scenarios` (checkout riêng): thêm
+> STOCK_PRICE vào forecast, sửa horizon thành cuối quý tương lai thứ n, chứng minh
+> đơn vị/giá nền từ raw, thêm SMA20/SMA60/return20 và schema v2/prompt version 4.
+> Regression trước đó 146 pass; đợt sửa prompt đã chạy lại 18 integration schema
+> cô lập pass (Gemini mock). Live sau cập nhật private config: Gemini HTTP 200,
+> đủ 6 targets, 7 luật PASS, Java projections đúng và replay CACHED; không mock.
+> Run `c1d02bfd-5caa-4268-b603-cd11a865bedf`, result WARNING/PARTIAL; 10 macro có
+> trong input nhưng output không cite macro nên macro_used=false. Version 4 làm
+> rõ cờ này sau một response v3 bị REJECTED; giữ nguyên validator và audit cũ. Xem
+> [biên bản chạy và lý do WARNING](FORECAST_LIVE_CHECK_20261010.md).
+> Không merge master hoặc restart NEWS; Java vẫn chỉ chạy localhost test. Xem [STOCK_PRICE_SCENARIOS](STOCK_PRICE_SCENARIOS.md)
+> và [đề xuất dữ liệu nhà phân tích](ANALYST_DATA_REQUIREMENTS.md). Bằng chứng cũ dưới đây giữ lịch sử.
+
 > Cập nhật 08/10/2026: lịch sử từng lần gọi model nằm trong mảng JSONB `llm_runs.attempts`, không còn bảng log attempts riêng. Xem [hướng dẫn chuyển đổi](LLM_ATTEMPTS_MERGE.md). Các kết quả kiểm thử cũ bên dưới là bằng chứng của thời điểm ghi báo cáo.
 
 Đây là điểm đọc đầu tiên cho dev, BA hoặc AI tiếp quản. Snapshot nền ngày
@@ -157,7 +178,7 @@ snapshot lịch sử, cần query lại trước báo cáo tình trạng hiện 
 | Việc | Trạng thái/bước cần làm |
 | --- | --- |
 | Hợp đồng URL lỗi | Code articleDraft chỉ fallback FAILED; báo cáo thật từng có SKIPPED/404. Đồng bộ raw validation và builder để URL hợp lệ vẫn được giữ; test response thật từ Python. |
-| Kỳ forecast | Lỗi hai horizon trùng kỳ tại ngày cuối quý đã được báo; chưa có bằng chứng sửa. Chốt quý tương lai thứ n và test biên lịch/năm nhuận. |
+| Kỳ forecast | Đã sửa trên feature/stock-price-scenarios: quý tương lai thứ n; test biên quý/năm nhuận và API preview pass. Chưa merge sang các nhánh/runtime khác. |
 | Financial metadata | Scope/unit/currency/riêng quý-lũy kế/publication cần xác minh nguồn; không lấy created_at thay ngày công bố để tuyên bố backtest point-in-time. |
 | Stale replay financial | Persistence có nguy cơ raw cũ thay current mới; bổ sung kiểm tra thứ tự và test replay trong DB cô lập. |
 | Kịch bản dự báo | Cần chốt sensitivity độc lập hay financial projection cân đối; kiểm tra assets = liabilities + equity và cách hiểu bear/bull theo ngành. |

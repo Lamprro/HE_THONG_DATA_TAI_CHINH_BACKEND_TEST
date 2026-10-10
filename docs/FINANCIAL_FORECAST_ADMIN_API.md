@@ -1,5 +1,10 @@
 # Financial/market/macro → LLM: luồng dự báo và API admin
 
+> Cập nhật 10/10/2026, branch feature/stock-price-scenarios: hỗ trợ thêm STOCK_PRICE
+> (tổng 6 targets), horizon 1 là cuối quý kế tiếp; prompt v4, input/output schema v2.
+> Xem [luồng giá và bằng chứng](STOCK_PRICE_SCENARIOS.md). Những con số macro rỗng
+> và ví dụ schema v1 bên dưới là snapshot lịch sử, không mô tả bản mới.
+
 > Cập nhật 08/10/2026: lịch sử từng lần gọi model nằm trong mảng JSONB `llm_runs.attempts`, không còn bảng log attempts riêng. Xem [hướng dẫn chuyển đổi](LLM_ATTEMPTS_MERGE.md). Các kết quả kiểm thử cũ bên dưới là bằng chứng của thời điểm ghi báo cáo.
 
 > Bàn giao cập nhật 07/10/2026: đọc [PROJECT_HANDOVER.md](PROJECT_HANDOVER.md) trước. Code LLM đã push ở `feature/llm-processing` (`5343f81`), chưa merge/deploy. Các số liệu DB, kết quả API và nhận định bên dưới thuộc thời điểm kiểm tra được ghi trong tài liệu; không phải xác nhận runtime ngày 07/10. Implementation và việc còn dở cần đối chiếu với bàn giao mới.
@@ -241,7 +246,7 @@ Base `/api/admin/forecasts`. Tất cả request thật cần credential admin.
 }
 ```
 
-horizonQuarters 1–8, targets 1–5 enum hợp lệ, security/date bắt buộc. Ngày tương lai bị từ chối.
+horizonQuarters 1–8, targets 1–6 enum hợp lệ, security/date bắt buộc. Ngày tương lai bị từ chối.
 Ngày mục tiêu là cuối quý tương lai tính từ asOfDate, không lén cộng từ kỳ báo cáo cũ.
 Đầu vào này cho forecast_period_end 2026-12-31. Phiên bản v1 chỉ so với giá trị reported cuối, không cam kết quarter standalone/TTM đã được chuẩn hóa.
 PATCH template dùng `{"enabled":false}` hoặc true; không gửi prompt mới để sửa đè version đang dùng.

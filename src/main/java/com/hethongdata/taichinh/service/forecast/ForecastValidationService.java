@@ -144,13 +144,12 @@ public class ForecastValidationService {
               var targets = new HashSet<String>();
               for (var f : output.path("forecasts")) {
                 String target = f.path("metric_code").asText();
+                var targetType =
+                    com.hethongdata.taichinh.dto.forecast.ForecastRequest.Target.valueOf(target);
                 if (!targets.add(target)) issues.add("DUPLICATE_FORECAST_TARGET");
                 var latest =
                     ctx.points().stream()
-                        .filter(
-                            p ->
-                                p.code().equals(target)
-                                    && !Set.of("MARKET", "MACRO", "METRIC").contains(p.domain()))
+                        .filter(p -> targetType.matches(p.domain(), p.code()))
                         .max(Comparator.comparing(SourcePoint::periodEnd))
                         .orElse(null);
                 if (latest == null || !latest.id().equals(f.path("base_point_id").asText())) {
@@ -171,13 +170,20 @@ public class ForecastValidationService {
                       .noneMatch(
                           id ->
                               points.containsKey(id)
-                                  && points.get(id).code().equals(target)
+                                  && targetType.matches(
+                                      points.get(id).domain(), points.get(id).code())
                                   && points.get(id).periodEnd().isBefore(latest.periodEnd())))
                     issues.add("FORECAST_HISTORY_EVIDENCE_REQUIRED");
                   BigDecimal growth = row.path("growth_percent").decimalValue();
                   if (previous != null && growth.compareTo(previous) < 0)
                     issues.add("FORECAST_SCENARIOS_NOT_ORDERED");
                   previous = growth;
+                  if (targetType
+                          == com.hethongdata.taichinh.dto.forecast.ForecastRequest.Target
+                              .STOCK_PRICE
+                      && (growth.compareTo(BigDecimal.valueOf(-100)) <= 0
+                          || !"VND_PER_SHARE".equals(latest.unit())))
+                    issues.add("INVALID_PRICE_SCENARIO_OR_UNIT");
                 }
               }
               if (!targets.equals(
@@ -225,7 +231,7 @@ public class ForecastValidationService {
       var row =
           values
               .addObject()
-              .put("metric_code", point.code())
+              .put("metric_code", forecast.path("metric_code").asText())
               .put("unit", point.unit())
               .put("base_value", point.value())
               .put("base_point_id", point.id())
@@ -233,7 +239,11 @@ public class ForecastValidationService {
               .put("calculation_version", "scenario-v1");
       row.put("source_period_end", point.periodEnd().toString())
           .put("forecast_period_end", ctx.targetDate().toString())
-          .put("forecast_basis", "UNCALIBRATED_SCENARIO_RELATIVE_TO_REPORTED_VALUE_NOT_TTM");
+          .put(
+              "forecast_basis",
+              "STOCK_PRICE".equals(forecast.path("metric_code").asText())
+                  ? "UNCALIBRATED_NOMINAL_CLOSE_PRICE_SCENARIO_NOT_TOTAL_RETURN_OR_FAIR_VALUE"
+                  : "UNCALIBRATED_SCENARIO_RELATIVE_TO_REPORTED_VALUE_NOT_TTM");
       for (String scenario : List.of("bear", "base", "bull"))
         row.put(
             scenario,

@@ -46,7 +46,11 @@ class ForecastPipelineIntegrationTests {
 
   @DynamicPropertySource
   static void database(DynamicPropertyRegistry registry) throws Exception {
-    try (var reader = Files.newBufferedReader(Path.of("application-local.properties"))) {
+    try (var reader =
+        Files.newBufferedReader(
+            Path.of(
+                System.getenv()
+                    .getOrDefault("LLM_TEST_CONFIG", "../application-local.properties")))) {
       CONFIG.load(reader);
     }
     url = CONFIG.getProperty("spring.datasource.url");
@@ -56,6 +60,9 @@ class ForecastPipelineIntegrationTests {
       s.execute("SET search_path TO " + SCHEMA);
       for (String t :
           List.of(
+              "data_sources",
+              "raw_payloads",
+              "data_versions",
               "companies",
               "securities",
               "financial_periods",
@@ -74,6 +81,9 @@ class ForecastPipelineIntegrationTests {
         s.execute("CREATE TABLE " + t + " (LIKE public." + t + " INCLUDING ALL)");
       for (String t :
           List.of(
+              "data_sources",
+              "raw_payloads",
+              "data_versions",
               "companies",
               "securities",
               "financial_periods",
@@ -94,7 +104,11 @@ class ForecastPipelineIntegrationTests {
         s.execute(new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
       }
     }
-    try (var c = connection(); var s = c.createStatement(); var in = new ClassPathResource("db/manual/V20261008_01__merge_llm_attempts_into_runs.sql").getInputStream()) {
+    try (var c = connection();
+        var s = c.createStatement();
+        var in =
+            new ClassPathResource("db/manual/V20261008_01__merge_llm_attempts_into_runs.sql")
+                .getInputStream()) {
       s.execute("SET search_path TO " + SCHEMA);
       s.execute(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
     }
@@ -126,7 +140,20 @@ class ForecastPipelineIntegrationTests {
   @Autowired TestRestTemplate http;
   @MockitoBean LlmGateway gateway;
   @Autowired ForecastValidationService validations;
+  @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
   ForecastRequest request;
+
+  void withRollback(Runnable action) {
+    new org.springframework.transaction.support.TransactionTemplate(transactions)
+        .executeWithoutResult(
+            status -> {
+              try {
+                action.run();
+              } finally {
+                status.setRollbackOnly();
+              }
+            });
+  }
 
   @BeforeEach
   void setup() throws Exception {
@@ -171,7 +198,7 @@ class ForecastPipelineIntegrationTests {
     var input =
         json.read(payload.path("contents").path(0).path("parts").path(0).path("text").asText());
     var o = json.mapper().createObjectNode();
-    o.put("schema_version", "financial.forecast.output.v1")
+    o.put("schema_version", "financial.forecast.output.v2")
         .put("task_code", "FINANCIAL_SCENARIOS")
         .put("company_id", input.path("company_id").asText())
         .put("security_id", input.path("security_id").asText())
@@ -186,7 +213,8 @@ class ForecastPipelineIntegrationTests {
     for (var target : input.path("targets")) {
       var history = new ArrayList<JsonNode>();
       for (var p : input.path("points"))
-        if (p.path("code").asText().equals(target.asText())) history.add(p);
+        if (ForecastRequest.Target.valueOf(target.asText())
+            .matches(p.path("domain").asText(), p.path("code").asText())) history.add(p);
       history.sort(Comparator.comparing(p -> p.path("periodEnd").asText()));
       var latest = history.getLast();
       var f =
@@ -233,6 +261,75 @@ class ForecastPipelineIntegrationTests {
         new ForecastRequest(request.securityId(), request.asOfDate(), 1, request.targets(), true);
     assertThat(service.execute(required).status()).isEqualTo("SKIPPED");
     verify(gateway, never()).call(any(), any());
+  }
+
+  @Test
+  void availableMacroWithoutCitedEvidenceRejectsClaimOfUsage() throws Exception {
+    db.update("INSERT INTO macro_series SELECT * FROM public.macro_series");
+    db.update("INSERT INTO macro_observations SELECT * FROM public.macro_observations");
+    try {
+      var withMacro =
+          new ForecastRequest(
+              request.securityId(), LocalDate.of(2026, 10, 10), 1, request.targets(), true);
+      assertThat(service.preview(withMacro).coverage().macroObservations()).isPositive();
+      doAnswer(
+              i -> {
+                var o = (com.fasterxml.jackson.databind.node.ObjectNode) output(i.getArgument(0));
+                o.put("macro_used", true);
+                return new LlmGateway.Reply(200, "{}", o.toString(), 1, 1);
+              })
+          .when(gateway)
+          .call(any(), any());
+      var outcome = service.execute(withMacro);
+      assertThat(outcome.status()).isEqualTo("REJECTED");
+      assertThat(outcome.issues()).contains("MACRO_FLAG_EVIDENCE_MISMATCH");
+      assertThat(store.results(request.securityId(), 10)).isEmpty();
+    } finally {
+      db.update("DELETE FROM macro_observations");
+      db.update("DELETE FROM macro_series");
+    }
+  }
+
+  @Test
+  void citedMacroEvidenceWithUsageFlagPublishesAndCaches() throws Exception {
+    db.update("INSERT INTO macro_series SELECT * FROM public.macro_series");
+    db.update("INSERT INTO macro_observations SELECT * FROM public.macro_observations");
+    try {
+      var withMacro =
+          new ForecastRequest(
+              request.securityId(), LocalDate.of(2026, 10, 10), 1, request.targets(), true);
+      String macroId =
+          contexts.build(withMacro).points().stream()
+              .filter(p -> p.domain().equals("MACRO"))
+              .findFirst()
+              .orElseThrow()
+              .id();
+      doAnswer(
+              i -> {
+                var o = (com.fasterxml.jackson.databind.node.ObjectNode) output(i.getArgument(0));
+                o.put("macro_used", true);
+                for (var f : o.path("forecasts")) {
+                  for (String scenario : List.of("bear", "base", "bull")) {
+                    ((com.fasterxml.jackson.databind.node.ArrayNode)
+                            f.path(scenario).path("evidence_ids"))
+                        .add(macroId);
+                  }
+                }
+                return new LlmGateway.Reply(200, "{}", o.toString(), 1, 1);
+              })
+          .when(gateway)
+          .call(any(), any());
+      var outcome = service.execute(withMacro);
+      assertThat(outcome.status()).isEqualTo("SUCCESS");
+      assertThat(store.run(outcome.runId()).validations())
+          .hasSize(7)
+          .allSatisfy(v -> assertThat(v.path("result_status").asText()).isEqualTo("PASS"));
+      assertThat(service.execute(withMacro).status()).isEqualTo("CACHED");
+      verify(gateway, times(1)).call(any(), any());
+    } finally {
+      db.update("DELETE FROM macro_observations");
+      db.update("DELETE FROM macro_series");
+    }
   }
 
   @Test
@@ -394,5 +491,358 @@ class ForecastPipelineIntegrationTests {
                         request.targets(),
                         false)))
         .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  ForecastRequest priceRequest() {
+    return new ForecastRequest(
+        request.securityId(),
+        LocalDate.of(2026, 10, 9),
+        1,
+        EnumSet.of(ForecastRequest.Target.STOCK_PRICE),
+        false);
+  }
+
+  @Test
+  void priceFlowUsesVerifiedVndClosesJavaIndicatorsAndThreeCalculatedPrices() {
+    var price = priceRequest();
+    var preview = service.preview(price);
+    assertThat(preview.eligible()).as(preview.issues().toString()).isTrue();
+    assertThat(preview.forecastPeriodEnd()).isEqualTo("2027-03-31");
+    assertThat(preview.input().path("derived_metrics").toString())
+        .contains("SMA_20", "SMA_60", "PRICE_RETURN_20_SESSIONS");
+    var run = service.execute(price);
+    assertThat(run.status()).isEqualTo("SUCCESS");
+    var result = store.results(price.securityId(), 10).getFirst().data();
+    var calc = result.path("calculated_values").get(0);
+    assertThat(calc.path("metric_code").asText()).isEqualTo("STOCK_PRICE");
+    assertThat(calc.path("unit").asText()).isEqualTo("VND_PER_SHARE");
+    assertThat(calc.path("base").decimalValue())
+        .isEqualByComparingTo(
+            calc.path("base_value").decimalValue().multiply(new java.math.BigDecimal("1.05")));
+    assertThat(service.execute(price).status()).isEqualTo("CACHED");
+    assertThat(store.run(run.runId()).validations()).hasSize(7);
+  }
+
+  @Test
+  void priceCannotUseStoredNumbersWithoutMatchingRawEvidence() {
+    db.update(
+        "UPDATE market_prices SET close_price=close_price+1 WHERE id=(SELECT id FROM market_prices"
+            + " WHERE security_id=? AND is_canonical AND interval_code='1d' ORDER BY"
+            + " price_timestamp DESC LIMIT 1)",
+        request.securityId());
+    try {
+      var preview = service.preview(priceRequest());
+      assertThat(preview.eligible()).isFalse();
+      assertThat(preview.issues()).contains("PRICE_UNIT_OR_RAW_PROVENANCE_UNVERIFIED");
+      assertThat(service.execute(priceRequest()).status()).isEqualTo("SKIPPED");
+      verify(gateway, never()).call(any(), any());
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    } finally {
+      db.update(
+          "UPDATE market_prices SET close_price=close_price-1 WHERE id=(SELECT id FROM"
+              + " market_prices WHERE security_id=? AND is_canonical AND interval_code='1d' ORDER"
+              + " BY price_timestamp DESC LIMIT 1)",
+          request.securityId());
+    }
+  }
+
+  @Test
+  void zeroOrNegativePriceScenarioIsRejectedWithoutPublishing() throws Exception {
+    doAnswer(
+            i -> {
+              var response = output(i.getArgument(0));
+              ((com.fasterxml.jackson.databind.node.ObjectNode)
+                      response.path("forecasts").get(0).path("bear"))
+                  .put("growth_percent", -100);
+              return new LlmGateway.Reply(200, "{}", response.toString(), 1, 1);
+            })
+        .when(gateway)
+        .call(any(), any());
+    assertThat(service.execute(priceRequest()).status()).isEqualTo("REJECTED");
+    assertThat(store.results(request.securityId(), 10)).isEmpty();
+  }
+
+  @Test
+  void apiAcceptsSixTargetsAndPublishesPriceAlongsideFinancials() {
+    var headers = new HttpHeaders();
+    headers.setBearerAuth("isolated-test-admin-credential-not-production");
+    var all =
+        new ForecastRequest(
+            request.securityId(),
+            LocalDate.of(2026, 10, 9),
+            1,
+            EnumSet.allOf(ForecastRequest.Target.class),
+            false);
+    var response =
+        http.exchange(
+            "/api/admin/forecasts/execute",
+            HttpMethod.POST,
+            new HttpEntity<>(all, headers),
+            JsonNode.class);
+    assertThat(response.getStatusCode().value()).isEqualTo(200);
+    assertThat(response.getBody().path("status").asText()).isEqualTo("SUCCESS");
+    var result = store.results(request.securityId(), 10).getFirst().data();
+    assertThat(result.path("forecasts")).hasSize(6);
+    assertThat(result.path("calculated_values")).hasSize(6);
+    assertThat(result.path("calculated_values").toString())
+        .contains("STOCK_PRICE", "VND_PER_SHARE");
+  }
+
+  @Test
+  void priceReceivedAfterCutoffCannotBecomeTheBase() {
+    withRollback(
+        () -> {
+          long latest =
+              db.queryForObject(
+                  "SELECT id FROM market_prices WHERE security_id=? AND is_canonical AND"
+                      + " interval_code='1d' ORDER BY price_timestamp DESC LIMIT 1",
+                  Long.class,
+                  request.securityId());
+          db.update(
+              "UPDATE market_prices SET created_at='2026-10-11T00:00:00+07:00' WHERE id=?", latest);
+          var ctx = contexts.build(priceRequest());
+          assertThat(ctx.eligible()).as(ctx.issues().toString()).isTrue();
+          assertThat(ctx.points()).noneMatch(p -> p.id().equals("PRICE:" + latest));
+        });
+  }
+
+  @Test
+  void FinancialReportPublishedAfterCutoffIsExcludedBeforeCallingProvider() throws Exception {
+    withRollback(
+        () -> {
+          db.update(
+              "UPDATE financial_statements SET published_at='2026-10-11T00:00:00+07:00'"
+                  + " WHERE security_id=?",
+              request.securityId());
+          var ctx = contexts.build(request);
+          assertThat(ctx.coverage().financialPeriods()).isZero();
+          assertThat(ctx.points())
+              .noneMatch(
+                  p -> p.domain().equals("BALANCE_SHEET") || p.domain().equals("INCOME_STATEMENT"));
+          assertThat(service.execute(request).status()).isEqualTo("SKIPPED");
+        });
+    verify(gateway, never()).call(any(), any());
+  }
+
+  @Test
+  void fiftyNineSessionsCannotPassPriceReadiness() throws Exception {
+    withRollback(
+        () -> {
+          db.update(
+              "UPDATE market_prices SET is_canonical=false WHERE security_id=? AND is_canonical AND"
+                  + " interval_code='1d' AND id NOT IN (SELECT id FROM market_prices WHERE"
+                  + " security_id=? AND is_canonical AND interval_code='1d' ORDER BY"
+                  + " price_timestamp DESC LIMIT 59)",
+              request.securityId(),
+              request.securityId());
+          var preview = service.preview(priceRequest());
+          assertThat(preview.coverage().marketSessions()).isEqualTo(59);
+          assertThat(preview.issues())
+              .contains("INSUFFICIENT_PRICE_HISTORY: require 60 daily sessions");
+          assertThat(service.execute(priceRequest()).status()).isEqualTo("SKIPPED");
+        });
+    verify(gateway, never()).call(any(), any());
+  }
+
+  @Test
+  void stalePriceCannotPassEvenWithSixtyVerifiedSessions() throws Exception {
+    withRollback(
+        () -> {
+          db.update(
+              "UPDATE market_prices SET is_canonical=false WHERE security_id=? AND is_canonical"
+                  + " AND price_timestamp>='2026-09-24T00:00:00+07:00'",
+              request.securityId());
+          var preview = service.preview(priceRequest());
+          assertThat(preview.coverage().marketSessions()).isEqualTo(60);
+          assertThat(preview.issues()).contains("STALE_PRICE_BASE");
+          assertThat(service.execute(priceRequest()).status()).isEqualTo("SKIPPED");
+        });
+    verify(gateway, never()).call(any(), any());
+  }
+
+  @Test
+  void twoDailyClosesOnTheSameVietnamDateStopBeforeProvider() throws Exception {
+    withRollback(
+        () -> {
+          db.update(
+              "UPDATE market_prices SET price_timestamp=(SELECT max(price_timestamp) FROM"
+                  + " market_prices WHERE security_id=? AND is_canonical AND interval_code='1d') +"
+                  + " interval '1 minute' WHERE id=(SELECT id FROM market_prices WHERE"
+                  + " security_id=? AND is_canonical AND interval_code='1d' ORDER BY"
+                  + " price_timestamp DESC OFFSET 1 LIMIT 1)",
+              request.securityId(),
+              request.securityId());
+          assertThat(service.preview(priceRequest()).issues()).contains("AMBIGUOUS_DAILY_PRICES");
+          assertThat(service.execute(priceRequest()).status()).isEqualTo("SKIPPED");
+        });
+    verify(gateway, never()).call(any(), any());
+  }
+
+  @Test
+  void priceFromRejectedSourceVersionCannotBeSentToProvider() throws Exception {
+    withRollback(
+        () -> {
+          db.update(
+              "UPDATE data_versions SET status='REJECTED' WHERE id=(SELECT data_version_id FROM"
+                  + " market_prices WHERE security_id=? AND is_canonical AND interval_code='1d'"
+                  + " ORDER BY price_timestamp DESC LIMIT 1)",
+              request.securityId());
+          assertThat(service.preview(priceRequest()).issues())
+              .contains("PRICE_UNIT_OR_RAW_PROVENANCE_UNVERIFIED");
+          assertThat(service.execute(priceRequest()).status()).isEqualTo("SKIPPED");
+        });
+    verify(gateway, never()).call(any(), any());
+  }
+
+  @Test
+  void changedSourceWhileModelRespondsCannotPublishTheOldSnapshot() throws Exception {
+    doAnswer(
+            i -> {
+              var response = output(i.getArgument(0));
+              db.update(
+                  "UPDATE market_prices SET close_price=close_price+1 WHERE id=(SELECT id FROM"
+                      + " market_prices WHERE security_id=? AND is_canonical AND interval_code='1d'"
+                      + " ORDER BY price_timestamp DESC LIMIT 1)",
+                  request.securityId());
+              return new LlmGateway.Reply(200, "{}", response.toString(), 1, 1);
+            })
+        .when(gateway)
+        .call(any(), any());
+    withRollback(
+        () -> {
+          var outcome = service.execute(priceRequest());
+          assertThat(outcome.status()).isEqualTo("REJECTED");
+          assertThat(outcome.issues()).contains("FORECAST_SOURCE_CHANGED");
+          assertThat(db.queryForObject("SELECT count(*) FROM llm_results", Integer.class)).isZero();
+        });
+  }
+
+  @Test
+  void differentHorizonsUseDifferentCallsAndDoNotReactivateSupersededResults() throws Exception {
+    var price = priceRequest();
+    for (int horizon = 1; horizon <= 8; horizon++) {
+      var next =
+          new ForecastRequest(
+              price.securityId(), price.asOfDate(), horizon, price.targets(), false);
+      assertThat(service.preview(next).forecastPeriodEnd())
+          .isEqualTo(ForecastHorizon.endOfFutureQuarter(price.asOfDate(), horizon));
+    }
+    var first = service.execute(price);
+    var secondRequest =
+        new ForecastRequest(price.securityId(), price.asOfDate(), 2, price.targets(), false);
+    var second = service.execute(secondRequest);
+    assertThat(first.status()).isEqualTo("SUCCESS");
+    assertThat(second.status()).isEqualTo("SUCCESS");
+    assertThat(second.runId()).isNotEqualTo(first.runId());
+    assertThat(store.results(price.securityId(), 10))
+        .singleElement()
+        .satisfies(
+            r -> assertThat(r.data().path("forecast_period_end").asText()).isEqualTo("2027-06-30"));
+    assertThat(service.execute(secondRequest).status()).isEqualTo("CACHED");
+    assertThat(store.validate(first.runId()).issues())
+        .contains("Audit only: never reactivate a superseded result");
+    assertThat(store.results(price.securityId(), 10))
+        .singleElement()
+        .satisfies(r -> assertThat(r.runId()).isEqualTo(second.runId()));
+    verify(gateway, times(2)).call(any(), any());
+  }
+
+  @Test
+  void concurrentIdenticalRequestsClaimOneRunAndCallProviderOnce() throws Exception {
+    var entered = new java.util.concurrent.CountDownLatch(1);
+    var release = new java.util.concurrent.CountDownLatch(1);
+    var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+    doAnswer(
+            i -> {
+              entered.countDown();
+              if (!release.await(20, java.util.concurrent.TimeUnit.SECONDS))
+                throw new IllegalStateException("Test release timeout");
+              return new LlmGateway.Reply(200, "{}", output(i.getArgument(0)).toString(), 1, 1);
+            })
+        .when(gateway)
+        .call(any(), any());
+    try {
+      var first = executor.submit(() -> service.execute(priceRequest()));
+      assertThat(entered.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+      var second = service.execute(priceRequest());
+      assertThat(second.status()).isEqualTo("RUNNING");
+      release.countDown();
+      var completed = first.get(20, java.util.concurrent.TimeUnit.SECONDS);
+      assertThat(completed.status()).isEqualTo("SUCCESS");
+      assertThat(second.runId()).isEqualTo(completed.runId());
+      assertThat(db.queryForObject("SELECT count(*) FROM llm_runs", Integer.class)).isEqualTo(1);
+      assertThat(service.execute(priceRequest()).status()).isEqualTo("CACHED");
+      verify(gateway, times(1)).call(any(), any());
+    } finally {
+      release.countDown();
+      executor.shutdownNow();
+      executor.awaitTermination(20, java.util.concurrent.TimeUnit.SECONDS);
+    }
+  }
+
+  @Test
+  void apiReportsCurrentValidationRoundAndKeepsPreviousAudit() {
+    var outcome = service.execute(priceRequest());
+    var firstRound = store.run(outcome.runId()).validationRoundId();
+    var headers = new HttpHeaders();
+    headers.setBearerAuth("isolated-test-admin-credential-not-production");
+    var revalidate =
+        http.exchange(
+            "/api/admin/forecasts/runs/" + outcome.runId() + "/revalidate",
+            HttpMethod.POST,
+            new HttpEntity<>(headers),
+            JsonNode.class);
+    assertThat(revalidate.getBody().path("status").asText()).isEqualTo("SUCCESS");
+    var runResponse =
+        http.exchange(
+                "/api/admin/forecasts/runs/" + outcome.runId(),
+                HttpMethod.GET,
+                new HttpEntity<>(headers),
+                JsonNode.class)
+            .getBody();
+    String currentRound = runResponse.path("validationRoundId").asText();
+    assertThat(currentRound).isNotEqualTo(firstRound.toString());
+    var audits = new ArrayList<JsonNode>();
+    runResponse.path("validations").forEach(audits::add);
+    assertThat(audits).hasSize(14);
+    assertThat(
+            audits.stream()
+                .filter(v -> currentRound.equals(v.path("validation_round_id").asText()))
+                .toList())
+        .hasSize(7)
+        .allSatisfy(v -> assertThat(v.path("result_status").asText()).isEqualTo("PASS"));
+    assertThat(service.execute(priceRequest()).status()).isEqualTo("CACHED");
+  }
+
+  @org.junit.jupiter.params.ParameterizedTest
+  @org.junit.jupiter.params.provider.ValueSource(
+      strings = {"wrong-date", "older-base", "wrong-order", "missing-target"})
+  void incorrectPriceResponseCannotPublish(String fault) throws Exception {
+    doAnswer(
+            i -> {
+              var response =
+                  (com.fasterxml.jackson.databind.node.ObjectNode) output(i.getArgument(0));
+              var forecasts =
+                  (com.fasterxml.jackson.databind.node.ArrayNode) response.path("forecasts");
+              var forecast = (com.fasterxml.jackson.databind.node.ObjectNode) forecasts.get(0);
+              switch (fault) {
+                case "wrong-date" -> response.put("forecast_period_end", "2027-06-30");
+                case "older-base" ->
+                    forecast.put(
+                        "base_point_id",
+                        forecast.path("base").path("evidence_ids").get(1).asText());
+                case "wrong-order" ->
+                    ((com.fasterxml.jackson.databind.node.ObjectNode) forecast.path("bull"))
+                        .put("growth_percent", -10);
+                case "missing-target" -> forecasts.removeAll();
+                default -> throw new IllegalArgumentException(fault);
+              }
+              return new LlmGateway.Reply(200, "{}", response.toString(), 1, 1);
+            })
+        .when(gateway)
+        .call(any(), any());
+    assertThat(service.execute(priceRequest()).status()).isEqualTo("REJECTED");
+    assertThat(store.results(request.securityId(), 10)).isEmpty();
   }
 }

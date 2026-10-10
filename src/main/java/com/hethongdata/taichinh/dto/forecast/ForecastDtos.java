@@ -65,7 +65,8 @@ public final class ForecastDtos {
       JsonNode response,
       List<JsonNode> attempts,
       List<JsonNode> validations,
-      List<String> errors) {}
+      List<String> errors,
+      UUID validationRoundId) {}
 
   public record MetricCalculation(
       ForecastRequest request,

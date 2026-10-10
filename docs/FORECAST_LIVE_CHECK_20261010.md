@@ -1,5 +1,55 @@
 # Kiểm tra live forecast và WARNING ngày 10/10/2026
 
+## Kết quả mới nhất sau cập nhật cấu hình và prompt
+
+Người dùng cập nhật private config và yêu cầu gọi lại. Restart đúng runtime Java
+localhost:8182 để nhận cấu hình; không restart NEWS hoặc deploy Java server.
+Không commit hay in key. Lỗi 403 của lần đầu dưới đây giữ làm lịch sử.
+
+Lần lại với version 3: run `077e990d-edd1-4002-a3e5-bfdeec31f16e`, Gemini HTTP
+200 nhưng REJECTED do MACRO_FLAG_EVIDENCE_MISMATCH: macro_used=true trong khi
+mọi evidence_ids chỉ có financial/price. Không tạo result, không sửa response.
+
+Sửa prompt thành **version 4** bất biến mới, thêm yêu cầu và schema description:
+macro_used=true khi và chỉ khi ít nhất một scenario cite point domain=MACRO;
+macro_available không đồng nghĩa đã sử dụng macro. Không buộc thêm ID không liên
+quan để pass. Không đổi validator, response cũ hoặc dữ liệu nguồn.
+
+Chạy lại ForecastPipelineIntegrationTests: **18 pass, 0 failure/error/skipped**,
+PostgreSQL schema cô lập, provider **mock**. Hai test mới đối chiếu có macro nhưng
+không cite phải reject claim true, và cite hợp lệ/flag true thì publish/cache.
+Schema được cleanup; không có response mock trong public. Maven package thành công.
+
+Sau build/restart riêng và seed v4 qua API, chạy nguyên acceptance script hiện có:
+
+- Run `c1d02bfd-5caa-4268-b603-cd11a865bedf`, tạo **15:22:12 10/10/2026** giờ VN.
+- Result `e9263b64-2cee-4c21-be16-3cf6a81a8b22` được publish vào DB thật.
+- SUCCESS, HTTP 200; Gemini gateway audit 2 attempts: gemini-3.8-flash timeout
+  sau khoảng 45 giây, fallback gemini-3.5-flash-lite trả response hợp lệ.
+- Đủ 6 targets, 7 luật PASS; source IDs hợp lệ, base mới nhất, tăng trưởng có thứ
+  tự, Java tính cả 6 projections đúng Decimal, giá dương và unit VND_PER_SHARE.
+- Gọi execute lại cùng request trả CACHED, cùng run/result ID; không gọi Gemini mới.
+- Snapshot vẫn 19 kỳ financial, 60 phiên giá, 10 macro; ngày đích 31/03/2027.
+- Output PARTIAL, quality WARNING. Có macro trong input nhưng response không cite
+  macro, nên macro_used=false là đúng theo luật; không tuyên bố mô hình đã dùng
+  macro để xây giả định. Price rationale chỉ cite close nền và một close lịch sử.
+- Giá nền PRICE:27300 = 59.700 VND/share ngày 08/10/2026.
+
+| Kịch bản STOCK_PRICE | growth_percent | Giá Java tính, VND/share |
+| --- | ---: | ---: |
+| bear | -10 | 53.730 |
+| base | 2 | 60.894 |
+| bull | 12 | 66.864 |
+
+Đây là giả định chưa hiệu chuẩn, không phải bằng chứng độ chính xác dự báo.
+
+Sau hai lần gọi thêm, đối chiếu read-only: financial_statements=3.929,
+market_prices=71.762, macro_observations=137 giữ nguyên; llm_runs từ 43 lên 45,
+llm_results từ 22 lên 23. Cấu hình DB hiện tại đọc đúng các bảng nguồn này.
+Templates 1/2/3 giữ bất biến và disabled, version 4 enabled. Evidence:
+`target/stock-price-release/FPT-live.json`, `post-retry-readonly-audit.json`,
+`FPT-live-before-config-retry.json`, `FPT-live-v3-macro-rejected.json` (private/ignored).
+
 ## Phạm vi và cách chạy
 
 Người dùng đã chấp thuận rõ gửi snapshot FPT sang Google Gemini và lưu response
@@ -9,13 +59,13 @@ Người dùng đã chấp thuận rõ gửi snapshot FPT sang Google Gemini và
 
 Chạy `scripts/verify_stock_price_live.py --symbol FPT --as-of 2026-10-10` qua
 API hiện có: configuration → seed prompt đã có → securities → preview → execute.
-Khi execute FAILED, script dừng đúng assertion nghiệm thu; không gọi replay/cache.
+Ở lần đầu execute FAILED, script dừng đúng assertion nghiệm thu; không gọi replay/cache.
 Sau đó đọc run qua GET API để lưu audit đầy đủ. Các truy vấn đối chiếu DB dùng
 transaction read-only. Không có fetcher/model client thay thế pipeline Java.
 
-## Đầu vào và kết quả thực tế
+## Lịch sử lần đầu trước cập nhật cấu hình
 
-- Task FINANCIAL_SCENARIOS, prompt version 3 đang bật, input schema v2.
+- Task FINANCIAL_SCENARIOS, prompt version 3 khi chạy lần đầu, input schema v2.
 - FPT security ID `24ba9d4d-9a84-4315-b52f-a8905d8005bf`.
 - Sáu targets: NET_PROFIT_AFTER_TAX, PRETAX_PROFIT, TOTAL_ASSETS,
   OWNERS_EQUITY, LIABILITIES, STOCK_PRICE; requireMacro=true, horizonQuarters=1.
@@ -73,8 +123,9 @@ price scenarios chưa backtest/calibrate. WARNING vẫn được code giữ khi 
 
 ## Việc còn lại
 
-Khôi phục quyền sử dụng Gemini của project/credential hiện cấu hình trước khi
-chạy lại full acceptance. Chưa xác định nguyên nhân quản trị khiến Google từ chối
-project; không suy diễn thành quota, billing, prompt lỗi hoặc dữ liệu sai từ HTTP 403.
-Chỉ sau response hợp lệ mới nghiệm thu sáu targets, evidence, projections, bảy
-luật PASS và replay CACHED. Hạ tầng Java production không được deploy trong đợt này.
+Full acceptance của FPT đã đạt với cấu hình mới, nhưng chưa chứng minh model đầu
+luôn hoạt động ổn định; một request thành công có fallback không phải kiểm thử tải.
+Chưa xác định nguyên nhân quản trị của project/key cũ bị 403. Chưa backtest/calibrate
+forecast hoặc bổ sung scope/basis/publication/vintage còn thiếu. Lần này không tạo
+kết quả có sử dụng bằng chứng macro dù input có macro. Hạ tầng Java production
+chưa deploy; checkout NEWS/master và các runtime khác chưa được cập nhật tự động.

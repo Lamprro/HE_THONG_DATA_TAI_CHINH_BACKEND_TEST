@@ -251,6 +251,75 @@ class ForecastPipelineIntegrationTests {
   }
 
   @Test
+  void availableMacroWithoutCitedEvidenceRejectsClaimOfUsage() throws Exception {
+    db.update("INSERT INTO macro_series SELECT * FROM public.macro_series");
+    db.update("INSERT INTO macro_observations SELECT * FROM public.macro_observations");
+    try {
+      var withMacro =
+          new ForecastRequest(
+              request.securityId(), LocalDate.of(2026, 10, 10), 1, request.targets(), true);
+      assertThat(service.preview(withMacro).coverage().macroObservations()).isPositive();
+      doAnswer(
+              i -> {
+                var o = (com.fasterxml.jackson.databind.node.ObjectNode) output(i.getArgument(0));
+                o.put("macro_used", true);
+                return new LlmGateway.Reply(200, "{}", o.toString(), 1, 1);
+              })
+          .when(gateway)
+          .call(any(), any());
+      var outcome = service.execute(withMacro);
+      assertThat(outcome.status()).isEqualTo("REJECTED");
+      assertThat(outcome.issues()).contains("MACRO_FLAG_EVIDENCE_MISMATCH");
+      assertThat(store.results(request.securityId(), 10)).isEmpty();
+    } finally {
+      db.update("DELETE FROM macro_observations");
+      db.update("DELETE FROM macro_series");
+    }
+  }
+
+  @Test
+  void citedMacroEvidenceWithUsageFlagPublishesAndCaches() throws Exception {
+    db.update("INSERT INTO macro_series SELECT * FROM public.macro_series");
+    db.update("INSERT INTO macro_observations SELECT * FROM public.macro_observations");
+    try {
+      var withMacro =
+          new ForecastRequest(
+              request.securityId(), LocalDate.of(2026, 10, 10), 1, request.targets(), true);
+      String macroId =
+          contexts.build(withMacro).points().stream()
+              .filter(p -> p.domain().equals("MACRO"))
+              .findFirst()
+              .orElseThrow()
+              .id();
+      doAnswer(
+              i -> {
+                var o = (com.fasterxml.jackson.databind.node.ObjectNode) output(i.getArgument(0));
+                o.put("macro_used", true);
+                for (var f : o.path("forecasts")) {
+                  for (String scenario : List.of("bear", "base", "bull")) {
+                    ((com.fasterxml.jackson.databind.node.ArrayNode)
+                            f.path(scenario).path("evidence_ids"))
+                        .add(macroId);
+                  }
+                }
+                return new LlmGateway.Reply(200, "{}", o.toString(), 1, 1);
+              })
+          .when(gateway)
+          .call(any(), any());
+      var outcome = service.execute(withMacro);
+      assertThat(outcome.status()).isEqualTo("SUCCESS");
+      assertThat(store.run(outcome.runId()).validations())
+          .hasSize(7)
+          .allSatisfy(v -> assertThat(v.path("result_status").asText()).isEqualTo("PASS"));
+      assertThat(service.execute(withMacro).status()).isEqualTo("CACHED");
+      verify(gateway, times(1)).call(any(), any());
+    } finally {
+      db.update("DELETE FROM macro_observations");
+      db.update("DELETE FROM macro_series");
+    }
+  }
+
+  @Test
   void pretaxTargetUsesIncomeStatementNotDuplicateCashFlowItem() {
     var all =
         new ForecastRequest(

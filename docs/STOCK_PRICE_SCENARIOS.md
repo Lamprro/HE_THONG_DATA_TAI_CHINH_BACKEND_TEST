@@ -24,7 +24,7 @@ flowchart TD
   E --> C
   X[Macro trong 12 tháng] --> C
   C --> J[Java: 5 balance ratios và SMA20/SMA60/return20]
-  J --> P[Prompt catalog version 3, JSON schema v2]
+  J --> P[Prompt catalog version 4, JSON schema v2]
   P --> S[FinancialForecastService và ForecastRunStore claim]
   S --> G[GeminiLlmGateway hiện có]
   G --> V[7 luật response, snapshot, prompt, evidence và scenario]
@@ -41,7 +41,7 @@ Không cần thay Python/Vercel cho việc bổ sung target này.
 TOTAL_ASSETS, OWNERS_EQUITY, LIABILITIES, **STOCK_PRICE**. Có thể yêu cầu price-only
 hoặc kết hợp cả sáu. Với STOCK_PRICE, `base_point_id` phải là MARKET/CLOSE mới nhất,
 khác financial target dùng điểm báo cáo đúng loại. Đầu vào `financial.forecast.input.v2`
-có thêm horizon_quarters và horizon_basis. Prompt version 3, output schema
+có thêm horizon_quarters và horizon_basis. Prompt version 4, output schema
 `financial.forecast.output.v2`; enum có đúng sáu mã. Bản catalog version 2 đã được
 seed trong bước preview nhưng chưa dùng gọi LLM, chứa enum STOCK_PRICE lặp;
 bản 3 loại lặp, giữ nguyên schema v2, không ghi đè lịch sử immutable.
@@ -94,25 +94,30 @@ như số liệu doanh nghiệp. Không tuyên bố chúng là thuật toán d�
 
 - Regression: 150 tests được xét, 146 pass, 4 opt-in skipped; không chạy tests cũ
   có thể ghi mẫu vào DB nghiệp vụ. Không có failure/error.
-- Forecast integration: 16 pass, PostgreSQL schema `forecast_test_<uuid>` cô lập,
+- Forecast integration sau sửa prompt v4: 18 pass, PostgreSQL schema `forecast_test_<uuid>` cô lập,
   source copy từ DB thật, Gemini **mock**. Có kiểm tra API sáu targets, unit/raw
   mismatch, zero price rejection, đầy đủ audit, arithmetic, cache, evidence sai,
-  auth và retry cap. Mẫu response chỉ vào schema test, đã cleanup.
+  auth và retry cap. Thêm kiểm tra macro có sẵn nhưng không cite phải REJECTED nếu
+  macro_used=true; có cite đúng và flag true thì publish/cache. Mẫu response chỉ
+  vào schema test, đã cleanup. Regression 146 pass là bằng chứng trước sửa prompt,
+  không chạy lại toàn bộ regression trong đợt này.
 - Horizon tests: quarter-end, leap year, year boundary, horizon 1/2/8; nằm trong regression.
 - Maven package thành công. Runtime local `127.0.0.1:8182`, PID ở ignored
   `target/stock-price-release/java.pid`. Các scheduler/seeder tự động tắt.
 - Preview FPT asOfDate 10/10/2026: eligible=true, 19 kỳ financial, 60 phiên giá,
   10 observations macro; close nền 59.700 VND/share ngày 08/10/2026;
   forecast_period_end=31/03/2027, đầy đủ 8 mã derived metrics.
-- Live 10/10/2026 sau chấp thuận cụ thể của người dùng: API execute đã gọi Gemini
-  một lần, HTTP 403 PERMISSION_DENIED: project denied access. Run
-  `21fc59fc-27e2-42b9-824b-00b5d4529402` FAILED, schema FAIL, snapshot/prompt PASS,
-  4 luật phụ thuộc response SKIP, không publish llm_results. Nghiệm thu response,
-  arithmetic/evidence và cache của provider thật chưa đạt. Xem
+- Live 10/10/2026 sau cập nhật private config và prompt v4: run
+  `c1d02bfd-5caa-4268-b603-cd11a865bedf` SUCCESS, Gemini HTTP 200, đủ 6 targets,
+  7 luật PASS, arithmetic/evidence và replay CACHED đạt. Model đầu timeout rồi
+  gateway fallback gemini-3.5-flash-lite thành công; 2 attempts được audit.
+  Price bear/base/bull 53.730 / 60.894 / 66.864 VND/share cho 31/03/2027,
+  dựa close 59.700. Input có 10 macro, output không cite nên macro_used=false.
+  Kết quả vẫn WARNING/PARTIAL, chưa backtest/calibrate. Lần 403 trước đó và
+  response v3 REJECTED do macro flag mismatch được giữ nguyên audit. Xem
   [biên bản chạy và WARNING](FORECAST_LIVE_CHECK_20261010.md).
 
-Chạy nghiệm thu lại sau khi quyền truy cập Gemini đã được khôi phục
-(chấp thuận gửi payload FPT và lưu kết quả đã có trong chat):
+Lệnh nghiệm thu đã chạy sau chấp thuận của người dùng và cập nhật cấu hình:
 
 ```powershell
 python scripts/verify_stock_price_live.py --symbol FPT --as-of 2026-10-10

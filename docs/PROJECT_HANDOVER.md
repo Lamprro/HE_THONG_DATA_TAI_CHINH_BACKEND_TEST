@@ -2,13 +2,15 @@
 
 > Bổ sung 10/10/2026 trên `feature/stock-price-scenarios` (checkout riêng): thêm
 > STOCK_PRICE vào forecast, sửa horizon thành cuối quý tương lai thứ n, chứng minh
-> đơn vị/giá nền từ raw, thêm SMA20/SMA60/return20 và schema v2/prompt version 3.
-> 146 regression + 16 integration schema cô lập pass; preview FPT thật đủ điều kiện.
-> Live 10/10/2026 đã được người dùng cho phép và gọi qua API Spring Boot: Gemini
-> trả 403 PERMISSION_DENIED (project denied access), run FAILED, không publish.
-> Chưa nghiệm thu thành công response/projections/cache của price; xem
+> đơn vị/giá nền từ raw, thêm SMA20/SMA60/return20 và schema v2/prompt version 4.
+> Regression trước đó 146 pass; đợt sửa prompt đã chạy lại 18 integration schema
+> cô lập pass (Gemini mock). Live sau cập nhật private config: Gemini HTTP 200,
+> đủ 6 targets, 7 luật PASS, Java projections đúng và replay CACHED; không mock.
+> Run `c1d02bfd-5caa-4268-b603-cd11a865bedf`, result WARNING/PARTIAL; 10 macro có
+> trong input nhưng output không cite macro nên macro_used=false. Version 4 làm
+> rõ cờ này sau một response v3 bị REJECTED; giữ nguyên validator và audit cũ. Xem
 > [biên bản chạy và lý do WARNING](FORECAST_LIVE_CHECK_20261010.md).
-> không merge master hoặc restart NEWS. Xem [STOCK_PRICE_SCENARIOS](STOCK_PRICE_SCENARIOS.md)
+> Không merge master hoặc restart NEWS; Java vẫn chỉ chạy localhost test. Xem [STOCK_PRICE_SCENARIOS](STOCK_PRICE_SCENARIOS.md)
 > và [đề xuất dữ liệu nhà phân tích](ANALYST_DATA_REQUIREMENTS.md). Bằng chứng cũ dưới đây giữ lịch sử.
 
 > Cập nhật 08/10/2026: lịch sử từng lần gọi model nằm trong mảng JSONB `llm_runs.attempts`, không còn bảng log attempts riêng. Xem [hướng dẫn chuyển đổi](LLM_ATTEMPTS_MERGE.md). Các kết quả kiểm thử cũ bên dưới là bằng chứng của thời điểm ghi báo cáo.

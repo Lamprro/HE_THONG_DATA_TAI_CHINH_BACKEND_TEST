@@ -104,11 +104,15 @@ như số liệu doanh nghiệp. Không tuyên bố chúng là thuật toán d�
 - Preview FPT asOfDate 10/10/2026: eligible=true, 19 kỳ financial, 60 phiên giá,
   10 observations macro; close nền 59.700 VND/share ngày 08/10/2026;
   forecast_period_end=31/03/2027, đầy đủ 8 mã derived metrics.
-- Chưa có kết luận live Gemini cho price tại thời điểm ghi mục này. Auto-review
-  từ chối gửi payload FPT sang Gemini và lưu kết quả nếu chưa có chấp thuận cụ thể;
-  đã hỏi người dùng, giữ bước gọi provider dừng. Không báo mock là nghiệm thu thật.
+- Live 10/10/2026 sau chấp thuận cụ thể của người dùng: API execute đã gọi Gemini
+  một lần, HTTP 403 PERMISSION_DENIED: project denied access. Run
+  `21fc59fc-27e2-42b9-824b-00b5d4529402` FAILED, schema FAIL, snapshot/prompt PASS,
+  4 luật phụ thuộc response SKIP, không publish llm_results. Nghiệm thu response,
+  arithmetic/evidence và cache của provider thật chưa đạt. Xem
+  [biên bản chạy và WARNING](FORECAST_LIVE_CHECK_20261010.md).
 
-Nghiệm thu thật sau khi có chấp thuận:
+Chạy nghiệm thu lại sau khi quyền truy cập Gemini đã được khôi phục
+(chấp thuận gửi payload FPT và lưu kết quả đã có trong chat):
 
 ```powershell
 python scripts/verify_stock_price_live.py --symbol FPT --as-of 2026-10-10

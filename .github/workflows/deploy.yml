@@ -2,8 +2,6 @@ name: Deploy Spring Boot
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main, master ]
 
 concurrency:
   group: backend-deploy
@@ -11,6 +9,8 @@ concurrency:
 
 jobs:
   deploy:
+    # Merging code must not deploy an unreviewed runtime or run manual DB migrations.
+    if: github.ref == 'refs/heads/main'
     runs-on: self-hosted
     timeout-minutes: 20
 

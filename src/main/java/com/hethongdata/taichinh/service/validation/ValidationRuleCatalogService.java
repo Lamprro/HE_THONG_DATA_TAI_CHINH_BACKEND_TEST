@@ -10,9 +10,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.ArrayList;
-import java.io.IOException;
-import org.springframework.core.io.ClassPathResource;
 
+/** Lớp mồi (seed) danh mục quy tắc kiểm định (validation rules) ban đầu vào database, không thuộc luồng validate runtime chính. */
 @Service
 public class ValidationRuleCatalogService {
     private final ValidationRuleJpaRepository rules;
@@ -113,8 +112,8 @@ public class ValidationRuleCatalogService {
                         "ERROR",
                         "NOT_NULL",
                         "STATEMENT_REQUIRED_KEYS",
-                        "{\"required\":[\"payload\"]}",
-                        "Rejects an empty financial statement payload."),
+                        "{\"dataField\":\"data\"}",
+                        "Rejects a financial statement response with no data rows."),
                 new Definition(
                         "STATEMENT_ITEM_CODE_REQUIRED",
                         "Financial statement item code",
@@ -151,7 +150,7 @@ public class ValidationRuleCatalogService {
                         "RAW_ERROR_MESSAGE",
                         "{\"markers\":[\"error\",\"errors\",\"failed\"]}",
                         "Records an open validation result for a transport-success payload that carries an upstream error marker.")));
-        all.addAll(newsDefinitions());
+        // NEWS/NEWS_DATA are managed in validation_rules; initialize new databases through SQL migration.
         all.addAll(marketIndexDefinitions());
         all.add(new Definition("MACRO_PAYLOAD_VALID","Vietnam macro contract","MACRO","CRITICAL","BUSINESS","MACRO_PAYLOAD_VALID","{\"schema\":\"macro_observations.v1\",\"country\":\"VNM\"}","Requires official-source evidence, native periods, units, counts and duplicate-free observations."));
         return List.copyOf(all);
@@ -177,24 +176,6 @@ public class ValidationRuleCatalogService {
                         "INDEX_MEMBERS_PAYLOAD_VALID",
                         "{\"symbolAliases\":[\"symbol\",\"ticker\",\"code\",\"organ_code\",\"stock_code\",\"stockCode\"]}",
                         "Requires a non-empty snapshot with resolvable symbols and no conflicting duplicate weights."));
-    }
-
-    /** Shared with the controlled DB sync; rule configs are JSON objects, not executable code. */
-    private List<Definition> newsDefinitions() {
-        try (var input = new ClassPathResource("validation/news-rules.json").getInputStream()) {
-            JsonNode entries = objectMapper.readTree(input);
-            List<Definition> definitions = new ArrayList<>();
-            for (JsonNode entry : entries) {
-                definitions.add(new Definition(
-                        entry.required("code").asText(), entry.required("name").asText(),
-                        entry.required("domain").asText(), entry.required("severity").asText(),
-                        entry.required("type").asText(), entry.required("executor").asText(),
-                        entry.required("config").toString(), entry.required("description").asText()));
-            }
-            return List.copyOf(definitions);
-        } catch (IOException exception) {
-            throw new IllegalStateException("Cannot read NEWS validation rule catalog", exception);
-        }
     }
 
     private record Definition(

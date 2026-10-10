@@ -58,6 +58,19 @@ public class ValidationResultEntity {
     @Column(name = "raw_payload_id")
     private UUID rawPayloadId;
 
+    @Column(name = "validation_target", nullable = false)
+    private String validationTarget = "RAW_PAYLOAD";
+
+    @Column(name = "llm_run_id")
+    private UUID llmRunId;
+
+    @Column(name = "validation_round_id")
+    private UUID validationRoundId;
+
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+    @Column(name = "rule_snapshot")
+    private com.fasterxml.jackson.databind.JsonNode ruleSnapshot;
+
     @Column(name = "resolved_by_user_id")
     private UUID resolvedByUserId;
 

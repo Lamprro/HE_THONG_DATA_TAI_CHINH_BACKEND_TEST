@@ -84,9 +84,6 @@ class ValidationJobServiceTests {
         when(results.existsByIngestionRunIdAndStatusAndSeverityIn(
                         eq(runId), eq("FAIL"), any()))
                 .thenReturn(false);
-        when(results.existsByIngestionRunIdAndStatusAndRuleCode(
-                        runId, "FAIL", "NEWS_DUPLICATE_HASH"))
-                .thenReturn(false);
         when(versions.findByIngestionRunId(runId)).thenReturn(Optional.empty());
         when(versions.save(any(DataVersionEntity.class))).thenReturn(savedVersion);
         when(savedVersion.getId()).thenReturn(versionId);

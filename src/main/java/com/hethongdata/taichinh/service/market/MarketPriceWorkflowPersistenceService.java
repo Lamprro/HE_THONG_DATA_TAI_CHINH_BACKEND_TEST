@@ -66,6 +66,11 @@ public class MarketPriceWorkflowPersistenceService {
             var batch = parser.parse(raw.getPayload(), raw.getEntityType(),
                     raw.getSourceSymbol(), raw.getFetchedAt());
             SecurityEntity security = lockedSecurity(raw, batch.symbol());
+            if (batch.rows().size() >= 100 && batch.rows().stream().allMatch(row -> "1d".equals(row.interval()))) {
+                int[] counts = buildDailyBatch(raw, versionId, security.getId(), batch.rows());
+                fetched += batch.rows().size(); inserted += counts[0]; updated += counts[1]; skipped += counts[2];
+                continue;
+            }
             for (var row : batch.rows()) {
                 fetched++;
                 Instant storageTimestamp = storageTimestamp(
@@ -155,6 +160,54 @@ public class MarketPriceWorkflowPersistenceService {
         prices.saveAllAndFlush(bucket);
         winner.setCanonical(true);
         prices.saveAndFlush(winner);
+    }
+
+    /** The security row is already locked across all writers. Load daily buckets once for backfill. */
+    private int[] buildDailyBatch(RawPayloadEntity raw, UUID versionId, UUID securityId,
+            List<MarketPricePayloadParser.PriceRow> rows) {
+        Instant start=rows.stream().map(MarketPricePayloadParser.PriceRow::timestamp).min(Instant::compareTo).orElseThrow();
+        Instant end=rows.stream().map(MarketPricePayloadParser.PriceRow::timestamp).max(Instant::compareTo).orElseThrow();
+        Map<Instant,List<MarketPriceEntity>> buckets=new HashMap<>();
+        for (var existing:prices.findBySecurityIdAndIntervalCodeAndPriceTimestampBetween(securityId,"1d",start,end))
+            buckets.computeIfAbsent(existing.getPriceTimestamp(),ignored->new java.util.ArrayList<>()).add(existing);
+        Map<Long,DataSourceEntity> sourceCache=new HashMap<>();
+        Map<UUID,Instant> fetchedCache=new HashMap<>();
+        int inserted=0,updated=0,skipped=0;
+        for (var row:rows) {
+            var bucket=buckets.computeIfAbsent(row.timestamp(),ignored->new java.util.ArrayList<>());
+            var sameSource=bucket.stream().filter(p->p.getDataSourceId().equals(raw.getDataSource().getId())).findFirst();
+            if (sameSource.isEmpty()) {
+                var created=MarketPriceEntity.create(securityId,row.timestamp(),row.interval(),row.open(),row.high(),row.low(),
+                        row.close(),row.adjustedClose(),row.referencePrice(),row.ceilingPrice(),row.floorPrice(),row.volume(),
+                        row.tradingValue(),row.foreignBuyVolume(),row.foreignSellVolume(),raw.getDataSource().getId(),raw.getId(),versionId);
+                // A new empty bucket has no canonical row to displace; one INSERT is sufficient.
+                if (bucket.isEmpty()) created.setCanonical(true);
+                bucket.add(prices.saveAndFlush(created));inserted++;
+            } else {
+                var existing=sameSource.get();UUID priorRaw=existing.getRawPayloadId();
+                Instant previous=priorRaw==null?null:fetchedCache.computeIfAbsent(priorRaw,
+                        id->rawPayloads.findById(id).map(RawPayloadEntity::getFetchedAt).orElse(Instant.MIN));
+                if (previous!=null && previous.isAfter(raw.getFetchedAt())) skipped++;
+                else if (existing.applyCorrection(row.open(),row.high(),row.low(),row.close(),row.adjustedClose(),
+                        row.referencePrice(),row.ceilingPrice(),row.floorPrice(),row.volume(),row.tradingValue(),
+                        row.foreignBuyVolume(),row.foreignSellVolume(),raw.getId(),versionId)) {
+                    prices.saveAndFlush(existing);updated++;
+                } else skipped++;
+            }
+            for (var p:bucket) sourceCache.computeIfAbsent(p.getDataSourceId(),this::source);
+            var winner=bucket.stream().min(Comparator
+                    .comparing((MarketPriceEntity p)->!sourceCache.get(p.getDataSourceId()).isOfficial())
+                    .thenComparing(p->sourceCache.get(p.getDataSourceId()).getPriority())
+                    .thenComparing(MarketPriceEntity::getDataSourceId)).orElseThrow();
+            var displaced=bucket.stream().filter(p->p!=winner && Boolean.TRUE.equals(p.getIsCanonical())).toList();
+            if (!displaced.isEmpty()) {
+                displaced.forEach(p->p.setCanonical(false));prices.saveAllAndFlush(displaced);
+            }
+            if (!Boolean.TRUE.equals(winner.getIsCanonical())) {
+                winner.setCanonical(true);prices.saveAndFlush(winner);
+            }
+        }
+        return new int[]{inserted,updated,skipped};
     }
 
     private Instant storageTimestamp(UUID securityId, Long sourceId,

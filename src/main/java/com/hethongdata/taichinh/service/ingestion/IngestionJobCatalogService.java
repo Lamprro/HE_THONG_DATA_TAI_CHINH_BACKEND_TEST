@@ -6,6 +6,7 @@ import com.hethongdata.taichinh.common.AppParams;
 import com.hethongdata.taichinh.repository.ingestion.DataSourceRepository;
 import com.hethongdata.taichinh.repository.ingestion.IngestionJobRepository;
 import com.hethongdata.taichinh.service.market.IndexJobProvisioningService;
+import com.hethongdata.taichinh.service.financial.FinancialMetricCatalogService;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,10 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Versioned, idempotent catalog of Phase 1 endpoint jobs. It seeds a small FPT scope only; a
- * full-market universe is a later backfill decision.
- */
+/** Lớp mồi (seed) danh mục Ingestion Jobs ban đầu vào database, không thuộc luồng thu thập runtime chính. */
 @Service
 public class IngestionJobCatalogService {
     private static final List<String> RETIRED_PAID_NEWS_JOB_CODES =
@@ -30,27 +28,33 @@ public class IngestionJobCatalogService {
     private static final String WEEKDAY_AFTER_MARKET_CLOSE_UTC = "0 15 9 * * MON-FRI";
     private static final String DAILY_UTC = "0 0 18 * * *";
     private static final String WEEKLY_UTC = "0 0 2 * * SUN";
+    // The provider APIs accept a 10-year maximum. Seed five calendar years for equity OHLCV;
+    // the same window is retained on scheduled runs so late corrections are reconciled.
+    private static final int EQUITY_OHLCV_LOOKBACK_DAYS = 365 * 5 + 2;
 
     private final DataSourceRepository dataSources;
     private final IngestionJobRepository ingestionJobs;
     private final ObjectMapper objectMapper;
     private final IndexJobProvisioningService indexJobs;
+    private final FinancialMetricCatalogService metricCatalog;
 
     public IngestionJobCatalogService(
             DataSourceRepository dataSources,
             IngestionJobRepository ingestionJobs,
             ObjectMapper objectMapper,
-            IndexJobProvisioningService indexJobs) {
+            IndexJobProvisioningService indexJobs, FinancialMetricCatalogService metricCatalog) {
         this.dataSources = dataSources;
         this.ingestionJobs = ingestionJobs;
         this.objectMapper = objectMapper;
         this.indexJobs = indexJobs;
+        this.metricCatalog = metricCatalog;
     }
 
     @Transactional
     public int seed() {
         seedSources();
         int indexJobCount = indexJobs.seed();
+        metricCatalog.seed();
         // VnStock News requires a paid/API-key integration and is deliberately outside the free
         // Phase 1 catalog.
         ingestionJobs.deactivateByCodes(RETIRED_PAID_NEWS_JOB_CODES);
@@ -83,7 +87,7 @@ public class IngestionJobCatalogService {
                 definition.parameters(),
                 AppParams.DEFAULT_MAX_RETRIES,
                 AppParams.DEFAULT_INGESTION_TIMEOUT_SECONDS,
-                true);
+                !List.of("FINANCIAL_METRIC_BUILD", "FINANCIAL_METRIC_CALCULATE").contains(definition.code()));
     }
 
     private List<JobDefinition> definitions() {
@@ -138,6 +142,7 @@ public class IngestionJobCatalogService {
                         "MARKET_PRICE_BUILD"));
         newsWorkflowJobs(jobs);
         financialStatementBuildJob(jobs);
+        financialMetricWorkflowJobs(jobs);
 
         return List.copyOf(jobs);
     }
@@ -171,7 +176,7 @@ public class IngestionJobCatalogService {
                         "OHLCV",
                         provider,
                         "FPT",
-                        7,
+                        EQUITY_OHLCV_LOOKBACK_DAYS,
                         Map.of()));
         jobs.add(
                 job(
@@ -302,6 +307,13 @@ public class IngestionJobCatalogService {
                         "FINANCIAL_STATEMENT",
                         EVERY_15_MINUTES,
                         "FINANCIAL_STATEMENT_BUILD"));
+    }
+
+    private void financialMetricWorkflowJobs(List<JobDefinition> jobs) {
+        jobs.add(workflowJob("FINANCIAL_METRIC_BUILD", "Build validated provider financial metrics",
+                "PYTHON_GATEWAY", "FINANCIAL_METRIC", EVERY_15_MINUTES, "FINANCIAL_METRIC_BUILD"));
+        jobs.add(workflowJob("FINANCIAL_METRIC_CALCULATE", "Calculate derived financial metrics",
+                "PYTHON_GATEWAY", "FINANCIAL_METRIC", EVERY_15_MINUTES, "FINANCIAL_METRIC_CALCULATE"));
     }
 
     private JobDefinition job(

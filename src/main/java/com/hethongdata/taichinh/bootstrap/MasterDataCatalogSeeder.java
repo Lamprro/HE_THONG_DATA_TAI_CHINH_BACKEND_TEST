@@ -9,7 +9,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-/** Deliberate starter-data write, never executed by a normal application startup. */
+/** Khởi động server: mồi dữ liệu gốc công ty & mã cổ phiếu (master data) vào database (nếu bật seed-enabled). */
 @Component
 @ConditionalOnProperty(
         prefix = "financial.master-data.catalog",

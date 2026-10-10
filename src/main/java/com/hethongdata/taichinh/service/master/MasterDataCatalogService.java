@@ -12,11 +12,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
-/**
- * Explicit, repeatable starter universe. Values are stable company/security master attributes only.
- * Volatile share counts and unverified ISIN values are intentionally left null for raw ingestion to
- * collect later.
- */
+/** Lớp mồi (seed) danh mục công ty và mã cổ phiếu mẫu (FPT, VNM, VCB...) ban đầu vào database, không thuộc luồng thu thập runtime chính. */
 @Service
 public class MasterDataCatalogService {
     private static final BigDecimal COMMON_SHARE_PAR_VALUE = new BigDecimal("10000");

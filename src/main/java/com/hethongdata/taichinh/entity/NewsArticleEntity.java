@@ -89,7 +89,7 @@ public class NewsArticleEntity {
 
     public static NewsArticleEntity create(
             Long dataSourceId, UUID rawPayloadId, String canonicalUrl, String urlHash, String title,
-            String sapo, String contentText, Instant publishedAt, Instant crawledAt,
+            String sapo, String contentText, String author, Instant publishedAt, Instant crawledAt,
             String contentHash, JsonNode metadata) {
         NewsArticleEntity entity = new NewsArticleEntity();
         entity.dataSourceId = dataSourceId;
@@ -99,6 +99,7 @@ public class NewsArticleEntity {
         entity.title = title;
         entity.sapo = sapo;
         entity.contentText = contentText;
+        entity.author = author;
         entity.language = "vi";
         entity.publishedAt = publishedAt;
         entity.crawledAt = crawledAt;
@@ -109,5 +110,21 @@ public class NewsArticleEntity {
         entity.createdAt = Instant.now();
         entity.updatedAt = entity.createdAt;
         return entity;
+    }
+
+    public void refreshFrom(
+            UUID rawPayloadId, String canonicalUrl, String title, String sapo, String contentText,
+            String author, Instant publishedAt, Instant crawledAt, String contentHash, JsonNode metadata) {
+        this.rawPayloadId = rawPayloadId;
+        this.canonicalUrl = canonicalUrl;
+        this.title = title;
+        this.sapo = sapo;
+        this.contentText = contentText;
+        this.author = author;
+        if (publishedAt != null) this.publishedAt = publishedAt;
+        this.crawledAt = crawledAt;
+        this.contentHash = contentHash;
+        this.metadata = metadata;
+        this.updatedAt = Instant.now();
     }
 }

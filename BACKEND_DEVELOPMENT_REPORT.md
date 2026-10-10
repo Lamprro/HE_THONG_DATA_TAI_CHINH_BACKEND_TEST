@@ -1,4 +1,6 @@
 # BÁO CÁO PHÁT TRIỂN HỆ THỐNG BACKEND TÀI CHÍNH
+
+> Bàn giao cập nhật 07/10/2026: đọc [docs/PROJECT_HANDOVER.md](docs/PROJECT_HANDOVER.md) trước. Code LLM đã push ở `feature/llm-processing` (`5343f81`), chưa merge/deploy. Các số liệu DB, kết quả API và nhận định bên dưới thuộc thời điểm kiểm tra được ghi trong tài liệu; không phải xác nhận runtime ngày 07/10. Implementation và việc còn dở cần đối chiếu với bàn giao mới.
 > **Dự án:** `HE_THONG_DATA_TAI_CHINH_TEST`  
 > **Nhánh phát triển hiện tại:** Backend API — Thu thập, Kiểm định, Phân tích dữ liệu tài chính  
 > **Mục đích tài liệu:** Cung cấp ngữ cảnh đầy đủ để Developer hoặc BA mới đọc và tiếp tục phát triển hệ thống  
@@ -225,8 +227,8 @@ cho từng `raw_payload`; (2) finalization ở mức `ingestion_run`. Finalizati
 raw khác trong cùng run chưa hoàn thành; chỉ raw cuối cùng làm run đủ điều kiện mới nhận response
 `ACCEPTED` kèm `dataVersionId`.
 
-Hiện có executor cho các domain dữ liệu chung và bộ **14 rule NEWS/NEWS_DATA** được quản lý trong
-`src/main/resources/validation/news-rules.json`:
+Hiện có executor cho các domain dữ liệu chung; bộ luật NEWS/NEWS_DATA được quản lý trong
+`validation_rules` (database). File seed JSON runtime đã bỏ; database mới dùng migration SQL:
 
 | Executor Key | Domain | Mô Tả |
 |---|---|---|

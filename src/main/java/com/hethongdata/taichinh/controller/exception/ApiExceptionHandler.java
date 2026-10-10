@@ -91,6 +91,12 @@ public class ApiExceptionHandler {
                 "Hệ thống đang gặp vấn đề. Vui lòng thử lại sau.");
     }
 
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    ResponseEntity<ApiErrorResponse> explicitStatus(org.springframework.web.server.ResponseStatusException exception) {
+        return error(HttpStatus.valueOf(exception.getStatusCode().value()), "REQUEST_STATE", null, null,
+                exception.getReason() == null ? "Request state conflict" : exception.getReason());
+    }
+
     /** Never expose a successful or unknown upstream code as an error response. */
     private static HttpStatus resolveUpstreamStatus(
             Integer upstreamStatus, ExternalErrorCategory category) {

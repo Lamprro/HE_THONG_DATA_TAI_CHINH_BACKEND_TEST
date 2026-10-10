@@ -1,5 +1,7 @@
 # System Status Reference
 
+> Bàn giao cập nhật 07/10/2026: đọc [docs/PROJECT_HANDOVER.md](docs/PROJECT_HANDOVER.md) trước. Code LLM đã push ở `feature/llm-processing` (`5343f81`), chưa merge/deploy. Các số liệu DB, kết quả API và nhận định bên dưới thuộc thời điểm kiểm tra được ghi trong tài liệu; không phải xác nhận runtime ngày 07/10. Implementation và việc còn dở cần đối chiếu với bàn giao mới.
+
 Tài liệu này dùng để tra nhanh: trạng thái nằm ở **bảng nào**, **thuộc tính nào** và ý nghĩa của nó.
 
 - `status`, `*_status`: tiến độ hoặc kết quả.

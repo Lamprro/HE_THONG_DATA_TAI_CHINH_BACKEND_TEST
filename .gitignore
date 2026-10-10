@@ -21,3 +21,6 @@ out/
 application-local.properties
 application-dev.properties
 application-prod.properties
+
+# Private database backups (may contain complete provider payloads)
+docs/db-backups/

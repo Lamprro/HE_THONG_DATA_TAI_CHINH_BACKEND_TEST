@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hethongdata.taichinh.entity.FinancialPeriodEntity;
 import com.hethongdata.taichinh.entity.FinancialStatementEntity;
 import com.hethongdata.taichinh.entity.FinancialStatementItemEntity;
+import com.hethongdata.taichinh.entity.ingestion.DataSourceEntity;
 import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
 import com.hethongdata.taichinh.entity.ingestion.RawPayloadEntity;
 import com.hethongdata.taichinh.entity.master.SecurityEntity;
@@ -12,6 +13,7 @@ import com.hethongdata.taichinh.repository.jpa.financial.FinancialPeriodJpaRepos
 import com.hethongdata.taichinh.repository.jpa.financial.FinancialStatementItemJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.financial.FinancialStatementJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.ingestion.DataSourceJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.master.SecurityJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.validation.DataVersionJpaRepository;
 
@@ -19,6 +21,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -32,6 +36,7 @@ public class FinancialStatementBuildPersistenceService {
     private final FinancialStatementJpaRepository statements;
     private final FinancialStatementItemJpaRepository items;
     private final SecurityJpaRepository securities;
+    private final DataSourceJpaRepository sources;
     private final ObjectMapper objectMapper;
 
     public FinancialStatementBuildPersistenceService(
@@ -41,6 +46,7 @@ public class FinancialStatementBuildPersistenceService {
             FinancialStatementJpaRepository statements,
             FinancialStatementItemJpaRepository items,
             SecurityJpaRepository securities,
+            DataSourceJpaRepository sources,
             ObjectMapper objectMapper) {
         this.versions = versions;
         this.ingestionRuns = ingestionRuns;
@@ -48,6 +54,7 @@ public class FinancialStatementBuildPersistenceService {
         this.statements = statements;
         this.items = items;
         this.securities = securities;
+        this.sources = sources;
         this.objectMapper = objectMapper;
     }
 
@@ -85,6 +92,19 @@ public class FinancialStatementBuildPersistenceService {
                     .isPresent()) {
                 continue;
             }
+            var current = statements
+                    .findFirstByCompanyIdAndFinancialPeriodIdAndStatementTypeAndReportScopeAndDataSourceIdAndIsCurrentTrue(
+                            security.getCompanyId(), period.getId(), draft.statementType(),
+                            draft.reportScope(), draft.rawPayload().getDataSource().getId());
+            int revisionNo = 1;
+            if (current.isPresent()) {
+                FinancialStatementEntity previous = current.get();
+                revisionNo = previous.getRevisionNo() + 1;
+                previous.supersede(Instant.now());
+                // Flush the current=false transition before inserting the replacement because
+                // PostgreSQL enforces the partial unique index at statement execution time.
+                statements.saveAndFlush(previous);
+            }
             FinancialStatementEntity statement =
                     statements.save(
                             FinancialStatementEntity.create(
@@ -96,7 +116,8 @@ public class FinancialStatementBuildPersistenceService {
                                     draft.rawPayload().getDataSource().getId(),
                                     draft.rawPayload().getId(),
                                     version.getId(),
-                                    draft.rawPayload().getPublishedAt()));
+                                    draft.rawPayload().getPublishedAt(),
+                                    revisionNo));
             for (FinancialStatementBuildService.ItemDraft item : draft.items()) {
                 items.save(
                         FinancialStatementItemEntity.create(
@@ -112,6 +133,8 @@ public class FinancialStatementBuildPersistenceService {
                                                 "sourceItemName", item.sourceItemName(),
                                                 "provider", item.provider() == null ? "UNKNOWN" : item.provider()))));
             }
+            statements.flush();
+            reconcileCanonical(security.getCompanyId(), period.getId(), draft.statementType(), draft.reportScope());
             inserted++;
         }
         buildRun.markBatchSuccess(
@@ -126,6 +149,25 @@ public class FinancialStatementBuildPersistenceService {
         version.markActivated();
         versions.save(version);
         return inserted;
+    }
+
+    private void reconcileCanonical(UUID companyId, UUID periodId, String statementType, String reportScope) {
+        List<FinancialStatementEntity> bucket = statements.findCurrentBucketForUpdate(
+                companyId, periodId, statementType, reportScope);
+        if (bucket.isEmpty()) throw new IllegalStateException("Không tìm thấy báo cáo tài chính vừa ghi");
+        Map<Long, DataSourceEntity> sourceById = new HashMap<>();
+        for (FinancialStatementEntity row : bucket) {
+            sourceById.computeIfAbsent(row.getDataSourceId(), id -> sources.findById(id)
+                    .orElseThrow(() -> new IllegalStateException("Không tìm thấy data source: " + id)));
+        }
+        FinancialStatementEntity winner = bucket.stream().min(Comparator
+                .comparing((FinancialStatementEntity row) -> !sourceById.get(row.getDataSourceId()).isOfficial())
+                .thenComparing(row -> sourceById.get(row.getDataSourceId()).getPriority())
+                .thenComparing(FinancialStatementEntity::getDataSourceId)).orElseThrow();
+        for (FinancialStatementEntity row : bucket) row.setCanonical(false);
+        statements.saveAllAndFlush(bucket);
+        winner.setCanonical(true);
+        statements.saveAndFlush(winner);
     }
 
     @Transactional

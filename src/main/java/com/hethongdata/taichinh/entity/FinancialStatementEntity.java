@@ -95,6 +95,21 @@ public class FinancialStatementEntity {
             UUID rawPayloadId,
             UUID dataVersionId,
             Instant publishedAt) {
+        return create(companyId, securityId, financialPeriodId, statementType, reportScope,
+                dataSourceId, rawPayloadId, dataVersionId, publishedAt, 1);
+    }
+
+    public static FinancialStatementEntity create(
+            UUID companyId,
+            UUID securityId,
+            UUID financialPeriodId,
+            String statementType,
+            String reportScope,
+            Long dataSourceId,
+            UUID rawPayloadId,
+            UUID dataVersionId,
+            Instant publishedAt,
+            int revisionNo) {
         FinancialStatementEntity entity = new FinancialStatementEntity();
         entity.companyId = companyId;
         entity.securityId = securityId;
@@ -104,7 +119,7 @@ public class FinancialStatementEntity {
         entity.currency = "VND";
         entity.unitScale = 1L;
         entity.audited = false;
-        entity.revisionNo = 1;
+        entity.revisionNo = revisionNo;
         entity.isRestated = false;
         entity.dataSourceId = dataSourceId;
         entity.rawPayloadId = rawPayloadId;
@@ -117,5 +132,15 @@ public class FinancialStatementEntity {
         entity.isCanonical = false;
         entity.createdAt = entity.effectiveFrom;
         return entity;
+    }
+
+    public void supersede(Instant effectiveTo) {
+        this.isCurrent = false;
+        this.effectiveTo = effectiveTo;
+        this.isCanonical = false;
+    }
+
+    public void setCanonical(boolean canonical) {
+        this.isCanonical = canonical;
     }
 }

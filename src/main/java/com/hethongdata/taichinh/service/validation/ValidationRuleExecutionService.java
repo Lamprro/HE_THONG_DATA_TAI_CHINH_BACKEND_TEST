@@ -66,12 +66,15 @@ public class ValidationRuleExecutionService {
             case "NEWS_PUBLISHED_AT_VALID" -> newsDate(raw.getPayload(), rule.getRuleConfig());
             case "NEWS_SYMBOL_MATCH" -> newsSymbol(raw, rule.getRuleConfig());
             case "NEWS_URL_DUPLICATE_IN_BATCH" -> newsDuplicateUrl(raw.getPayload(), rule.getRuleConfig());
+            case "NEWS_URL_PREVIOUSLY_FETCHED" -> newsPreviouslyFetched(raw, rule.getRuleConfig());
+            case "NEWS_DATA_URL_PREVIOUSLY_SEEN" -> newsDataPreviouslySeen(raw);
             case "NEWS_DATA_METADATA_REQUIRED" -> newsMetadata(raw.getPayload());
             case "NEWS_DATA_URL_VALID" -> newsDataUrls(raw.getPayload(), rule.getRuleConfig());
             case "NEWS_DATA_HTTP_SUCCESS" -> newsHttpStatus(raw.getPayload(), rule.getRuleConfig());
             case "NEWS_DATA_CONTENT_TYPE_VALID" -> newsContentType(raw, rule.getRuleConfig());
             case "NEWS_DATA_RAW_TEXT_REQUIRED" -> newsRawText(raw.getRawText());
             case "NEWS_DATA_HTML_STRUCTURE" -> newsHtml(raw.getRawText());
+            case "NEWS_DATA_ARTICLE_EXTRACTED" -> newsArticleExtracted(raw.getPayload());
             case "NEWS_DATA_BLOCK_PAGE_DETECTED" -> newsBlockPage(raw.getRawText(), rule.getRuleConfig());
             case "NEWS_DUPLICATE_HASH" -> duplicateNews(raw);
             case "RAW_ENVELOPE_REQUIRED" -> envelope(raw.getPayload());
@@ -140,9 +143,11 @@ public class ValidationRuleExecutionService {
     }
 
     private Outcome required(JsonNode payload) {
-        return payload == null || payload.isNull() || payload.isMissingNode() || payload.isEmpty()
-                ? fail("empty payload", "non-empty financial statement", "Financial statement payload is empty")
-                : new Outcome("PASS", null, null, "Financial statement payload is present");
+        JsonNode data = payload == null ? null : payload.path("data");
+        boolean hasRows = data != null && (data.isArray() || data.isObject()) && !data.isEmpty();
+        return hasRows
+                ? new Outcome("PASS", String.valueOf(data.size()), "> 0", "Financial statement rows are present")
+                : fail("payload.data is empty", "non-empty financial statement data", "Financial statement response has no data rows");
     }
 
     private Outcome title(JsonNode payload, JsonNode config) {
@@ -306,6 +311,22 @@ public class ValidationRuleExecutionService {
         return new Outcome(seen.isEmpty() ? "SKIP" : "PASS", null, null, "No repeated valid URL within the news list");
     }
 
+    private Outcome newsPreviouslyFetched(RawPayloadEntity raw, JsonNode config) {
+        for (JsonNode item : newsItems(raw.getPayload(), config)) {
+            String url = text(item, configStrings(config, "fields"));
+            if (!url.isBlank() && rawPayloads.existsNewsDataForRequestedUrl(url))
+                return fail(url, "URL not previously fetched", "Article URL already has NEWS_DATA; reuse its content");
+        }
+        return new Outcome("PASS", null, null, "No article URL has stored NEWS_DATA");
+    }
+
+    private Outcome newsDataPreviouslySeen(RawPayloadEntity raw) {
+        String url = text(raw.getPayload(), "requested_url");
+        if (!url.isBlank() && rawPayloads.existsOtherNewsDataForRequestedUrl(url, raw.getId()))
+            return fail(url, "first NEWS_DATA for URL", "Article URL has another NEWS_DATA raw payload");
+        return new Outcome("PASS", null, null, "No other NEWS_DATA raw payload for URL");
+    }
+
     private Outcome newsMetadata(JsonNode payload) {
         if (payload == null || !payload.isObject())
             return fail("payload", "object", "NEWS_DATA metadata must be an object");
@@ -361,6 +382,25 @@ public class ValidationRuleExecutionService {
         return parsed.body.isEmpty()
                 ? fail("raw_text", "visible body text", "HTML has no visible body text")
                 : new Outcome("PASS", null, null, "HTML document contains visible body text");
+    }
+
+    private Outcome newsArticleExtracted(JsonNode payload) {
+        if (payload == null || !"SUCCESS".equals(text(payload, "extraction_status")))
+            return fail("payload.extraction_status", "SUCCESS", "Publisher article extraction failed");
+        for (String field : List.of("canonical_url", "title", "content_text"))
+            if (text(payload, field) == null || text(payload, field).isBlank())
+                return fail("payload." + field, "non-empty text", "Extracted article is incomplete");
+        String content = text(payload, "content_text");
+        if (content.trim().length() < 200)
+            return fail("payload.content_text.length", ">= 200", "Article body is too short for downstream analysis");
+        if ((text(payload, "published_at") == null || text(payload, "published_at").isBlank())
+                && (text(payload, "list_published_at") == null || text(payload, "list_published_at").isBlank()))
+            return fail("payload.published_at", "publisher date or listing date", "Article publication time is missing");
+        String body = content.toLowerCase(Locale.ROOT);
+        for (String marker : List.of("giá hiện tại", "xem hồ sơ doanh nghiệp", "tin mới"))
+            if (body.contains(marker))
+                return fail("payload.content_text", "article body without CafeF navigation", "Article contains CafeF page chrome");
+        return new Outcome("PASS", null, null, "Publisher article fields were extracted");
     }
 
     private Outcome newsBlockPage(String html, JsonNode config) {
@@ -426,10 +466,24 @@ public class ValidationRuleExecutionService {
     private Outcome itemCode(JsonNode payload) {
         JsonNode data = payload == null ? null : payload.path("data");
         if (!data.isArray()) return fail("data is not an array", "array of statement items", "Financial statement data is malformed");
-        for (JsonNode item : data)
-            if (item.path("itemCode").asText().isBlank())
-                return fail("missing itemCode", "non-blank itemCode", "Financial statement item has no code");
-        return new Outcome("PASS", null, null, "All financial statement items have itemCode");
+        for (int i = 0; i < data.size(); i++) {
+            JsonNode item = data.get(i);
+            boolean hasStableCodeOrName = false;
+            for (String field : List.of(
+                    "item_id", "itemCode", "item_code", "code",
+                    "item", "itemEnName", "item_name", "name", "itemVnName")) {
+                JsonNode value = item.get(field);
+                if (value != null && !value.isNull() && !value.asText().isBlank()) {
+                    hasStableCodeOrName = true;
+                    break;
+                }
+            }
+            if (!hasStableCodeOrName)
+                return fail("data[" + i + "] has no item code or name",
+                        "item code/id or non-blank item label",
+                        "Financial statement item cannot be identified");
+        }
+        return new Outcome("PASS", null, null, "Every financial statement item has a code or label");
     }
 
     private Outcome envelope(JsonNode payload) {

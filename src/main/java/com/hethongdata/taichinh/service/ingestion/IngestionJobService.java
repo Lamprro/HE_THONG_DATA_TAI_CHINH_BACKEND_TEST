@@ -12,9 +12,14 @@ import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaReposito
 import com.hethongdata.taichinh.service.news.NewsWorkflowService;
 import com.hethongdata.taichinh.service.financial.FinancialStatementBuildService;
 import com.hethongdata.taichinh.service.macro.MacroWorkflowService;
+import com.hethongdata.taichinh.service.financial.FinancialMetricWorkflowService;
+import com.hethongdata.taichinh.service.financial.FinancialMetricCalculateService;
+import com.hethongdata.taichinh.service.market.MarketIndexWorkflowService;
+import com.hethongdata.taichinh.service.market.MarketPriceWorkflowService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Service;
 
@@ -23,6 +28,8 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.Arrays;
+import java.util.stream.Collectors;
 import java.util.UUID;
 
 @Service
@@ -37,6 +44,13 @@ public class IngestionJobService {
     private final NewsWorkflowService newsWorkflowService;
     private final FinancialStatementBuildService financialStatementBuildService;
     private final MacroWorkflowService macroWorkflowService;
+    private final FinancialMetricWorkflowService financialMetricWorkflowService;
+    private final FinancialMetricCalculateService financialMetricCalculateService;
+    private final MarketPriceWorkflowService marketPriceWorkflowService;
+    private final MarketIndexWorkflowService marketIndexWorkflowService;
+
+    @Value("${financial.ingestion.scheduler.allowed-job-codes:}")
+    private String scheduledJobCodes = "";
 
     public IngestionJobService(
             IngestionJobRepository ingestionJobs,
@@ -45,7 +59,11 @@ public class IngestionJobService {
             RetryBudgetService retryBudgetService,
             NewsWorkflowService newsWorkflowService,
             FinancialStatementBuildService financialStatementBuildService,
-            MacroWorkflowService macroWorkflowService) {
+            MacroWorkflowService macroWorkflowService,
+            FinancialMetricWorkflowService financialMetricWorkflowService,
+            FinancialMetricCalculateService financialMetricCalculateService,
+            MarketPriceWorkflowService marketPriceWorkflowService,
+            MarketIndexWorkflowService marketIndexWorkflowService) {
         this.ingestionJobs = ingestionJobs;
         this.ingestionRuns = ingestionRuns;
         this.ingestionService = ingestionService;
@@ -53,6 +71,10 @@ public class IngestionJobService {
         this.newsWorkflowService = newsWorkflowService;
         this.financialStatementBuildService = financialStatementBuildService;
         this.macroWorkflowService = macroWorkflowService;
+        this.financialMetricWorkflowService = financialMetricWorkflowService;
+        this.financialMetricCalculateService = financialMetricCalculateService;
+        this.marketPriceWorkflowService = marketPriceWorkflowService;
+        this.marketIndexWorkflowService = marketIndexWorkflowService;
     }
 
     public IngestionJobResponse create(CreateIngestionJobRequest request) {
@@ -130,7 +152,10 @@ public class IngestionJobService {
 
     /** Polls active jobs; cron evaluation uses the last recorded run in UTC. */
     public void executeDueJobs() {
-        executeDueJobs(Set.of());
+        executeDueJobs(Arrays.stream(scheduledJobCodes.split(","))
+                .map(String::trim).filter(value -> !value.isEmpty())
+                .map(value -> value.toUpperCase(java.util.Locale.ROOT))
+                .collect(Collectors.toSet()));
     }
 
     public void executeDueMacroJobs() {
@@ -142,7 +167,10 @@ public class IngestionJobService {
         List<IngestionJobEntity> activeJobs = ingestionJobs.findActiveEntities();
         int dueCount = 0;
         for (IngestionJobEntity job : activeJobs) {
-            if (!allowedCodes.isEmpty() && !allowedCodes.contains(job.getCode())) continue;
+
+            if (!allowedCodes.isEmpty() && !allowedCodes.contains(job.getCode().toUpperCase(java.util.Locale.ROOT))) {
+                continue;
+            }
 
             if (!isDue(job, now)) {
                 continue;
@@ -170,14 +198,7 @@ public class IngestionJobService {
     private IngestionExecutionResponse executeWithBudget(
             IngestionJobEntity job, String triggerType) {
         try {
-            IngestionExecutionResponse response =
-                    macroWorkflowService.supports(job.getCode())
-                            ? macroWorkflowService.execute(job, triggerType)
-                            : newsWorkflowService.supports(job.getCode())
-                            ? newsWorkflowService.execute(job, triggerType)
-                            : financialStatementBuildService.supports(job.getCode())
-                                    ? financialStatementBuildService.execute(job, triggerType)
-                                    : ingestionService.ingestJob(job, triggerType);
+            IngestionExecutionResponse response = dispatch(job, triggerType);
             retryBudgetService.resetAfterSuccess(job);
             return response;
         } catch (IngestionExecutionException exception) {
@@ -190,6 +211,18 @@ public class IngestionJobService {
             }
             throw exception;
         }
+    }
+
+    private IngestionExecutionResponse dispatch(IngestionJobEntity job, String trigger) {
+        String code = job.getCode();
+        if (macroWorkflowService.supports(code)) return macroWorkflowService.execute(job, trigger);
+        if (newsWorkflowService.supports(code)) return newsWorkflowService.execute(job, trigger);
+        if (marketPriceWorkflowService.supports(code)) return marketPriceWorkflowService.execute(job, trigger);
+        if (marketIndexWorkflowService.supports(code)) return marketIndexWorkflowService.execute(job, trigger);
+        if (financialStatementBuildService.supports(code)) return financialStatementBuildService.execute(job, trigger);
+        if (financialMetricWorkflowService.supports(code)) return financialMetricWorkflowService.execute(job, trigger);
+        if (financialMetricCalculateService.supports(code)) return financialMetricCalculateService.execute(job, trigger);
+        return ingestionService.ingestJob(job, trigger);
     }
 
     private boolean isDue(IngestionJobEntity job, Instant now) {

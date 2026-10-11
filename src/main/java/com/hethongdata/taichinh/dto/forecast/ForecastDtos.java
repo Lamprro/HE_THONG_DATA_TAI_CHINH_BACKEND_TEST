@@ -30,6 +30,7 @@ public final class ForecastDtos {
   public record Preview(
       boolean eligible,
       String snapshotHash,
+      LocalDate forecastPeriodStart,
       LocalDate forecastPeriodEnd,
       Coverage coverage,
       List<String> issues,
@@ -42,6 +43,9 @@ public final class ForecastDtos {
       UUID companyId,
       UUID securityId,
       LocalDate asOfDate,
+      LocalDate forecastPeriodStart,
+      LocalDate forecastPeriodEnd,
+      String targetScope,
       String qualityStatus,
       JsonNode data) {}
 

@@ -6,6 +6,14 @@ import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
 
 class ForecastHorizonTests {
+  @Test void explicitQuarterStaysFixedWhenDataCutoffMoves() {
+    var end = LocalDate.of(2027,3,31);
+    assertThat(ForecastHorizon.resolve(LocalDate.of(2027,1,1),1,end)).isEqualTo(end);
+    assertThat(ForecastHorizon.resolve(LocalDate.of(2027,2,1),1,end)).isEqualTo(end);
+    assertThat(ForecastHorizon.periodStart(end)).isEqualTo(LocalDate.of(2027,1,1));
+    assertThatThrownBy(() -> ForecastHorizon.resolve(LocalDate.of(2027,4,1),1,end)).isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> ForecastHorizon.resolve(LocalDate.of(2027,1,1),1,LocalDate.of(2027,2,28))).isInstanceOf(IllegalArgumentException.class);
+  }
   @Test
   void nextQuarterIsAfterCurrentQuarterAndDistinctOnQuarterEnd() {
     for (String date : new String[] {"2026-10-09", "2026-12-31"}) {

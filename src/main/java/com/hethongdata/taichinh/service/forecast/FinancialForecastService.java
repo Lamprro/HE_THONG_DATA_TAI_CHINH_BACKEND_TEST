@@ -38,6 +38,8 @@ public class FinancialForecastService {
     var ctx = contexts.build(request);
     var template = prompts.active();
     var issues = new ArrayList<>(ctx.issues());
+    if (request.forecastPeriodEnd() != null && !supportsExplicitPeriod(template))
+      issues.add("Seed forecast prompt version 5 for explicit periods");
     try {
       validation.fingerprint();
     } catch (IllegalStateException e) {
@@ -46,6 +48,7 @@ public class FinancialForecastService {
     return new Preview(
         issues.isEmpty(),
         ctx.hash(),
+        ForecastHorizon.periodStart(ctx.targetDate()),
         ctx.targetDate(),
         ctx.coverage(),
         List.copyOf(issues),
@@ -64,6 +67,8 @@ public class FinancialForecastService {
     if (!ctx.eligible()) return new Outcome("SKIPPED", null, null, ctx.issues());
     var template = prompts.active();
     String policy;
+    if (request.forecastPeriodEnd() != null && !supportsExplicitPeriod(template))
+      return new Outcome("CONFIGURATION_REQUIRED", null, null, List.of("Seed forecast prompt version 5 for explicit periods"));
     try {
       policy = validation.fingerprint();
     } catch (IllegalStateException e) {
@@ -101,6 +106,12 @@ public class FinancialForecastService {
         (int) Math.min(Integer.MAX_VALUE, (System.nanoTime() - start) / 1_000_000)))
       return new Outcome("LEASE_LOST", claim.runId(), null, List.of());
     return store.validate(claim.runId());
+  }
+
+  private boolean supportsExplicitPeriod(LlmPromptCatalog.Template template) {
+    for (var field : template.requestSchema().path("required"))
+      if ("forecast_period_start".equals(field.asText())) return true;
+    return false;
   }
 
   public List<Outcome> pending(int limit) {

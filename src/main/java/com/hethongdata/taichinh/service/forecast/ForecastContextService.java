@@ -75,6 +75,7 @@ public class ForecastContextService {
         java.sql.Timestamp.from(
             request.asOfDate().plusDays(1).atStartOfDay(ZoneId.of("Asia/Ho_Chi_Minh")).toInstant());
     LocalDate start = request.asOfDate().minusYears(5);
+    LocalDate targetDate = ForecastHorizon.resolve(request.asOfDate(), request.horizonQuarters(), request.forecastPeriodEnd());
     var points =
         new ArrayList<SourcePoint>(
             db.query(
@@ -253,8 +254,7 @@ ORDER BY o.observation_date DESC,s.code,o.id DESC LIMIT 120
         && issues.stream().noneMatch(i -> i.contains("PRICE") || i.contains("PRICES")))
       metrics.addAll(marketCalculator.calculate(market));
     var root = json.mapper().createObjectNode();
-    LocalDate date =
-        ForecastHorizon.endOfFutureQuarter(request.asOfDate(), request.horizonQuarters());
+    LocalDate date = targetDate;
     root.put("schema_version", "financial.forecast.input.v2")
         .put("company_id", company.toString())
         .put("security_id", request.securityId().toString())
@@ -262,9 +262,11 @@ ORDER BY o.observation_date DESC,s.code,o.id DESC LIMIT 120
         .put("company_name", security.getFirst().get("legal_name").toString())
         .put("industry", Objects.toString(security.getFirst().get("industry_name"), "UNKNOWN"))
         .put("as_of_date", request.asOfDate().toString())
+        .put("forecast_period_start", ForecastHorizon.periodStart(date).toString())
         .put("forecast_period_end", date.toString())
         .put("horizon_quarters", request.horizonQuarters())
-        .put("horizon_basis", "END_OF_NTH_CALENDAR_QUARTER_AFTER_AS_OF_QUARTER")
+        .put("horizon_basis", request.forecastPeriodEnd() == null
+            ? "END_OF_NTH_CALENDAR_QUARTER_AFTER_AS_OF_QUARTER" : "EXPLICIT_CALENDAR_QUARTER")
         .put("forecast_basis", "SCENARIO_RELATIVE_TO_LAST_REPORTED_COMPARABLE_VALUE_NOT_TTM");
     root.set(
         "targets",

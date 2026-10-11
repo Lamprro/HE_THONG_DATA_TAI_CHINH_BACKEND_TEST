@@ -100,8 +100,10 @@ public class FinancialForecastAdminController {
 
   @GetMapping("/securities/{securityId}/results")
   public List<Result> results(
-      @PathVariable UUID securityId, @RequestParam(defaultValue = "10") int limit) {
-    return store.results(securityId, limit);
+      @PathVariable UUID securityId, @RequestParam(defaultValue = "10") int limit,
+      @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso=org.springframework.format.annotation.DateTimeFormat.ISO.DATE)
+          java.time.LocalDate forecastPeriodEnd) {
+    return store.results(securityId, limit, forecastPeriodEnd);
   }
 
   @GetMapping("/securities/{securityId}/runs")

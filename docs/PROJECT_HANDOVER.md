@@ -1,3 +1,25 @@
+# Cập nhật 11/10/2026 — health DB và kỳ dự báo
+
+Nhánh mới `feature/forecast-periods-and-health` xuất phát từ main `8babf09`;
+triển khai riêng P02/L05 theo yêu cầu. `/api/health` kiểm tra DB với deadline,
+`/api/health/live` kiểm tra liveness. Dự báo có kỳ cố định và target scope; bản
+mới đạt validation thay bản cùng kỳ/scope, giữ lịch sử và các quý khác. Request
+ngày chốt cũ hơn không thay bản mới. Các cải tiến P05/P06/P08/L01/L02/L03 vẫn là
+đề xuất, không tự triển khai. Giữ writer nguồn P03 và context L04 hiện tại.
+
+Migration `V20261011_01__forecast_result_periods.sql` đã áp DB thật 23:23:58 giờ VN:
+23 results/45 runs giữ nguyên, backfill 6 financial results, nội dung response và
+audit không đổi; có backup private và đối chiếu idempotency. Trigger tương thích
+INSERT từ runtime cũ. Runtime cũ vẫn có logic UPDATE theo as_of_date; chỉ runtime
+mới bảo đảm đầy đủ việc giữ các kỳ độc lập khi cùng ngày chốt.
+
+Kiểm thử 23:30: 176 unit/contract + 40 forecast PostgreSQL integration schema cô lập
+pass, không failed/errors/skipped; provider mock. Không deploy server hoặc đổi
+active prompt DB thật. Sau deploy nhánh mới mới seed forecast prompt v5 để dùng
+explicit forecastPeriodEnd; request mặc định vẫn dự báo cuối quý tương lai theo
+horizonQuarters. Chưa thêm scheduler theo quý hoặc kiểm chứng accuracy/backtest.
+Chi tiết: [FORECAST_PERIODS_AND_HEALTH_20261011.md](FORECAST_PERIODS_AND_HEALTH_20261011.md).
+
 # Bàn giao hiện hành — nhánh main, hợp nhất 10/10/2026
 
 Nhánh mặc định GitHub là **main**. Bản source hợp nhất giữ MACRO, NEWS/LLM,

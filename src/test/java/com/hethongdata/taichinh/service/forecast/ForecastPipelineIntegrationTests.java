@@ -79,6 +79,9 @@ class ForecastPipelineIntegrationTests {
               "validation_rules",
               "validation_results"))
         s.execute("CREATE TABLE " + t + " (LIKE public." + t + " INCLUDING ALL)");
+      // LIKE renames copied indexes. Let migrations create their own indexes before testing legacy fixtures.
+      s.execute("DROP INDEX IF EXISTS llm_results_security_id_task_code_as_of_date_idx");
+      s.execute("DROP INDEX IF EXISTS llm_results_security_id_task_code_forecast_period_start_for_idx");
       for (String t :
           List.of(
               "data_sources",
@@ -101,6 +104,9 @@ class ForecastPipelineIntegrationTests {
       try (var stream =
           new ClassPathResource("db/manual/V20261004_05__financial_forecasts.sql")
               .getInputStream()) {
+        s.execute(new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+      }
+      try (var stream = new ClassPathResource("db/manual/V20261011_01__forecast_result_periods.sql").getInputStream()) {
         s.execute(new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
       }
     }
@@ -253,6 +259,38 @@ class ForecastPipelineIntegrationTests {
     assertThat(store.run(outcome.runId()).validations()).hasSize(7);
     assertThat(service.execute(request).status()).isEqualTo("CACHED");
     verify(gateway, times(1)).call(any(), any());
+  }
+
+  @Test void readinessEndpointUsesTheIsolatedDatabase() {
+    var response = http.getForEntity("/api/health", JsonNode.class);
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    assertThat(response.getBody().path("database").path("status").asText()).isEqualTo("UP");
+    assertThat(http.getForEntity("/api/health/live", JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+    verifyNoInteractions(gateway);
+  }
+
+  @Test void legacyWriterCanOmitPeriodColumnsAfterMigration() {
+    var first = service.execute(request);
+    var later = new ForecastRequest(request.securityId(),request.asOfDate().plusDays(1),1,request.targets(),false);
+    var context = contexts.build(later);
+    var template = prompts.active();
+    var claim = store.claim(context,template,"legacy-writer-contract",gateway.request(template,context.input()),
+        gateway.model(),validations.fingerprint(),gateway.routingKey());
+    assertThat(claim.status()).isEqualTo("CLAIMED");
+    UUID id = UUID.randomUUID();
+    db.update("""
+        INSERT INTO llm_results(id,llm_run_id,prompt_template_id,task_code,source_domain,company_id,
+          security_id,as_of_date,source_hash,input_hash,schema_version,overview,result_json,quality_status,
+          validation_round_id,validation_policy_hash)
+        SELECT ?,?,prompt_template_id,task_code,source_domain,company_id,security_id,
+          as_of_date+1,source_hash,input_hash,schema_version,overview,result_json,quality_status,
+          validation_round_id,validation_policy_hash FROM llm_results WHERE id=?
+        """,id,claim.runId(),first.resultId());
+    var row = db.queryForMap("SELECT forecast_period_start,forecast_period_end,target_scope,is_current FROM llm_results WHERE id=?",id);
+    assertThat(row.get("forecast_period_end").toString()).isEqualTo("2027-03-31");
+    assertThat(row.get("target_scope")).isEqualTo(request.targetScope());
+    assertThat(row.get("is_current")).isEqualTo(true);
+    assertThat(db.queryForObject("SELECT is_current FROM llm_results WHERE id=?",Boolean.class,first.resultId())).isFalse();
   }
 
   @Test
@@ -719,7 +757,7 @@ class ForecastPipelineIntegrationTests {
   }
 
   @Test
-  void differentHorizonsUseDifferentCallsAndDoNotReactivateSupersededResults() throws Exception {
+  void differentHorizonsKeepIndependentCurrentResults() throws Exception {
     var price = priceRequest();
     for (int horizon = 1; horizon <= 8; horizon++) {
       var next =
@@ -735,17 +773,109 @@ class ForecastPipelineIntegrationTests {
     assertThat(first.status()).isEqualTo("SUCCESS");
     assertThat(second.status()).isEqualTo("SUCCESS");
     assertThat(second.runId()).isNotEqualTo(first.runId());
-    assertThat(store.results(price.securityId(), 10))
-        .singleElement()
-        .satisfies(
-            r -> assertThat(r.data().path("forecast_period_end").asText()).isEqualTo("2027-06-30"));
+    assertThat(store.results(price.securityId(), 10)).hasSize(2)
+        .extracting(ForecastDtos.Result::forecastPeriodEnd)
+        .containsExactlyInAnyOrder(LocalDate.of(2027,3,31), LocalDate.of(2027,6,30));
+    var headers = new HttpHeaders();
+    headers.setBearerAuth("isolated-test-admin-credential-not-production");
+    var filtered = http.exchange(
+        "/api/admin/forecasts/securities/" + price.securityId()
+            + "/results?forecastPeriodEnd=2027-06-30",
+        HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+    assertThat(filtered.getStatusCode().value()).isEqualTo(200);
+    assertThat(filtered.getBody().size()).isEqualTo(1);
+    assertThat(filtered.getBody().get(0).path("forecastPeriodEnd").asText()).isEqualTo("2027-06-30");
     assertThat(service.execute(secondRequest).status()).isEqualTo("CACHED");
-    assertThat(store.validate(first.runId()).issues())
-        .contains("Audit only: never reactivate a superseded result");
-    assertThat(store.results(price.securityId(), 10))
-        .singleElement()
-        .satisfies(r -> assertThat(r.runId()).isEqualTo(second.runId()));
+    assertThat(store.validate(first.runId()).status()).isEqualTo("SUCCESS");
+    assertThat(store.results(price.securityId(), 10)).hasSize(2);
     verify(gateway, times(2)).call(any(), any());
+  }
+
+  @Test
+  void explicitPeriodRequiresAPromptThatSupportsItBeforeCallingProvider() throws Exception {
+    withRollback(() -> {
+      db.update("UPDATE llm_prompt_templates SET request_schema=jsonb_set(request_schema,'{required}',"
+          + " (SELECT jsonb_agg(x) FROM jsonb_array_elements(request_schema->'required') x"
+          + " WHERE x<>'\"forecast_period_start\"'::jsonb)) WHERE task_code='FINANCIAL_SCENARIOS'");
+      var explicit = new ForecastRequest(request.securityId(), request.asOfDate(), 1,
+          request.targets(), false, LocalDate.of(2026,12,31));
+      assertThat(service.preview(explicit).eligible()).isFalse();
+      assertThat(service.execute(explicit).status()).isEqualTo("CONFIGURATION_REQUIRED");
+      assertThat(db.queryForObject("SELECT count(*) FROM llm_runs",Integer.class)).isZero();
+    });
+    verify(gateway, never()).call(any(),any());
+  }
+
+  @Test
+  void newCutoffReplacesOnlyTheSamePeriodAndScopeAndKeepsHistory() {
+    LocalDate end = LocalDate.of(2026,12,31);
+    var firstRequest = new ForecastRequest(request.securityId(), request.asOfDate(), 1, request.targets(), false, end);
+    var secondRequest = new ForecastRequest(request.securityId(), request.asOfDate().plusDays(1), 1, request.targets(), false, end);
+    var first = service.execute(firstRequest);
+    var second = service.execute(secondRequest);
+    assertThat(first.status()).isEqualTo("SUCCESS");
+    assertThat(second.status()).isEqualTo("SUCCESS");
+    assertThat(db.queryForObject("SELECT count(*) FROM llm_results", Integer.class)).isEqualTo(2);
+    assertThat(db.queryForObject("SELECT count(*) FROM llm_results WHERE is_current", Integer.class)).isEqualTo(1);
+    assertThat(store.results(request.securityId(),10)).singleElement().satisfies(r -> {
+      assertThat(r.runId()).isEqualTo(second.runId());
+      assertThat(r.forecastPeriodStart()).isEqualTo(LocalDate.of(2026,10,1));
+      assertThat(r.forecastPeriodEnd()).isEqualTo(end);
+    });
+    assertThat(store.validate(first.runId()).issues()).contains("Audit only: never reactivate a superseded result");
+    assertThat(service.execute(firstRequest).status()).isEqualTo("CACHED");
+    assertThat(db.queryForObject("SELECT count(*) FROM llm_results",Integer.class)).isEqualTo(2);
+    assertThat(service.execute(secondRequest).status()).isEqualTo("CACHED");
+  }
+
+  @Test
+  void historicalCutoffCannotReplaceNewerPeriodResult() {
+    LocalDate end = LocalDate.of(2026,12,31);
+    var newer = service.execute(new ForecastRequest(request.securityId(), request.asOfDate().plusDays(1),1,request.targets(),false,end));
+    var older = service.execute(new ForecastRequest(request.securityId(), request.asOfDate(),1,request.targets(),false,end));
+    assertThat(older.status()).isEqualTo("SUCCESS");
+    assertThat(store.results(request.securityId(),10)).singleElement().satisfies(r -> assertThat(r.runId()).isEqualTo(newer.runId()));
+  }
+
+  @Test
+  void rejectedReplacementPreservesPreviousCurrentResult() throws Exception {
+    var firstRequest = new ForecastRequest(request.securityId(), request.asOfDate(),1,request.targets(),false,LocalDate.of(2026,12,31));
+    var first = service.execute(firstRequest);
+    doReturn(new LlmGateway.Reply(200,"{}","{}",1,1)).when(gateway).call(any(),any());
+    var failed = service.execute(new ForecastRequest(request.securityId(),request.asOfDate().plusDays(1),1,request.targets(),false,LocalDate.of(2026,12,31)));
+    assertThat(failed.status()).isEqualTo("REJECTED");
+    assertThat(store.results(request.securityId(),10)).singleElement().satisfies(r -> assertThat(r.runId()).isEqualTo(first.runId()));
+  }
+
+  @Test
+  void differentTargetScopesDoNotReplaceEachOther() {
+    var first = service.execute(request);
+    var onlyAssets = new ForecastRequest(request.securityId(),request.asOfDate(),1,EnumSet.of(ForecastRequest.Target.TOTAL_ASSETS),false);
+    assertThat(service.execute(onlyAssets).status()).isEqualTo("SUCCESS");
+    assertThat(store.results(request.securityId(),10)).hasSize(2);
+    assertThat(service.execute(request).status()).isEqualTo("CACHED");
+    assertThat(store.validate(first.runId()).status()).isEqualTo("SUCCESS");
+  }
+
+  @Test
+  void migrationBackfillsPeriodsRanksLegacyDuplicatesAndIsIdempotent() throws Exception {
+    var first = service.execute(request);
+    var second = service.execute(new ForecastRequest(request.securityId(),request.asOfDate().plusDays(1),1,request.targets(),false));
+    String migration;
+    try (var stream = new ClassPathResource("db/manual/V20261011_01__forecast_result_periods.sql").getInputStream()) {
+      migration = new String(stream.readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);
+    }
+    withRollback(() -> {
+      db.execute("DROP INDEX ux_forecast_current_period");
+      db.execute("ALTER TABLE llm_results DROP CONSTRAINT ck_forecast_result_period");
+      db.update("UPDATE llm_results SET is_current=true,forecast_period_start=null,forecast_period_end=null,target_scope=null");
+      db.execute(migration);
+      db.execute(migration);
+      assertThat(db.queryForObject("SELECT count(*) FROM llm_results",Integer.class)).isEqualTo(2);
+      assertThat(db.queryForObject("SELECT llm_run_id FROM llm_results WHERE is_current",UUID.class)).isEqualTo(second.runId());
+      assertThat(db.queryForObject("SELECT count(*) FROM llm_results WHERE forecast_period_start IS NOT NULL AND target_scope IS NOT NULL",Integer.class)).isEqualTo(2);
+      assertThat(db.queryForObject("SELECT is_current FROM llm_results WHERE llm_run_id=?",Boolean.class,first.runId())).isFalse();
+    });
   }
 
   @Test

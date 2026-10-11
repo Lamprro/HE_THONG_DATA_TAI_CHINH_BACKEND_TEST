@@ -61,9 +61,14 @@ class ForecastPipelineIntegrationTests {
       for (String t :
           List.of(
               "data_sources",
+              "ingestion_jobs",
+              "ingestion_runs",
+              "news_articles",
+              "news_article_companies",
               "raw_payloads",
               "data_versions",
               "companies",
+              "company_aliases",
               "securities",
               "financial_periods",
               "financial_statements",
@@ -88,13 +93,16 @@ class ForecastPipelineIntegrationTests {
               "raw_payloads",
               "data_versions",
               "companies",
+              "company_aliases",
               "securities",
               "financial_periods",
               "financial_statements",
               "financial_statement_items",
               "financial_metrics",
               "metric_definitions",
+              "validation_rules",
               "market_prices")) s.execute("INSERT INTO " + t + " SELECT * FROM public." + t);
+      com.hethongdata.taichinh.support.IsolatedSchemaSupport.detachSequences(c,SCHEMA);
       s.execute("CREATE SEQUENCE test_metric_ids START 1000000");
       s.execute(
           "ALTER TABLE metric_definitions ALTER COLUMN id SET DEFAULT nextval('test_metric_ids')");
@@ -107,6 +115,12 @@ class ForecastPipelineIntegrationTests {
         s.execute(new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
       }
       try (var stream = new ClassPathResource("db/manual/V20261011_01__forecast_result_periods.sql").getInputStream()) {
+        s.execute(new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+      }
+      try (var stream = new ClassPathResource("db/manual/V20261012_01__financial_metadata.sql").getInputStream()) {
+        s.execute(new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+      }
+      try (var stream = new ClassPathResource("db/manual/V20261004_04__news_validation_catalog.sql").getInputStream()) {
         s.execute(new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
       }
     }
@@ -145,7 +159,17 @@ class ForecastPipelineIntegrationTests {
   @Autowired ForecastRunStore store;
   @Autowired TestRestTemplate http;
   @MockitoBean LlmGateway gateway;
+  @MockitoBean com.hethongdata.taichinh.application.port.ExternalFinancialDataPort external;
+  @Autowired com.hethongdata.taichinh.service.news.NewsWorkflowService news;
+  @Autowired com.hethongdata.taichinh.service.financial.FinancialStatementBuildService financialBuild;
+  @Autowired com.hethongdata.taichinh.service.ingestion.IngestionService ingestion;
+  @Autowired com.hethongdata.taichinh.service.validation.ValidationJobService rawValidation;
+  @Autowired com.hethongdata.taichinh.repository.jpa.ingestion.RawPayloadJpaRepository rawRepo;
+  @Autowired com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaRepository ingestionRunRepo;
+  @Autowired com.hethongdata.taichinh.repository.jpa.ingestion.IngestionJobJpaRepository jobRepo;
+  @Autowired com.hethongdata.taichinh.repository.jpa.ingestion.DataSourceJpaRepository sourceRepo;
   @Autowired ForecastValidationService validations;
+  @Autowired jakarta.persistence.EntityManager entityManager;
   @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
   ForecastRequest request;
 
@@ -169,7 +193,7 @@ class ForecastPipelineIntegrationTests {
     db.update("DELETE FROM financial_metrics WHERE calculation_key IS NOT NULL");
     db.update(
         "UPDATE validation_rules SET"
-            + " is_active=true,severity='ERROR',rule_config=jsonb_set(rule_config,'{version}','\"1\"')");
+            + " is_active=true,severity='ERROR',rule_config=jsonb_set(rule_config,'{version}','\"1\"') WHERE data_domain='LLM_FORECAST'");
     prompts.seed();
     db.update("UPDATE llm_prompt_templates SET enabled=true");
     request =
@@ -291,6 +315,168 @@ class ForecastPipelineIntegrationTests {
     assertThat(row.get("target_scope")).isEqualTo(request.targetScope());
     assertThat(row.get("is_current")).isEqualTo(true);
     assertThat(db.queryForObject("SELECT is_current FROM llm_results WHERE id=?",Boolean.class,first.resultId())).isFalse();
+  }
+
+  @Test
+  void urlOnlyFlowsThroughRawValidationAndArticleBuildAndCanUpgradeWithoutDuplicate() {
+    withRollback(() -> {
+      db.update("DELETE FROM data_versions WHERE data_domain IN ('NEWS','NEWS_DATA')");
+      var source=sourceRepo.findById(db.queryForObject("SELECT id FROM data_sources WHERE provider='cafef' LIMIT 1",Long.class)).orElseThrow();
+      var fetchJob=jobRepo.save(com.hethongdata.taichinh.entity.ingestion.IngestionJobEntity.create(
+          source,"NEWS_DATA_FETCH","Isolated NEWS fetch","NEWS_DATA",null,json.mapper().createObjectNode(),(short)10,60,false));
+      var buildJob=jobRepo.save(com.hethongdata.taichinh.entity.ingestion.IngestionJobEntity.create(
+          source,"NEWS_ARTICLE_BUILD","Isolated NEWS build","NEWS_DATA",null,json.mapper().createObjectNode(),(short)10,60,false));
+      var listingJob=jobRepo.save(com.hethongdata.taichinh.entity.ingestion.IngestionJobEntity.create(
+          source,"NEWS_LIST_FIXTURE","Isolated NEWS listing","NEWS",null,json.mapper().createObjectNode(),(short)10,60,false));
+      var sourceRaw=fixtureRaw(source,listingJob,"NEWS",json.read("""
+          {"provider":"cafef","dataset":"news","count":1,"data":[{"symbol":"FPT",
+          "url":"https://cafef.vn/isolated-metadata-flow.chn","title":"FPT link","publishedAt":"01/10/2026 09:00"}]}
+          """));
+      assertThat(rawValidation.validate(sourceRaw.getId()).getDataVersionId()).isNotNull();
+      when(external.fetch(any())).thenThrow(new com.hethongdata.taichinh.application.port.error.ExternalFetchException(
+          com.hethongdata.taichinh.application.port.error.ExternalErrorCategory.TRANSPORT,null,"Isolated endpoint failure"));
+      assertThat(news.execute(fetchJob,"MANUAL").getStatus()).isEqualTo("RETRY_PENDING");
+      entityManager.flush();
+      UUID fetched=db.queryForObject("SELECT id FROM raw_payloads WHERE entity_type='NEWS_DATA' AND payload->>'requested_url'='https://cafef.vn/isolated-metadata-flow.chn' ORDER BY fetched_at DESC LIMIT 1",UUID.class);
+      assertThat(rawValidation.validate(fetched).getDataVersionId()).isNotNull();
+      news.execute(buildJob,"MANUAL");
+      entityManager.flush();
+      UUID article=db.queryForObject("SELECT id FROM news_articles WHERE canonical_url='https://cafef.vn/isolated-metadata-flow.chn'",UUID.class);
+      assertThat(db.queryForObject("SELECT content_text FROM news_articles WHERE id=?",String.class,article)).isNull();
+      assertThat(db.queryForObject("SELECT count(*) FROM news_article_companies WHERE news_article_id=?",Integer.class,article)).isEqualTo(1);
+      assertThat(new NewsLlmContext(db,json,new com.hethongdata.taichinh.service.ingestion.ChecksumService())
+          .build(article,"NEWS_SUMMARY").issues()).contains("BODY_MISSING_OR_TOO_SHORT");
+      assertThat(db.queryForObject("SELECT count(*) FROM validation_results WHERE raw_payload_id=? AND result_status='FAIL' AND severity='ERROR'",Integer.class,fetched)).isZero();
+      reset(external);
+      var body="Clean publisher content about FPT business results. ".repeat(8);
+      var envelope=json.mapper().createObjectNode().put("final_url","https://cafef.vn/isolated-metadata-flow.chn")
+          .put("http_status",200).put("content_type","text/html").put("textual",true)
+          .put("body","<html><body><p>"+body+"</p></body></html>")
+          .put("extraction_status","SUCCESS").put("canonical_url","https://cafef.vn/isolated-metadata-flow.chn")
+          .put("title","FPT article").put("content_text",body).put("published_at","2026-10-01T09:00:00+07:00");
+      when(external.fetch(any())).thenReturn(new com.hethongdata.taichinh.application.port.model.ExternalFetchResponse(
+          com.hethongdata.taichinh.application.port.model.ExternalOperation.FETCH_URL,"cafef",
+          java.net.URI.create("https://python.test/api/v1/url-fetch"),200,"application/json",Map.of(),envelope.toString(),Instant.now()));
+      news.execute(fetchJob,"MANUAL");
+      entityManager.flush();
+      UUID upgraded=db.queryForObject("SELECT id FROM raw_payloads WHERE entity_type='NEWS_DATA' AND payload->>'requested_url'='https://cafef.vn/isolated-metadata-flow.chn' AND payload->>'extraction_status'='SUCCESS'",UUID.class);
+      rawValidation.validate(upgraded);
+      news.execute(buildJob,"MANUAL");
+      entityManager.flush();
+      assertThat(db.queryForObject("SELECT count(*) FROM news_articles WHERE canonical_url='https://cafef.vn/isolated-metadata-flow.chn'",Integer.class)).isEqualTo(1);
+      assertThat(db.queryForObject("SELECT content_text FROM news_articles WHERE id=?",String.class,article)).isEqualTo(body.trim());
+    });
+  }
+
+  private com.hethongdata.taichinh.entity.ingestion.RawPayloadEntity fixtureRaw(
+      com.hethongdata.taichinh.entity.ingestion.DataSourceEntity source,
+      com.hethongdata.taichinh.entity.ingestion.IngestionJobEntity job,String type,JsonNode payload) {
+    if (payload.isObject() && !payload.has("retrieved_at"))
+      ((com.fasterxml.jackson.databind.node.ObjectNode)payload).put("retrieved_at",Instant.now().toString());
+    var run=com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity.start(source,job,"MANUAL",
+        json.mapper().createObjectNode(),java.net.URI.create("https://python.test/fixture"),json.mapper().createObjectNode(),Instant.now());
+    run.markBatchSuccess(json.mapper().createObjectNode(),Instant.now(),1);
+    run=ingestionRunRepo.saveAndFlush(run);
+    return rawRepo.saveAndFlush(com.hethongdata.taichinh.entity.ingestion.RawPayloadEntity.create(
+        run,source,UUID.randomUUID().toString(),type,"FPT","https://python.test/fixture","application/json",payload,
+        null,"a".repeat(64),Instant.now(),request.securityId()));
+  }
+
+  @Test
+  void financialMetadataFlowsThroughValidationAndBuildWithoutChangingSourceValues() {
+    withRollback(() -> {
+      db.update("DELETE FROM data_versions WHERE data_domain='FINANCIAL_STATEMENT' AND status='ACTIVE'");
+      var source=sourceRepo.findById(db.queryForObject("SELECT id FROM data_sources WHERE provider='vndirect' LIMIT 1",Long.class)).orElseThrow();
+      var job=jobRepo.save(com.hethongdata.taichinh.entity.ingestion.IngestionJobEntity.create(
+          source,"FINANCIAL_STATEMENT_BUILD","Isolated financial metadata","FINANCIAL_STATEMENT",null,json.mapper().createObjectNode(),(short)10,60,false));
+      var raw=fixtureRaw(source,job,"FINANCIAL_STATEMENT",json.read("""
+          {"provider":"vndirect","symbol":"FPT","dataset":"balance_sheet","data":[
+           {"itemCode":"TOTAL_ASSETS","itemName":"Total assets","numericValue":12,"fiscalDate":"2026-06-30"}],
+           "financial_metadata":{"schema_version":"financial.metadata.v1","provider":"vndirect",
+           "report_scope":"CONSOLIDATED","period_basis":"POINT_IN_TIME","currency":"VND","unit_scale":1000000,
+           "published_at":"2026-07-28T09:00:00+07:00","evidence":{
+           "report_scope":[{"field":"reportScope","value":"Hợp nhất","normalized":"CONSOLIDATED"}],
+           "period_basis":[{"field":"dataset","value":"balance_sheet","normalized":"POINT_IN_TIME"}],
+           "currency":[{"field":"unit","value":"triệu đồng","normalized":"VND"}],
+           "unit_scale":[{"field":"unit","value":"triệu đồng","normalized":1000000}],
+           "published_at":[{"field":"publishedAt","value":"2026-07-28T09:00:00+07:00","normalized":"2026-07-28T09:00:00+07:00"}]}}}
+          """));
+      assertThat(rawValidation.validate(raw.getId()).getDataVersionId()).isNotNull();
+      assertThat(financialBuild.execute(job,"MANUAL").getStatus()).isEqualTo("SUCCESS");
+      var row=db.queryForMap("SELECT s.report_scope,s.period_basis,s.currency,s.unit_scale,s.published_at,s.metadata_provenance::text,i.value FROM financial_statements s JOIN financial_statement_items i ON i.financial_statement_id=s.id WHERE s.raw_payload_id=?",raw.getId());
+      assertThat(row.get("report_scope")).isEqualTo("CONSOLIDATED");
+      assertThat(row.get("period_basis")).isEqualTo("POINT_IN_TIME");
+      assertThat(row.get("currency")).isEqualTo("VND");
+      assertThat(((Number)row.get("unit_scale")).longValue()).isEqualTo(1000000);
+      assertThat((java.math.BigDecimal)row.get("value")).isEqualByComparingTo("12");
+      assertThat(row.get("metadata_provenance").toString()).contains("triệu đồng");
+      var ctx=contexts.build(new ForecastRequest(request.securityId(),LocalDate.now(),1,request.targets(),false));
+      assertThat(ctx.points().stream().filter(p->p.scope().equals("CONSOLIDATED") && p.code().equals("TOTAL_ASSETS")).findFirst().orElseThrow().value()).isEqualByComparingTo("12000000");
+    });
+  }
+
+  @Test
+  @EnabledIfEnvironmentVariable(named="LIVE_P06",matches="1")
+  void realDeployedPythonMetadataPassesTheExistingFinancialPipeline() {
+    var properties=new com.hethongdata.taichinh.integration.python.PythonFinancialDataProperties();
+    var factory=new org.springframework.http.client.SimpleClientHttpRequestFactory();
+    factory.setConnectTimeout(properties.getConnectTimeout());factory.setReadTimeout(properties.getReadTimeout());
+    var adapter=new com.hethongdata.taichinh.integration.python.PythonExternalFinancialDataAdapter(
+        org.springframework.web.client.RestClient.builder().requestFactory(factory).build(),properties,
+        new com.hethongdata.taichinh.integration.python.SensitiveHeaderSanitizer());
+    // Forward the production port to the real adapter. No synthetic response is returned here.
+    when(external.resolveUri(any())).thenAnswer(i->adapter.resolveUri(i.getArgument(0)));
+    when(external.fetch(any())).thenAnswer(i->adapter.fetch(i.getArgument(0)));
+    withRollback(() -> {
+      db.update("DELETE FROM data_versions WHERE data_domain='FINANCIAL_STATEMENT' AND status='ACTIVE'");
+      var source=sourceRepo.findById(db.queryForObject("SELECT id FROM data_sources WHERE provider='vndirect' LIMIT 1",Long.class)).orElseThrow();
+      var job=jobRepo.save(com.hethongdata.taichinh.entity.ingestion.IngestionJobEntity.create(
+          source,"FINANCIAL_STATEMENT_BUILD","Real Python metadata check","FINANCIAL_STATEMENT",null,json.mapper().createObjectNode(),(short)10,60,false));
+      var parameters=json.mapper().createObjectNode().put("operation","FINANCIAL_STATEMENT")
+          .put("provider","vndirect").put("symbol","FPT").put("securityId",request.securityId().toString());
+      parameters.putObject("parameters").put("statement","balance-sheet").put("fiscal_date","2026-06-30");
+      var fetchJob=jobRepo.save(com.hethongdata.taichinh.entity.ingestion.IngestionJobEntity.create(
+          source,"ISOLATED_FPT_FINANCIAL_FETCH","Real FPT metadata fetch","FINANCIAL_STATEMENT",null,parameters,(short)10,60,false));
+      var fetched=ingestion.ingestJob(fetchJob,"MANUAL");
+      assertThat(fetched.getStatus()).isEqualTo("SUCCESS");
+      var raw=rawRepo.findById(fetched.getRawPayloadId()).orElseThrow();
+      var payload=raw.getPayload();
+      assertThat(raw.getSourceUrl()).startsWith(properties.getBaseUrl().toString());
+      assertThat(payload.path("financial_metadata").path("schema_version").asText()).isEqualTo("financial.metadata.v1");
+      assertThat(payload.path("financial_metadata").path("report_scope").asText()).isEqualTo("UNKNOWN");
+      assertThat(payload.path("financial_metadata").path("published_at").isNull()).isTrue();
+      assertThat(rawValidation.validate(raw.getId()).getDataVersionId()).isNotNull();
+      assertThat(financialBuild.execute(job,"MANUAL").getStatus()).isEqualTo("SUCCESS");
+      var row=db.queryForMap("SELECT report_scope,period_basis,currency,unit_scale,published_at,metadata_provenance::text FROM financial_statements WHERE raw_payload_id=?",raw.getId());
+      assertThat(row.get("report_scope")).isEqualTo("UNKNOWN");
+      assertThat(row.get("period_basis")).isEqualTo("POINT_IN_TIME");
+      assertThat(row.get("currency")).isNull();assertThat(row.get("unit_scale")).isNull();
+      assertThat(row.get("published_at")).isNull();
+      assertThat(row.get("metadata_provenance").toString()).contains("UNVERIFIED_CURRENCY");
+      assertThat(db.queryForObject("SELECT count(*) FROM financial_statement_items i JOIN financial_statements s ON s.id=i.financial_statement_id WHERE s.raw_payload_id=?",Integer.class,raw.getId()))
+          .isEqualTo(payload.path("data").size());
+    });
+  }
+
+  @Test
+  void macroCoverageNamesStaleAndMissingSeriesWithoutInventingObservations() {
+    db.update("INSERT INTO macro_series SELECT * FROM public.macro_series");
+    db.update("INSERT INTO macro_observations SELECT * FROM public.macro_observations");
+    try {
+      var macroRequest=new ForecastRequest(request.securityId(),LocalDate.of(2026,10,10),1,request.targets(),false);
+      var preview=service.preview(macroRequest);
+      assertThat(preview.input().path("macro_coverage").isArray()).isTrue();
+      var lending=preview.coverage().macroSeries().stream().filter(s->s.code().equals("VN_LENDING_RATE_YEAR")).findFirst().orElseThrow();
+      assertThat(lending.latestDate()).isEqualTo(LocalDate.of(2023,12,31));
+      assertThat(lending.stale()).isTrue();assertThat(lending.sentObservationCount()).isZero();
+      assertThat(preview.coverage().limitations()).anyMatch(s->s.contains("MACRO_STALE:VN_LENDING_RATE_YEAR"));
+      assertThat(preview.input().path("points")).noneMatch(p->p.path("code").asText().equals("VN_LENDING_RATE_YEAR"));
+      String hash=preview.snapshotHash();
+      db.update("DELETE FROM macro_observations WHERE macro_series_id=(SELECT id FROM macro_series WHERE code='VN_LENDING_RATE_YEAR')");
+      var missing=service.preview(macroRequest);
+      assertThat(missing.snapshotHash()).isNotEqualTo(hash);
+      assertThat(missing.coverage().macroSeries().stream().filter(s->s.code().equals("VN_LENDING_RATE_YEAR")).findFirst().orElseThrow().status()).isEqualTo("MISSING");
+    } finally {db.update("DELETE FROM macro_observations");db.update("DELETE FROM macro_series");}
   }
 
   @Test

@@ -36,6 +36,7 @@ public class ForecastContextService {
   private final FinancialRatioCalculator calculator;
   private final ForecastMarketEvidence marketEvidence;
   private final MarketScenarioCalculator marketCalculator;
+  private final ForecastMacroCoverageService macroCoverageService;
 
   public ForecastContextService(
       JdbcTemplate db,
@@ -43,13 +44,15 @@ public class ForecastContextService {
       ChecksumService hashes,
       FinancialRatioCalculator calculator,
       ForecastMarketEvidence marketEvidence,
-      MarketScenarioCalculator marketCalculator) {
+      MarketScenarioCalculator marketCalculator,
+      ForecastMacroCoverageService macroCoverageService) {
     this.db = db;
     this.json = json;
     this.hashes = hashes;
     this.calculator = calculator;
     this.marketEvidence = marketEvidence;
     this.marketCalculator = marketCalculator;
+    this.macroCoverageService = macroCoverageService;
   }
 
   @Transactional(
@@ -81,7 +84,8 @@ public class ForecastContextService {
             db.query(
 """
 SELECT i.id,s.statement_type,i.item_code,i.value*s.unit_scale AS amount,s.currency,p.start_date,p.end_date,
-    p.period_type,s.report_scope,coalesce(s.published_at,s.created_at)::text AS available_at
+    p.period_type,s.report_scope,coalesce(s.published_at,s.created_at)::text AS available_at,
+    s.period_basis,s.metadata_provenance::text
 FROM financial_statement_items i JOIN financial_statements s ON s.id=i.financial_statement_id
 JOIN financial_periods p ON p.id=s.financial_period_id
 WHERE s.company_id=? AND s.security_id=? AND s.is_current AND s.is_canonical
@@ -102,11 +106,11 @@ ORDER BY p.end_date,s.statement_type,i.item_code,i.id
                         r.getString(3),
                         r.getBigDecimal(4),
                         r.getString(5).trim(),
-                        r.getDate(6).toLocalDate(),
+                        "YTD".equals(r.getString(11)) ? r.getDate(7).toLocalDate().withDayOfYear(1) : r.getDate(6).toLocalDate(),
                         r.getDate(7).toLocalDate(),
                         r.getString(8),
                         r.getString(9),
-                        r.getString(10)),
+                        r.getString(10),r.getString(11),json.read(r.getString(12))),
                 company,
                 request.securityId(),
                 start,
@@ -120,7 +124,8 @@ ORDER BY p.end_date,s.statement_type,i.item_code,i.id
             + " point-in-time backtest dataset.");
     if (points.stream().anyMatch(p -> "UNKNOWN".equals(p.scope())))
       limitations.add("Report scope UNKNOWN: consolidation cannot be assumed.");
-    limitations.add(
+    if (points.stream().filter(p->"INCOME_STATEMENT".equals(p.domain()))
+        .anyMatch(p->"UNKNOWN".equals(p.periodBasis()))) limitations.add(
         "Profit period values are provider-reported; cumulative/standalone basis is not verified."
             + " Do not annualize or claim TTM.");
     for (var target : request.targets()) {
@@ -223,7 +228,7 @@ ORDER BY price_timestamp DESC,id DESC LIMIT 60
 """
 SELECT o.id,s.code,o.value,s.unit,o.observation_date,s.frequency,o.created_at::text
 FROM macro_observations o JOIN macro_series s ON s.id=o.macro_series_id
-WHERE s.is_active AND o.value IS NOT NULL AND o.observation_date BETWEEN ? AND ? AND o.created_at<?
+WHERE s.is_active AND s.country_code='VNM' AND o.value IS NOT NULL AND o.observation_date BETWEEN ? AND ? AND o.created_at<?
 ORDER BY o.observation_date DESC,s.code,o.id DESC LIMIT 120
 """,
             (r, n) ->
@@ -249,6 +254,12 @@ ORDER BY o.observation_date DESC,s.code,o.id DESC LIMIT 120
           "Macro release/vintage timestamps are not modeled; ingestion time is only an availability"
               + " proxy.");
     points.addAll(macro);
+    var macroCoverage = macroCoverageService.build(request.asOfDate(),cutoff,macro);
+    if (macroCoverage.isEmpty()) limitations.add("MACRO_CATALOG_MISSING: no active Vietnam series configured.");
+    for (var series : macroCoverage) {
+      if (!"AVAILABLE".equals(series.status())) limitations.add("MACRO_"+series.status()+":"+series.code()
+          + "; latest observation="+series.latestDate()+"; sent="+series.sentObservationCount());
+    }
     var metrics = new ArrayList<>(calculator.calculate(points));
     if (priceRequested
         && issues.stream().noneMatch(i -> i.contains("PRICE") || i.contains("PRICES")))
@@ -274,9 +285,10 @@ ORDER BY o.observation_date DESC,s.code,o.id DESC LIMIT 120
     root.set("points", json.mapper().valueToTree(points));
     root.set("derived_metrics", json.mapper().valueToTree(metrics));
     root.put("macro_available", !macro.isEmpty());
+    root.set("macro_coverage", json.mapper().valueToTree(macroCoverage));
     root.set("limitations", json.mapper().valueToTree(limitations));
     var coverage =
-        new Coverage(financialPeriods, market.size(), macro.size(), List.copyOf(limitations));
+        new Coverage(financialPeriods, market.size(), macro.size(), List.copyOf(limitations),macroCoverage);
     return new Context(
         company,
         request,

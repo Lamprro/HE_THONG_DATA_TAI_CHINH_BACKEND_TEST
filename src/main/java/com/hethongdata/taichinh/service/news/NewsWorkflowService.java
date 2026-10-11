@@ -139,6 +139,8 @@ public class NewsWorkflowService {
                             }
                             fetched.add(previous.source() == source ? previous : reusedNewsData(source, item, previous));
                         } catch (ExternalFetchException exception) {
+                            // Preserve the validated listing URL even when the content endpoint is unavailable.
+                            fetched.add(failedFetchLink(source,item,exception));
                             fetchFailures.add(Map.of(
                                     "url", item.url(),
                                     "category", exception.category().name(),
@@ -224,9 +226,9 @@ public class NewsWorkflowService {
                     "Python URL fetch endpoint returned HTTP " + response.httpStatus());
         }
         JsonNode envelope = readJson(response.rawBody(), "Python URL fetch response");
-        String finalUrl = requiredText(envelope, "final_url");
-        String contentType = requiredText(envelope, "content_type");
-        boolean textual = envelope.path("textual").asBoolean(false);
+        String finalUrl = envelope.hasNonNull("final_url") ? requiredText(envelope,"final_url") : requestedUrl;
+        String contentType = envelope.hasNonNull("content_type") ? requiredText(envelope,"content_type") : "application/octet-stream";
+        boolean textual = envelope.path("textual").isBoolean() && envelope.path("textual").asBoolean();
         String body = textual && !envelope.path("body").isNull() ? envelope.path("body").asText() : null;
         JsonNode json = null;
         if (body != null && contentType.toLowerCase(Locale.ROOT).contains("json")) {
@@ -239,22 +241,24 @@ public class NewsWorkflowService {
         ObjectNode metadata = objectMapper.createObjectNode();
         metadata.put("requested_url", requestedUrl);
         metadata.put("final_url", finalUrl);
-        metadata.put("http_status", envelope.path("http_status").asInt());
-        metadata.put("textual", textual);
+        if (envelope.hasNonNull("http_status")) metadata.set("http_status",envelope.get("http_status"));
+        if (envelope.hasNonNull("textual")) metadata.set("textual",envelope.get("textual"));
+        else metadata.put("textual",false);
         for (String field : List.of("extraction_status", "extraction_error", "extraction_version", "canonical_url",
                 "title", "sapo", "content_text", "author", "published_at")) {
             if (envelope.hasNonNull(field)) metadata.set(field, envelope.get(field));
         }
         if (item.publishedAt() != null) metadata.put("list_published_at", item.publishedAt());
         if (item.title() != null) metadata.put("list_title", item.title());
+        if (json != null) metadata.set("source_json",json);
         Instant publishedAt = parsePublishedAt(firstText(envelope, "published_at"));
         if (publishedAt == null) publishedAt = parsePublishedAt(item.publishedAt());
         return new NewsWorkflowPersistenceService.FetchedNewsData(
                 source,
                 finalUrl,
                 contentType,
-                json == null ? metadata : json,
-                json == null ? body : null,
+                metadata,
+                body,
                 checksums.sha256(finalUrl + "\n" + (body == null ? "" : body)),
                 response.fetchedAt(), publishedAt);
     }
@@ -265,6 +269,18 @@ public class NewsWorkflowService {
                 previous, previous.getSourceUrl(), previous.getContentType(), previous.getPayload(),
                 previous.getRawText(), previous.getChecksumSha256(), previous.getFetchedAt(),
                 previous.getPublishedAt()));
+    }
+
+    private NewsWorkflowPersistenceService.FetchedNewsData failedFetchLink(
+            RawPayloadEntity source, NewsListItem item, ExternalFetchException failure) {
+        var metadata=objectMapper.createObjectNode().put("requested_url",item.url()).put("final_url",item.url())
+                .put("extraction_status","SKIPPED").put("textual",false)
+                .put("extraction_error","CONTENT_FETCH_UNAVAILABLE").put("fetch_error_category",failure.category().name());
+        if (failure.upstreamStatus()!=null) metadata.put("fetch_endpoint_status",failure.upstreamStatus());
+        if (item.title()!=null) metadata.put("list_title",item.title());
+        if (item.publishedAt()!=null) metadata.put("list_published_at",item.publishedAt());
+        return new NewsWorkflowPersistenceService.FetchedNewsData(source,item.url(),"application/json",metadata,null,
+                checksums.sha256(metadata.toString()),Instant.now(),parsePublishedAt(item.publishedAt()));
     }
 
     private NewsWorkflowPersistenceService.FetchedNewsData reusedNewsData(
@@ -304,7 +320,7 @@ public class NewsWorkflowService {
 
     NewsArticleDraft articleDraft(RawPayloadEntity payload) {
         JsonNode json = payload.getPayload();
-        if ("FAILED".equals(firstText(json, "extraction_status"))) {
+        if (NewsContentClassification.urlOnly(json)) {
             String url = firstText(json, "requested_url", "final_url", "canonical_url");
             if (!isHttpUrl(url)) throw new IllegalArgumentException("Failed extraction has no valid article URL");
             url = NewsUrlNormalizer.normalize(url);
@@ -312,7 +328,8 @@ public class NewsWorkflowService {
             Instant publishedAt = parsePublishedAt(firstText(json, "list_published_at"));
             String dateSource = publishedAt == null ? "unknown" : "news_list";
             ObjectNode metadata = objectMapper.createObjectNode();
-            metadata.put("content_status", "URL_ONLY").put("extraction_status", "FAILED")
+            metadata.put("content_status", "URL_ONLY").put("extraction_status",
+                    firstText(json, "extraction_status") == null ? "SKIPPED" : firstText(json, "extraction_status"))
                     .put("raw_payload_id", payload.getId().toString()).put("published_at_source", dateSource);
             String error = firstText(json, "extraction_error");
             if (error != null) metadata.put("extraction_error", error);
@@ -379,7 +396,8 @@ public class NewsWorkflowService {
         if (value == null || value.isBlank()) return false;
         try {
             URI uri = URI.create(value);
-            return "http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme());
+            return ("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
+                    && uri.getHost()!=null && uri.getUserInfo()==null;
         } catch (IllegalArgumentException exception) {
             return false;
         }

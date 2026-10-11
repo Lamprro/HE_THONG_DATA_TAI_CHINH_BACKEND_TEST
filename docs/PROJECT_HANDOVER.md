@@ -1,3 +1,22 @@
+# Cập nhật 12/10/2026 — P06, P08 và L03
+
+Java tiếp tục nhánh `feature/forecast-periods-and-health`; Python main đã push
+`b33dff1` và Vercel production READY đúng commit. P06 thêm contract metadata
+tài chính có evidence ở Python và provenance/period_basis ở Java; không đoán
+ngày công bố hoặc đơn vị khi nguồn không cung cấp. P08 tách validation URL_ONLY,
+lưu link khi fetch lỗi, cho phép nâng cấp nội dung cùng bài. L03 thêm coverage
+macro thiếu/cũ theo series trong input/hash, forecast prompt version 6.
+Không triển khai L01/L02/L04/L06; giữ P03 và chưa thêm khóa P05.
+
+Migration P06 áp public 00:13:01 giờ VN: 3.929 báo cáo, 281.097 items và 50 luật
+validation cũ giữ nguyên; thêm cột/constraints/luật mới, có backup private và
+đối chiếu idempotency. 250 test Java khác nhau đã pass qua regression và chạy
+bổ sung recovery, Python 16 pass. Adapter Java gọi Python Vercel thật và đi qua
+raw validation/build trong schema cô lập; NEWS failure/success và LLM dùng mock.
+Chưa deploy Java server hoặc kích hoạt prompt v6 ở DB thật; seed prompt sau
+deploy runtime mới. Không chứng nhận đầy đủ metadata lịch sử hay accuracy.
+Chi tiết: [FINANCIAL_METADATA_NEWS_MACRO_20261012.md](FINANCIAL_METADATA_NEWS_MACRO_20261012.md).
+
 # Cập nhật 11/10/2026 — health DB và kỳ dự báo
 
 Nhánh mới `feature/forecast-periods-and-health` xuất phát từ main `8babf09`;

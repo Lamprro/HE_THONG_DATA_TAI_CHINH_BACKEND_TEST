@@ -39,6 +39,22 @@ import java.time.Instant;
 import java.util.UUID;
 
 class NewsWorkflowServiceTests {
+    @Test void skippedExtractionAndMissingStatusKeepOnlyTheLink() {
+        var mapper=new ObjectMapper();
+        var service=new NewsWorkflowService(mock(DataVersionJpaRepository.class),mock(RawPayloadJpaRepository.class),
+                mock(IngestionRunRepository.class),mock(ExternalFinancialDataPort.class),
+                mock(NewsWorkflowPersistenceService.class),new ChecksumService(),mapper,mock(DataVersionLifecycleService.class));
+        for (String status:List.of("SKIPPED","")) {
+            var raw=mock(RawPayloadEntity.class);
+            when(raw.getId()).thenReturn(UUID.randomUUID());
+            var payload=mapper.createObjectNode().put("requested_url","https://cafef.vn/just-a-link.chn");
+            if (!status.isEmpty()) payload.put("extraction_status",status);
+            when(raw.getPayload()).thenReturn(payload);
+            var draft=service.articleDraft(raw);
+            assertThat(draft.contentText()).isNull();assertThat(draft.publishedAt()).isNull();
+            assertThat(draft.metadata().path("content_status").asText()).isEqualTo("URL_ONLY");
+        }
+    }
 
     @Test
     void failedExtractionPreservesLinkWithoutInventingBodyOrDate() {

@@ -21,6 +21,29 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 class NewsValidationRulesTests {
+    @Test void urlOnlyBypassesContentRulesButStillRejectsInvalidUrlsAndMetadata() throws Exception {
+        for (String status:java.util.List.of("FAILED","SKIPPED")) {
+            var payload=raw("NEWS_DATA","{\"requested_url\":\"https://cafef.vn/article.chn\",\"extraction_status\":\""+status+"\"}");
+            assertThat(executor.execute(rule("NEWS_DATA_METADATA_REQUIRED"),payload).status()).isEqualTo("PASS");
+            assertThat(executor.execute(rule("NEWS_DATA_URL_VALID"),payload).status()).isEqualTo("PASS");
+            for (String code:java.util.List.of("NEWS_DATA_HTTP_SUCCESS","NEWS_DATA_CONTENT_TYPE_VALID",
+                    "NEWS_DATA_RAW_TEXT_REQUIRED","NEWS_DATA_HTML_STRUCTURE","NEWS_DATA_ARTICLE_EXTRACTED"))
+                assertThat(executor.execute(rule(code),payload).status()).isEqualTo("SKIP");
+        }
+        var bad=raw("NEWS_DATA","{\"requested_url\":\"https://user:password@cafef.vn/article.chn\",\"extraction_status\":\"SKIPPED\"}");
+        assertThat(executor.execute(rule("NEWS_DATA_URL_VALID"),bad).status()).isEqualTo("FAIL");
+        var success=raw("NEWS_DATA","{\"requested_url\":\"https://cafef.vn/article.chn\",\"extraction_status\":\"SUCCESS\"}");
+        assertThat(executor.execute(rule("NEWS_DATA_RAW_TEXT_REQUIRED"),success).status()).isEqualTo("FAIL");
+        var wrong=raw("NEWS_DATA","{\"requested_url\":\"https://cafef.vn/article.chn\",\"extraction_status\":17}");
+        assertThat(executor.execute(rule("NEWS_DATA_METADATA_REQUIRED"),wrong).status()).isEqualTo("FAIL");
+        var pdf=raw("NEWS_DATA","{\"requested_url\":\"https://cafef.vn/file.pdf\",\"extraction_status\":\"SKIPPED\",\"http_status\":403,\"textual\":false}");
+        pdf.setContentType("application/pdf");
+        assertThat(executor.execute(rule("NEWS_DATA_METADATA_REQUIRED"),pdf).status()).isEqualTo("PASS");
+        assertThat(executor.execute(rule("NEWS_DATA_CONTENT_TYPE_VALID"),pdf).status()).isEqualTo("SKIP");
+        assertThat(executor.execute(rule("NEWS_DATA_HTTP_SUCCESS"),pdf).status()).isEqualTo("SKIP");
+        ((ObjectNode)pdf.getPayload()).put("http_status",999);
+        assertThat(executor.execute(rule("NEWS_DATA_METADATA_REQUIRED"),pdf).status()).isEqualTo("FAIL");
+    }
     private static final ObjectMapper JSON = new ObjectMapper();
     private final ValidationRuleExecutionService executor =
             new ValidationRuleExecutionService(mock(RawPayloadJpaRepository.class),

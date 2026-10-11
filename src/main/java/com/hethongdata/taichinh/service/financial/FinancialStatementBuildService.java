@@ -116,16 +116,15 @@ public class FinancialStatementBuildService {
         if (symbol == null) symbol = payload.getSourceSymbol();
         if (symbol == null || symbol.isBlank()) throw new IllegalArgumentException("Statement raw payload has no symbol: " + payload.getId());
         String statementType = statementType(firstText(root, "dataset", "statement_type", "statementType"));
-        String reportScope = reportScope(firstText(root, "report_scope", "reportScope", "formType"));
         String provider = firstText(root, "provider");
         JsonNode data = root.path("data");
-        if (data.isArray()) return arrayDrafts(payload, symbol, statementType, reportScope, provider, root, data);
-        if (data.isObject()) return keyedDrafts(payload, symbol, statementType, reportScope, provider, data);
+        if (data.isArray()) return arrayDrafts(payload, symbol, statementType, provider, root, data);
+        if (data.isObject()) return keyedDrafts(payload, symbol, statementType, provider, data);
         throw new IllegalArgumentException("Statement raw payload has unsupported data shape: " + payload.getId());
     }
 
     private List<StatementDraft> arrayDrafts(
-            RawPayloadEntity payload, String symbol, String statementType, String reportScope, String provider, JsonNode root, JsonNode data) {
+            RawPayloadEntity payload, String symbol, String statementType, String provider, JsonNode root, JsonNode data) {
         Map<Period, List<ItemDraft>> grouped = new LinkedHashMap<>();
         for (JsonNode entry : data) {
             List<PeriodValue> periodValues = rowPeriodValues(entry);
@@ -140,12 +139,12 @@ public class FinancialStatementBuildService {
             grouped.computeIfAbsent(period, ignored -> new ArrayList<>()).add(item(entry, null, provider));
         }
         return grouped.entrySet().stream()
-                .map(entry -> new StatementDraft(payload, symbol, statementType, reportScope, entry.getKey(), uniqueItemCodes(entry.getValue())))
+                .map(entry -> draft(payload, symbol, statementType, entry.getKey(), entry.getValue()))
                 .toList();
     }
 
     private List<StatementDraft> keyedDrafts(
-            RawPayloadEntity payload, String symbol, String statementType, String reportScope, String provider, JsonNode data) {
+            RawPayloadEntity payload, String symbol, String statementType, String provider, JsonNode data) {
         Map<Period, List<ItemDraft>> grouped = new LinkedHashMap<>();
         data.fields().forEachRemaining(
                 item -> {
@@ -160,7 +159,7 @@ public class FinancialStatementBuildService {
                             });
                 });
         return grouped.entrySet().stream()
-                .map(entry -> new StatementDraft(payload, symbol, statementType, reportScope, entry.getKey(), uniqueItemCodes(entry.getValue())))
+                .map(entry -> draft(payload, symbol, statementType, entry.getKey(), entry.getValue()))
                 .toList();
     }
 
@@ -255,12 +254,6 @@ public class FinancialStatementBuildService {
         };
     }
 
-    private String reportScope(String value) {
-        if (value == null) return "UNKNOWN";
-        String normalized = value.trim().toUpperCase(Locale.ROOT);
-        return "CONSOLIDATED".equals(normalized) || "SEPARATE".equals(normalized) ? normalized : "UNKNOWN";
-    }
-
     private static JsonNode first(JsonNode node, String... names) {
         for (String name : names) if (node.path(name).isValueNode()) return node.path(name);
         return null;
@@ -347,5 +340,13 @@ public class FinancialStatementBuildService {
     public record Period(int fiscalYear, String periodType, LocalDate startDate, LocalDate endDate) {}
     private record PeriodValue(Period period, JsonNode value) {}
     public record ItemDraft(String itemCode, String itemName, BigDecimal value, String rawValue, Integer displayOrder, String sourceItemCode, String sourceItemName, String provider) {}
-    public record StatementDraft(RawPayloadEntity rawPayload, String symbol, String statementType, String reportScope, Period period, List<ItemDraft> items) {}
+    private StatementDraft draft(RawPayloadEntity raw, String symbol, String type, Period period, List<ItemDraft> items) {
+        var metadata = FinancialStatementMetadata.parse(raw.getPayload(), period.endDate(), type);
+        if ("ANNUAL".equals(metadata.periodBasis()) && !"FY".equals(period.periodType()))
+            throw new IllegalArgumentException("Annual basis does not match fiscal period");
+        return new StatementDraft(raw, symbol, type, metadata.reportScope(), period, uniqueItemCodes(items), metadata);
+    }
+
+    public record StatementDraft(RawPayloadEntity rawPayload, String symbol, String statementType,
+            String reportScope, Period period, List<ItemDraft> items, FinancialStatementMetadata metadata) {}
 }

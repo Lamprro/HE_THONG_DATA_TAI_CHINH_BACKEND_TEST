@@ -1,3 +1,23 @@
+# Cập nhật 13/10/2026 — fix phân loại chất lượng forecast trên main
+
+FINANCIAL_SCENARIOS không còn gán cố định quality_status=WARNING. Kết quả
+VALID khi các luật đều PASS; WARNING khi chỉ luật severity WARNING FAIL;
+ERROR/CRITICAL FAIL chặn publish. Giữ 7 luật bắt buộc có severity chặn lỗi;
+hỗ trợ luật bổ sung, gồm FORECAST_DATA_LIMITATIONS chọn limitationPrefixes
+từ catalog DB. Không tự seed cảnh báo hoặc đổi catalog public.
+
+Writer INSERT và revalidation UPDATE lấy nhãn từ evaluation; reader/cache
+kiểm tra đủ audit của đúng vòng thay vì count(PASS)=7. Thiếu/FAIL audit chặn lỗi
+không đọc/cache như hợp lệ. Fingerprint engine v2 ngăn dùng cache policy cũ;
+nhãn WARNING lịch sử cần revalidate qua API sau deploy, không sửa bằng SQL hàng
+loạt. VALID xác nhận response đạt luật, không xác nhận accuracy/backtest.
+
+235 tests pass (172 unit/contract, 38 forecast PostgreSQL integration, 20 NEWS
+LLM và 5 recovery integration), 0 failures/errors/skipped; verify/package pass.
+Provider mock, schema DB cô lập; không gọi Gemini thật, sửa DB public hoặc deploy
+server. Fix riêng từ main 8babf09, không đưa P02/L05/P06/P08/L03 chưa merge vào
+main. Chi tiết: [FORECAST_VALIDATION_QUALITY_20261013.md](FORECAST_VALIDATION_QUALITY_20261013.md).
+
 # Bàn giao hiện hành — nhánh main, hợp nhất 10/10/2026
 
 Nhánh mặc định GitHub là **main**. Bản source hợp nhất giữ MACRO, NEWS/LLM,

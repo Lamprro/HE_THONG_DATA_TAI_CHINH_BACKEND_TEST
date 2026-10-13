@@ -79,6 +79,13 @@ class ForecastPipelineIntegrationTests {
               "validation_rules",
               "validation_results"))
         s.execute("CREATE TABLE " + t + " (LIKE public." + t + " INCLUDING ALL)");
+      // LIKE omits triggers. Preserve the real DB's legacy-writer period compatibility, if present.
+      var compatibilityTriggers = new ArrayList<String>();
+      try (var query = s.executeQuery("SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgrelid='public.llm_results'::regclass AND tgname='trg_forecast_result_period' AND NOT tgisinternal")) {
+        while (query.next()) compatibilityTriggers.add(query.getString(1)
+            .replace(" ON public.llm_results "," ON " + SCHEMA + ".llm_results "));
+      }
+      for (String trigger : compatibilityTriggers) s.execute(trigger);
       for (String t :
           List.of(
               "data_sources",
@@ -160,6 +167,7 @@ class ForecastPipelineIntegrationTests {
     db.update("DELETE FROM validation_results");
     db.update("DELETE FROM llm_results");
     db.update("DELETE FROM llm_runs");
+    db.update("DELETE FROM validation_rules WHERE code='FORECAST_DATA_LIMITATIONS'");
     db.update("DELETE FROM financial_metrics WHERE calculation_key IS NOT NULL");
     db.update(
         "UPDATE validation_rules SET"
@@ -248,11 +256,90 @@ class ForecastPipelineIntegrationTests {
         .satisfies(
             r -> {
               assertThat(r.data().path("calculated_values").size()).isEqualTo(2);
-              assertThat(r.qualityStatus()).isEqualTo("WARNING");
+              assertThat(r.qualityStatus()).isEqualTo("VALID");
             });
     assertThat(store.run(outcome.runId()).validations()).hasSize(7);
     assertThat(service.execute(request).status()).isEqualTo("CACHED");
     verify(gateway, times(1)).call(any(), any());
+  }
+
+  private void limitationRule(String severity, String prefix) {
+    db.update("""
+        INSERT INTO validation_rules(code,name,data_domain,severity,rule_type,executor_key,rule_config,description,is_active,created_at,updated_at)
+        VALUES ('FORECAST_DATA_LIMITATIONS','Forecast data limitations','LLM_FORECAST',?,'CUSTOM','FORECAST_DATA_LIMITATIONS',
+          jsonb_build_object('version','1','tasks',jsonb_build_array('FINANCIAL_SCENARIOS'),'limitationPrefixes',jsonb_build_array(?::text)),
+          'Configured source limitation check',true,now(),now())
+        """,severity,prefix);
+  }
+
+  @Test void advisoryFailurePublishesWarningAndRemainsVisibleAndCached() throws Exception {
+    limitationRule("WARNING","MACRO_NOT_AVAILABLE:");
+    var outcome=service.execute(request);
+    assertThat(outcome.status()).isEqualTo("SUCCESS");
+    assertThat(store.results(request.securityId(),10)).singleElement()
+        .satisfies(r->assertThat(r.qualityStatus()).isEqualTo("WARNING"));
+    var run=store.run(outcome.runId());
+    assertThat(run.validations()).hasSize(8);
+    var advisory=run.validations().stream().filter(v->v.path("rule_code").asText().equals("FORECAST_DATA_LIMITATIONS")).findFirst().orElseThrow();
+    assertThat(advisory.path("result_status").asText()).isEqualTo("FAIL");
+    assertThat(advisory.path("severity").asText()).isEqualTo("WARNING");
+    assertThat(service.execute(request).status()).isEqualTo("CACHED");
+    verify(gateway,times(1)).call(any(),any());
+  }
+
+  @Test void passingAdvisoryStillPublishesValidWithEightAuditRules() throws Exception {
+    limitationRule("WARNING","MACRO_STALE:");
+    assertThat(service.execute(request).status()).isEqualTo("SUCCESS");
+    assertThat(store.results(request.securityId(),10)).singleElement()
+        .satisfies(r->assertThat(r.qualityStatus()).isEqualTo("VALID"));
+  }
+
+  @Test void blockingFailureCannotPublishEvenWhenThereIsAnAdvisoryWarning() throws Exception {
+    limitationRule("WARNING","MACRO_NOT_AVAILABLE:");
+    doAnswer(i->{
+      var response=(com.fasterxml.jackson.databind.node.ObjectNode)output(i.getArgument(0));
+      response.put("company_id",UUID.randomUUID().toString());
+      return new LlmGateway.Reply(200,"{}",response.toString(),1,1);
+    }).when(gateway).call(any(),any());
+    assertThat(service.execute(request).status()).isEqualTo("REJECTED");
+    assertThat(db.queryForObject("SELECT count(*) FROM llm_results",Integer.class)).isZero();
+    assertThat(db.queryForObject("SELECT count(*) FROM validation_results WHERE severity='WARNING' AND result_status='FAIL'",Integer.class)).isEqualTo(1);
+  }
+
+  @Test void revalidationReclassifiesTheSameResultAndKeepsPreviousAudit() throws Exception {
+    limitationRule("WARNING","MACRO_NOT_AVAILABLE:");
+    var first=service.execute(request);
+    UUID firstRound=store.run(first.runId()).validationRoundId();
+    db.update("UPDATE validation_rules SET rule_config=jsonb_set(rule_config,'{limitationPrefixes}','[\"MACRO_STALE:\"]') WHERE code='FORECAST_DATA_LIMITATIONS'");
+    assertThat(store.validate(first.runId()).status()).isEqualTo("SUCCESS");
+    assertThat(store.run(first.runId()).validationRoundId()).isNotEqualTo(firstRound);
+    assertThat(store.run(first.runId()).validations()).hasSize(16);
+    assertThat(store.results(request.securityId(),10)).singleElement().satisfies(r->{
+      assertThat(r.id()).isEqualTo(first.resultId());assertThat(r.qualityStatus()).isEqualTo("VALID");});
+    db.update("UPDATE validation_rules SET rule_config=jsonb_set(rule_config,'{limitationPrefixes}','[\"MACRO_NOT_AVAILABLE:\"]') WHERE code='FORECAST_DATA_LIMITATIONS'");
+    assertThat(store.validate(first.runId()).status()).isEqualTo("SUCCESS");
+    assertThat(store.results(request.securityId(),10)).singleElement()
+        .satisfies(r->assertThat(r.qualityStatus()).isEqualTo("WARNING"));
+    assertThat(db.queryForObject("SELECT count(*) FROM llm_results",Integer.class)).isEqualTo(1);
+    verify(gateway,times(1)).call(any(),any());
+  }
+
+  @Test void mandatorySafetyRuleCannotBeDowngradedToWarning() throws Exception {
+    db.update("UPDATE validation_rules SET severity='WARNING' WHERE code='FORECAST_SCHEMA'");
+    assertThat(service.execute(request).status()).isEqualTo("VALIDATION_CONFIGURATION_ERROR");
+    verify(gateway,never()).call(any(),any());
+  }
+
+  @Test void missingOrBlockingFailedAuditHidesTheResult() throws Exception {
+    var first=service.execute(request);
+    UUID round=store.run(first.runId()).validationRoundId();
+    db.update("UPDATE validation_results SET result_status='FAIL',handling_status='OPEN' WHERE llm_run_id=? AND validation_round_id=? AND rule_code='FORECAST_EVIDENCE'",first.runId(),round);
+    assertThat(store.results(request.securityId(),10)).isEmpty();
+    assertThat(service.execute(request).status()).isEqualTo("REVALIDATION_REQUIRED");
+    db.update("DELETE FROM validation_results WHERE llm_run_id=? AND validation_round_id=? AND rule_code='FORECAST_EVIDENCE'",first.runId(),round);
+    assertThat(store.results(request.securityId(),10)).isEmpty();
+    assertThat(service.execute(request).status()).isEqualTo("REVALIDATION_REQUIRED");
+    verify(gateway,times(1)).call(any(),any());
   }
 
   @Test

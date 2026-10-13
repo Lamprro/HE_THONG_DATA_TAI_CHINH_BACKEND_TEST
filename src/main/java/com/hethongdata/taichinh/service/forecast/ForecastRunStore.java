@@ -47,16 +47,22 @@ public class ForecastRunStore {
     lock(ctx.request().securityId());
     var cached =
         db.queryForList(
-            "SELECT id,llm_run_id FROM llm_results WHERE source_domain='FINANCIAL' AND"
+            "SELECT id,llm_run_id,validation_round_id FROM llm_results WHERE source_domain='FINANCIAL' AND"
                 + " security_id=? AND input_hash=? AND is_current",
             ctx.request().securityId(),
             hash);
-    if (!cached.isEmpty())
+    if (!cached.isEmpty()) {
+      var previous = cached.getFirst();
+      if (previous.get("validation_round_id")==null || !validations.publicationRoundValid(
+          (UUID)previous.get("llm_run_id"),(UUID)previous.get("validation_round_id")))
+        return new Outcome("REVALIDATION_REQUIRED",(UUID)previous.get("llm_run_id"),null,
+            List.of("Cached result lacks a complete passing blocking-validation round"));
       return new Outcome(
           "CACHED",
           (UUID) cached.getFirst().get("llm_run_id"),
           (UUID) cached.getFirst().get("id"),
           List.of());
+    }
     db.update(
         "UPDATE llm_runs SET status='FAILED',finished_at=now(),error_message='RUN_LEASE_EXPIRED'"
             + " WHERE security_id=? AND news_article_id IS NULL AND status='RUNNING' AND"
@@ -284,11 +290,12 @@ public class ForecastRunStore {
                   + "\n"
                   + json.canonical(json.read(row.get("request_payload").toString())));
       db.update(
-          "UPDATE llm_results SET validation_round_id=?,validation_policy_hash=?,input_hash=? WHERE"
+          "UPDATE llm_results SET validation_round_id=?,validation_policy_hash=?,input_hash=?,quality_status=? WHERE"
               + " llm_run_id=?",
           evaluation.round(),
           policy,
           hash,
+          evaluation.qualityStatus(),
           run);
       return new Outcome("SUCCESS", run, current.getFirst(), List.of());
     }
@@ -313,7 +320,7 @@ public class ForecastRunStore {
     db.update(
         "INSERT INTO"
             + " llm_results(id,llm_run_id,prompt_template_id,task_code,source_domain,company_id,security_id,as_of_date,source_hash,input_hash,schema_version,overview,result_json,quality_status,validation_round_id,validation_policy_hash)"
-            + " VALUES (?,?,?,?,'FINANCIAL',?,?,?,?,?,?,?,?::jsonb,'WARNING',?,?)",
+            + " VALUES (?,?,?,?,'FINANCIAL',?,?,?,?,?,?,?,?::jsonb,?,?,?)",
         id,
         run,
         template.id(),
@@ -326,6 +333,7 @@ public class ForecastRunStore {
         output.path("schema_version").asText(),
         output.path("overview").asText(),
         result.toString(),
+        evaluation.qualityStatus(),
         evaluation.round(),
         policy);
     db.update(
@@ -399,13 +407,7 @@ public class ForecastRunStore {
               .convertValue(json.read(metadata).path("forecast_request"), ForecastRequest.class);
       var current = contexts.build(request);
       if (!current.eligible() || !current.hash().equals(r.get("source_hash"))) continue;
-      if (db.queryForObject(
-              "SELECT count(*) FROM validation_results WHERE llm_run_id=? AND validation_round_id=?"
-                  + " AND result_status='PASS'",
-              Integer.class,
-              run,
-              r.get("validation_round_id"))
-          != 7) continue;
+      if (!validations.publicationRoundValid(run,(UUID) r.get("validation_round_id"))) continue;
       output.add(
           new Result(
               (UUID) r.get("id"),

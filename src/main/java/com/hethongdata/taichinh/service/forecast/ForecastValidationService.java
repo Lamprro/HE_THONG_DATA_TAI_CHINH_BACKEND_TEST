@@ -11,7 +11,12 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class ForecastValidationService {
-  public record Evaluation(UUID round, List<String> errors, boolean technical) {}
+  public record Evaluation(UUID round, List<String> errors, boolean technical, boolean warnings) {
+    public String qualityStatus() { return warnings ? "WARNING" : "VALID"; }
+  }
+
+  private static final String POLICY_VERSION = "forecast-validation-quality-v2";
+  private static final String DATA_LIMITATIONS = "FORECAST_DATA_LIMITATIONS";
 
   private static final Set<String> REQUIRED =
       Set.of(
@@ -45,15 +50,25 @@ public class ForecastValidationService {
       var tasks = r.path("config").path("tasks");
       boolean applies = false;
       for (var t : tasks) if (ForecastPromptService.TASK.equals(t.asText())) applies = true;
-      if (!REQUIRED.contains(r.path("code").asText())
-          || !r.path("code").equals(r.path("executor"))
-          || !Set.of("ERROR", "CRITICAL").contains(r.path("severity").asText())
+      String executor = r.path("executor").asText();
+      String severity = r.path("severity").asText();
+      if ((!REQUIRED.contains(executor) && !DATA_LIMITATIONS.equals(executor))
+          || !Set.of("ERROR", "CRITICAL", "WARNING").contains(severity)
           || !r.path("config").hasNonNull("version")
           || !tasks.isArray()
           || !applies)
         throw new IllegalStateException(
-            "Invalid forecast blocking rule: " + r.path("code").asText());
-      codes.add(r.path("code").asText());
+            "Invalid forecast rule: " + r.path("code").asText());
+      if (DATA_LIMITATIONS.equals(executor)) {
+        var prefixes = r.path("config").path("limitationPrefixes");
+        if (!prefixes.isArray() || prefixes.isEmpty())
+          throw new IllegalStateException("Forecast limitation rule requires non-empty limitationPrefixes");
+        for (var prefix : prefixes)
+          if (!prefix.isTextual() || prefix.asText().isBlank())
+            throw new IllegalStateException("Invalid forecast limitation prefix");
+      }
+      if (REQUIRED.contains(r.path("code").asText()) && r.path("code").equals(r.path("executor"))
+          && !"WARNING".equals(severity)) codes.add(r.path("code").asText());
     }
     if (!codes.equals(REQUIRED))
       throw new IllegalStateException("Missing mandatory forecast rules");
@@ -61,7 +76,26 @@ public class ForecastValidationService {
   }
 
   public String fingerprint() {
-    return hashes.sha256(json.canonical(json.mapper().valueToTree(rules())).toString());
+    return hashes.sha256(POLICY_VERSION + "\n" + json.canonical(json.mapper().valueToTree(rules())));
+  }
+
+  /** Every configured rule must have its current audit; advisory failures do not hide results. */
+  public boolean publicationRoundValid(UUID run, UUID round) {
+    var configured = new HashMap<String, JsonNode>();
+    for (var rule : rules()) configured.put(rule.path("code").asText(), rule);
+    var audits = db.queryForList("""
+        SELECT rule_code,result_status,rule_snapshot::text snapshot FROM validation_results
+        WHERE llm_run_id=? AND validation_round_id=? AND validation_target='LLM_OUTPUT'
+        """,run,round);
+    if (audits.size()!=configured.size()) return false;
+    for (var audit : audits) {
+      var rule = configured.remove(audit.get("rule_code").toString());
+      if (rule==null || !rule.equals(json.read(audit.get("snapshot").toString()))) return false;
+      String state=audit.get("result_status").toString();
+      if (!"PASS".equals(state) && !("FAIL".equals(state) && "WARNING".equals(rule.path("severity").asText())))
+        return false;
+    }
+    return configured.isEmpty();
   }
 
   public Evaluation evaluate(
@@ -78,9 +112,10 @@ public class ForecastValidationService {
     try {
       rules = rules();
     } catch (IllegalStateException e) {
-      return new Evaluation(round, List.of(e.getMessage()), true);
+      return new Evaluation(round, List.of(e.getMessage()), true, false);
     }
     var errors = new ArrayList<String>();
+    boolean warnings = false;
     boolean valid =
         output != null
             && readiness.isEmpty()
@@ -90,8 +125,9 @@ public class ForecastValidationService {
     for (var rule : rules) {
       var issues = new ArrayList<String>();
       String code = rule.path("code").asText();
+      String executor = rule.path("executor").asText();
       boolean skip = false;
-      switch (code) {
+      switch (executor) {
         case "FORECAST_SCHEMA" -> {
           issues.addAll(readiness);
           if (output == null) issues.add("OUTPUT_MISSING");
@@ -104,12 +140,20 @@ public class ForecastValidationService {
           if (!promptCurrent) issues.add("FORECAST_TEMPLATE_CHANGED");
           if (!fingerprint().equals(expectedPolicy)) issues.add("FORECAST_RULES_CHANGED");
         }
+        case DATA_LIMITATIONS -> {
+          for (var limitation : ctx.coverage().limitations())
+            for (var prefix : rule.path("config").path("limitationPrefixes"))
+              if (limitation.startsWith(prefix.asText())) {
+                issues.add(limitation);
+                break;
+              }
+        }
         default -> {
           if (!valid) {
             skip = true;
             break;
           }
-          switch (code) {
+          switch (executor) {
             case "FORECAST_SOURCE" -> {
               if (!ctx.company().toString().equals(output.path("company_id").asText())
                   || !ctx.request()
@@ -196,7 +240,10 @@ public class ForecastValidationService {
         }
       }
       String state = skip ? "SKIP" : issues.isEmpty() ? "PASS" : "FAIL";
-      errors.addAll(issues);
+      if (!issues.isEmpty()) {
+        if ("WARNING".equals(rule.path("severity").asText())) warnings = true;
+        else errors.addAll(issues);
+      }
       db.update(
           "INSERT INTO"
               + " validation_results(id,validation_rule_id,rule_code,severity,result_status,handling_status,checked_at,validation_target,llm_run_id,validation_round_id,rule_snapshot,observed_value,expected_value,message)"
@@ -215,7 +262,7 @@ public class ForecastValidationService {
               ? "Prerequisite schema/response failed"
               : issues.isEmpty() ? "Rule passed" : String.join("; ", issues));
     }
-    return new Evaluation(round, errors.stream().distinct().toList(), false);
+    return new Evaluation(round, errors.stream().distinct().toList(), false, warnings);
   }
 
   public JsonNode projections(ForecastContextService.Context ctx, JsonNode output) {

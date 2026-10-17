@@ -62,10 +62,12 @@ public class MarketPriceWorkflowPersistenceService {
             throw new IllegalStateException("Data version MARKET_PRICE chứa loại payload không phù hợp");
         }
         int inserted = 0, updated = 0, fetched = 0, skipped = 0;
+        var touchedSecurities=new java.util.HashSet<UUID>();
         for (RawPayloadEntity raw : payloads) {
             var batch = parser.parse(raw.getPayload(), raw.getEntityType(),
                     raw.getSourceSymbol(), raw.getFetchedAt());
             SecurityEntity security = lockedSecurity(raw, batch.symbol());
+            touchedSecurities.add(security.getId());
             if (batch.rows().size() >= 100 && batch.rows().stream().allMatch(row -> "1d".equals(row.interval()))) {
                 int[] counts = buildDailyBatch(raw, versionId, security.getId(), batch.rows());
                 fetched += batch.rows().size(); inserted += counts[0]; updated += counts[1]; skipped += counts[2];
@@ -108,6 +110,7 @@ public class MarketPriceWorkflowPersistenceService {
                 reconcileCanonical(security.getId(), storageTimestamp, row.interval());
             }
         }
+        touchedSecurities.forEach(prices::linkKnownForeignObservations);
         run.markWorkflowSuccess(mapper.valueToTree(Map.of(
                 "workflow", MarketPriceWorkflowService.WORKFLOW,
                 "sourceVersionId", versionId, "skipped", skipped)),

@@ -31,6 +31,10 @@ Worktree `fix/training-data-quality` is isolated from the original LLM checkout.
 - Dedicated-admin endpoints: `GET /api/admin/financial-data/quality/coverage` and
   `POST /api/admin/financial-data/quality/review-legacy/{symbol}`. Token required;
   review is transactional per security and does not manufacture numerical data.
+- Price materialization also links any existing canonical foreign observations, so
+  the final columns and separate provenance remain correct when foreign data arrives
+  before the corresponding price session. This ordering is covered by the isolated
+  PostgreSQL ingestion/validation/build test.
 - Deploy health includes commit identity; deployment waits for that exact commit.
 
 ## Verification and operations performed
@@ -56,3 +60,7 @@ Adjusted close is provider-defined; corporate action ledgers and total-return me
 remain unverified. Macro annual/rate coverage is limited by the original source.
 Some KBS VNINDEX/VN30 OHLC bars fail high/low bounds; those batches remain blocked while
 an independent source is checked. Do not split a rejected window to hide invalid bars.
+
+Read-only source investigation also found CafeF VNINDEX OHLC conflicts (including
+2026-10-07 high=160.54 against open=1760.54), empty CafeF VN30 history, inconsistent
+VCI bars, and HTTP 406 from VNDirect chart. None was patched with invented prices.

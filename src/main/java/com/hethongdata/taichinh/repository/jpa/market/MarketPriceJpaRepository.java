@@ -18,6 +18,16 @@ import java.util.UUID;
 
 @Repository
 public interface MarketPriceJpaRepository extends JpaRepository<MarketPriceEntity, Long> {
+    /** Foreign volumes keep their own lineage when a later price batch adds the same session. */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically=true)
+    @Query(value="""
+UPDATE market_prices m SET foreign_buy_volume=f.buy_volume,foreign_sell_volume=f.sell_volume,
+ foreign_data_source_id=f.data_source_id,foreign_raw_payload_id=f.raw_payload_id,foreign_data_version_id=f.data_version_id
+FROM security_foreign_observations f WHERE m.security_id=:securityId AND f.security_id=m.security_id
+AND m.interval_code='1d' AND f.is_canonical AND (m.price_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')::date=f.trading_date
+AND (m.foreign_raw_payload_id IS DISTINCT FROM f.raw_payload_id OR m.foreign_buy_volume IS DISTINCT FROM f.buy_volume OR m.foreign_sell_volume IS DISTINCT FROM f.sell_volume)
+""",nativeQuery=true)
+    int linkKnownForeignObservations(@Param("securityId") UUID securityId);
     List<MarketPriceEntity> findBySecurityIdAndIntervalCodeAndPriceTimestampBetween(
             UUID securityId, String intervalCode, Instant start, Instant end);
     Optional<MarketPriceEntity> findBySecurityIdAndPriceTimestampAndIntervalCodeAndDataSourceId(

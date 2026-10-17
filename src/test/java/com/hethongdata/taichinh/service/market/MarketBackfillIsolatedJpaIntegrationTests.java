@@ -131,5 +131,18 @@ class MarketBackfillIsolatedJpaIntegrationTests {
         assertThat(db.queryForObject("SELECT buy_volume FROM security_foreign_observations WHERE is_canonical",java.math.BigDecimal.class)).isEqualByComparingTo("100");
         assertThat(db.queryForObject("SELECT count(*) FROM market_prices WHERE foreign_buy_volume=100 AND foreign_sell_volume=20 AND foreign_raw_payload_id IS NOT NULL",Integer.class)).isEqualTo(2);
         assertThat(db.queryForObject("SELECT count(*) FROM data_correction_audit WHERE table_name='market_prices'",Integer.class)).isGreaterThanOrEqualTo(4);
+        // Simulate a fresh price source arriving after the foreign-volume workflow.
+        db.update("UPDATE market_prices SET foreign_buy_volume=NULL,foreign_sell_volume=NULL,foreign_raw_payload_id=NULL,foreign_data_source_id=NULL,foreign_data_version_id=NULL");
+        URI priceUri=URI.create("https://isolated.invalid/price-after-foreign");
+        var priceBody=json.readTree("""
+{"provider":"vndirect","dataset":"equity_ohlcv","schema_version":"market_price.v1","symbol":"FPT","count":1,
+"retrieved_at":"2026-10-17T00:00:00Z","data":[{"date":"2016-01-01","open_price":100,"high_price":100,"low_price":100,"close_price":100}]}
+""");
+        when(provider.resolveUri(any())).thenReturn(priceUri);
+        when(provider.fetch(any())).thenReturn(new ExternalFetchResponse(ExternalOperation.OHLCV,"vndirect",priceUri,200,"application/json",Map.of(),priceBody.toString(),Instant.parse("2026-10-17T00:00:00Z")));
+        var priceRequest=new ManualIngestionRequest();priceRequest.setOperation(ExternalOperation.OHLCV);priceRequest.setProvider("vndirect");priceRequest.setDataSourceCode("VNDIRECT");priceRequest.setSymbol("FPT");
+        assertThat(validation.validate(ingestion.ingest(priceRequest).getRawPayloadId()).getStatus()).isEqualTo("ACCEPTED");
+        assertThat(workflow.execute(job,"MANUAL").getStatus()).isEqualTo("SUCCESS");
+        assertThat(db.queryForObject("SELECT count(*) FROM market_prices WHERE foreign_buy_volume=100 AND foreign_sell_volume=20 AND foreign_raw_payload_id IS NOT NULL",Integer.class)).isEqualTo(2);
     }
 }

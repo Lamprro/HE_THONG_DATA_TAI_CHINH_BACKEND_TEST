@@ -4,8 +4,9 @@
 [hợp đồng/giới hạn dữ liệu](TRAINING_DATA_QUALITY_20261017.md) trước khi train.
 Java/Python đã deploy và chạy source → validation → bảng cuối trên localhost/server.
 Không chạy NEWS/LLM. Chưa đủ bằng chứng công bố lịch sử để chứng nhận point-in-time;
-không thay ngày công bố bằng cuối kỳ + 90 ngày. Cấu hình secret cho API quality đang
-chờ người dùng phê duyệt; code runtime và dữ liệu không phụ thuộc bước này đã nghiệm thu.
+không thay ngày công bố bằng cuối kỳ + 90 ngày. Người dùng đã duyệt cấu hình secret
+cho API quality; bản `4c978b1` đã deploy thành công. Nghiệm thu ngày 17/10 lúc
+06:56 UTC: token hợp lệ trả 200, thiếu/sai token trả 403; NEWS/LLM và dữ liệu giữ nguyên.
 
 # Cập nhật 13/10/2026 — fix phân loại chất lượng forecast trên main
 

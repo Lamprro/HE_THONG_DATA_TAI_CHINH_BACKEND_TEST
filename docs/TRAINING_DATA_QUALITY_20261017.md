@@ -36,13 +36,12 @@ Worktree `fix/training-data-quality` is isolated from the original LLM checkout.
   before the corresponding price session. This ordering is covered by the isolated
   PostgreSQL ingestion/validation/build test.
 - Deploy health includes commit identity; deployment waits for that exact commit.
-  A follow-up configuration is prepared to pass GitHub deployment secret
-  `FINANCIAL_ADMIN_API_TOKEN` to the container and verify authenticated coverage.
-  It is not deployed yet: automatic approval rejected transferring the existing local
-  token to GitHub pending explicit user authorization. Production currently returns
-  503 on protected coverage because no admin token is configured. Core ingestion/build
-  deployment and acceptance can continue independently. No secret was uploaded.
-  Tokens/private config/backup files are never committed.
+  After explicit user approval, the existing dedicated admin credential was encrypted
+  with the repository's GitHub public key and stored in `FINANCIAL_ADMIN_API_TOKEN`.
+  Deployment passes the secret to the container and verifies authenticated coverage.
+  Production acceptance at 2026-10-17 06:56 UTC confirmed commit `4c978b1`:
+  valid credential returns 200; missing or invalid credentials return 403.
+  No credential values, private config or backup files are committed or logged.
 
 ## Verification and operations performed
 

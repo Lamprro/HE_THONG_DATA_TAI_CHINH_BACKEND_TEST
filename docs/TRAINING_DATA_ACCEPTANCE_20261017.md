@@ -101,15 +101,18 @@ Lượt này không sửa feature engineering, tham số train hoặc kết qu�
 
 - Python production: `13a362217e17b1bb0f3693ac1f5a3bebef5a87b5`, version 0.7.0,
   Vercel deployment `dpl_6fnzFXHJMpoRuPZssAyyFSSfvT7e`, READY.
-- Java production: `e50c9f304ac02cd59b29852f88c408ca501ca0f9`.
-- [Java CI](https://github.com/Lamprro/HE_THONG_DATA_TAI_CHINH_BACKEND_TEST/actions/runs/39005168185),
-  [Java deployment](https://github.com/Lamprro/HE_THONG_DATA_TAI_CHINH_BACKEND_TEST/actions/runs/39005372090): success.
+- Java production: `4c978b1cff6e760daf126dad4a108ab2ecc48f1d`.
+- [Java CI](https://github.com/Lamprro/HE_THONG_DATA_TAI_CHINH_BACKEND_TEST/actions/runs/39011610536),
+  [Java deployment](https://github.com/Lamprro/HE_THONG_DATA_TAI_CHINH_BACKEND_TEST/actions/runs/39011675138): success.
 - Mã sửa của cả hai repo nằm ở `fix/training-data-quality`; code runtime đã có trên main.
 - Đã backup riêng trước migration; không commit backup, private config hay token.
-- Cấu hình token admin được chuẩn bị riêng, chưa deploy: auto-review chặn chuyển
-  token local lên GitHub Actions Secret, đang chờ người dùng cho phép rõ nguồn/đích.
-  Production ingestion/build đã nghiệm thu; endpoint quality có bảo vệ hiện trả 503
-  vì thiếu token. Không tắt kiểm tra quyền và không gửi token qua cách khác.
+- Người dùng đã cho phép rõ chuyển token admin hiện có vào GitHub Actions Secret
+  `FINANCIAL_ADMIN_API_TOKEN` của repo Java. Token được mã hóa bằng public key của
+  GitHub trước khi gửi, không ghi vào code/log. Cấu hình đã triển khai thành công.
+- Nghiệm thu endpoint quality trên production lúc 06:56 UTC ngày 17/10: token đúng
+  trả 200; thiếu hoặc sai token trả 403. Health khớp commit `4c978b1`, coverage trả
+  25 mã, 66.156 giá canonical, 0 thiếu adjusted close. Không còn lỗi thiếu token 503.
+- Audit sau triển khai xác nhận dữ liệu, NEWS/LLM và các hạn chế point-in-time giữ nguyên.
 
 Audit metric_source_math: `[{"checked": 159496, "mismatched": 0}]`
 

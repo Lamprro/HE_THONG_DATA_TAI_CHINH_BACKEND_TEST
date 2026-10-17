@@ -249,3 +249,11 @@ bỏ bảng legacy yêu cầu bảng rỗng. Không chạy SQL cleanup tùy ti�
 Các tài liệu chi tiết giữ lịch sử để truy vết. Khi mâu thuẫn, dùng code hiện hành
 để xác định implementation và bằng chứng đúng môi trường/ngày để xác định đã chạy
 thành công hay chưa; ghi lại chênh lệch thay vì chọn kết luận thuận lợi hơn.
+# Cập nhật 17/10/2026: dữ liệu cho Local AI
+
+Xem [TRAINING_DATA_QUALITY_20261017](TRAINING_DATA_QUALITY_20261017.md) trước khi
+đánh giá độ sẵn sàng train. Nhánh `fix/training-data-quality` bổ sung lịch sử tỷ số,
+metadata BCTC, khối ngoại, snapshot hồ sơ, monthly FX và view thời điểm biết dữ liệu.
+Không chạy NEWS/LLM. Không dùng ngày kỳ báo cáo cộng 90 ngày làm ngày công bố thật.
+Tài liệu trên phân biệt kiểm thử mock cô lập với nghiệm thu API/source/DB thật.
+

@@ -24,7 +24,8 @@ public class MacroPayloadParser {
                     Map.entry("VN_UNEMPLOYMENT_ILO_ESTIMATE", "SL.UEM.TOTL.ZS"),
                     Map.entry("VN_EXPORTS_GOODS_SERVICES_USD", "NE.EXP.GNFS.CD"),
                     Map.entry("VN_IMPORTS_GOODS_SERVICES_USD", "NE.IMP.GNFS.CD"),
-                    Map.entry("VN_USD_VND_QUARTER_AVG", "BIS:WS_XRU(1.0)/Q.VN.VND.A"));
+                    Map.entry("VN_USD_VND_QUARTER_AVG", "BIS:WS_XRU(1.0)/Q.VN.VND.A"),
+                    Map.entry("VN_USD_VND_MONTH_AVG", "BIS:WS_XRU(1.0)/M.VN.VND.A"));
     private static final Map<String, String> UNITS =
             Map.ofEntries(
                     Map.entry("VN_GDP_CURRENT_USD", "USD"),
@@ -37,7 +38,8 @@ public class MacroPayloadParser {
                     Map.entry("VN_UNEMPLOYMENT_ILO_ESTIMATE", "%"),
                     Map.entry("VN_EXPORTS_GOODS_SERVICES_USD", "USD"),
                     Map.entry("VN_IMPORTS_GOODS_SERVICES_USD", "USD"),
-                    Map.entry("VN_USD_VND_QUARTER_AVG", "VND_PER_USD"));
+                    Map.entry("VN_USD_VND_QUARTER_AVG", "VND_PER_USD"),
+                    Map.entry("VN_USD_VND_MONTH_AVG", "VND_PER_USD"));
 
     public Batch parse(JsonNode root, String expectedProvider) {
         require(root != null && root.isObject(), "Macro payload must be an object");
@@ -81,8 +83,9 @@ public class MacroPayloadParser {
                     "Series country/provider mismatch");
             require(
                     provider.equals("bis")
-                            ? code.equals("VN_USD_VND_QUARTER_AVG") && frequency.equals("QUARTERLY")
-                            : !code.equals("VN_USD_VND_QUARTER_AVG") && frequency.equals("YEARLY"),
+                            ? (code.equals("VN_USD_VND_QUARTER_AVG") && frequency.equals("QUARTERLY")
+                                || code.equals("VN_USD_VND_MONTH_AVG") && frequency.equals("MONTHLY"))
+                            : !code.startsWith("VN_USD_VND_") && frequency.equals("YEARLY"),
                     "Native macro frequency mismatch");
             String name = text(s, "name"),
                     description = text(s, "description"),
@@ -102,7 +105,9 @@ public class MacroPayloadParser {
                             date.equals(LocalDate.of(date.getYear(), 12, 31))
                                     && period.equals(Integer.toString(date.getYear())),
                             "Invalid annual period");
-                else {
+                else if (frequency.equals("MONTHLY")) {
+                    require(YearMonth.parse(period).atEndOfMonth().equals(date), "Invalid native monthly period");
+                } else {
                     int quarter = (date.getMonthValue() - 1) / 3 + 1;
                     require(
                             date.equals(YearMonth.of(date.getYear(), quarter * 3).atEndOfMonth())
@@ -126,7 +131,7 @@ public class MacroPayloadParser {
                             "World Bank evidence value mismatch");
                 } else {
                     require(
-                            "Q".equals(evidence.path("FREQ").asText())
+                            (frequency.equals("MONTHLY") ? "M" : "Q").equals(evidence.path("FREQ").asText())
                                     && "VN".equals(evidence.path("REF_AREA").asText())
                                     && "VND".equals(evidence.path("CURRENCY").asText())
                                     && "A".equals(evidence.path("COLLECTION").asText())

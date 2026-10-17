@@ -88,6 +88,20 @@ class DataEnrichmentIsolatedIntegrationTests {
         assertThat(db.queryForObject("SELECT count(*) FROM financial_metrics",Integer.class)).isEqualTo(2);
         assertThat(db.queryForObject("SELECT input_snapshot->>'transformation' FROM financial_metrics WHERE is_canonical",String.class)).isEqualTo("fraction_to_percent:*100");
     }
+    @Test void historicalRatioPagesCrossBatchBoundaryWithoutDroppingRows() throws Exception {
+        var raw=raw("2026-10-17T00:00:00Z","FPT","0.24");
+        var body=json.createObjectNode().put("provider","vndirect").put("dataset","ratios").put("symbol","FPT").put("count",1201);
+        var data=body.putArray("data");
+        for(int i=0;i<1201;i++) data.addObject().put("code","FPT").put("ratioCode","PRICE_TO_EARNINGS")
+            .put("reportDate",LocalDate.of(2017,1,1).plusDays(i).toString()).put("value",12.3456789012);
+        when(raw.getPayload()).thenReturn(body);var v=batch(List.of(raw));
+        int built=tx.execute(s->writer().build(v.getId(),mock(IngestionRunEntity.class)));
+        assertThat(built).isEqualTo(1201);
+        assertThat(db.queryForObject("SELECT count(*) FROM financial_metrics WHERE is_canonical",Integer.class)).isEqualTo(1201);
+        var replay=batch(List.of(raw));
+        int repeated=tx.execute(s->writer().build(replay.getId(),mock(IngestionRunEntity.class)));
+        assertThat(repeated).isZero();
+    }
     @Test void oneInvalidPayloadRollsBackTheWholeAcceptedBatch() throws Exception {
         var good=raw("2026-10-08T00:00:00Z","FPT","0.24");var bad=raw("2026-10-08T00:00:00Z","VCB","0.31");
         var v=batch(List.of(good,bad));

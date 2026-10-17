@@ -60,6 +60,8 @@ public class ValidationRuleExecutionService {
             case "MARKET_VOLUME_NON_NEGATIVE" -> nonNegativeVolume(raw.getPayload());
             case "STATEMENT_REQUIRED_KEYS" -> required(raw.getPayload());
             case "STATEMENT_ITEM_CODE_REQUIRED" -> itemCode(raw.getPayload());
+            case "FINANCIAL_METADATA_VALID" -> financialMetadata(raw.getPayload());
+            case "SUPPLEMENTARY_PAYLOAD_VALID" -> supplementary(raw);
             case "NEWS_TITLE_REQUIRED" -> title(raw.getPayload(), rule.getRuleConfig());
             case "NEWS_URL_REQUIRED" -> url(raw.getPayload(), rule.getRuleConfig());
             case "NEWS_PAYLOAD_STRUCTURE" -> newsStructure(raw.getPayload(), rule.getRuleConfig());
@@ -111,6 +113,31 @@ public class ValidationRuleExecutionService {
             return fail(e.getMessage(), "macro_observations.v1/VNM",
                     "Macro batch rejected: " + e.getMessage());
         }
+    }
+
+    private Outcome financialMetadata(JsonNode root) {
+        if (root == null || !root.has("financial_metadata"))
+            return new Outcome("SKIP", "LEGACY_UNVERIFIED", null, "Legacy payload has no metadata evidence contract");
+        try {
+            String type = "balance_sheet".equals(root.path("dataset").asText()) ? "BALANCE_SHEET" : "SOURCE_STATEMENT";
+            var periods = root.path("financial_metadata").path("periods");
+            if (periods.isObject() && !periods.isEmpty()) {
+                var dates = periods.fieldNames();
+                while (dates.hasNext()) com.hethongdata.taichinh.service.financial.FinancialStatementMetadata.parse(
+                    root, java.time.LocalDate.parse(dates.next()), type);
+            } else com.hethongdata.taichinh.service.financial.FinancialStatementMetadata.parse(
+                root, java.time.LocalDate.of(1900,1,1), type);
+            return new Outcome("PASS", null, null, "Metadata evidence contract valid; UNKNOWN remains unverified");
+        } catch (RuntimeException e) { return fail("financial_metadata", "source-backed metadata", e.getMessage()); }
+    }
+
+    private Outcome supplementary(RawPayloadEntity raw) {
+        try {
+            if ("FOREIGN_TRADES".equals(raw.getEntityType()))
+                com.hethongdata.taichinh.service.market.SupplementaryPayloadParser.foreign(raw.getPayload(),raw.getSourceSymbol());
+            else com.hethongdata.taichinh.service.market.SupplementaryPayloadParser.reference(raw.getPayload(),raw.getSourceSymbol());
+            return new Outcome("PASS",null,null,"Source supplementary contract and identity valid");
+        } catch(RuntimeException e) {return fail("data","source contract",e.getMessage());}
     }
 
     private Outcome ohlc(JsonNode payload) {

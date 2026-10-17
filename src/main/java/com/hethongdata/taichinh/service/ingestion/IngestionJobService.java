@@ -48,6 +48,7 @@ public class IngestionJobService {
     private final FinancialMetricCalculateService financialMetricCalculateService;
     private final MarketPriceWorkflowService marketPriceWorkflowService;
     private final MarketIndexWorkflowService marketIndexWorkflowService;
+    private final com.hethongdata.taichinh.service.market.SupplementaryDataWorkflowService supplementaryWorkflow;
 
     @Value("${financial.ingestion.scheduler.allowed-job-codes:}")
     private String scheduledJobCodes = "";
@@ -63,7 +64,8 @@ public class IngestionJobService {
             FinancialMetricWorkflowService financialMetricWorkflowService,
             FinancialMetricCalculateService financialMetricCalculateService,
             MarketPriceWorkflowService marketPriceWorkflowService,
-            MarketIndexWorkflowService marketIndexWorkflowService) {
+            MarketIndexWorkflowService marketIndexWorkflowService,
+            com.hethongdata.taichinh.service.market.SupplementaryDataWorkflowService supplementaryWorkflow) {
         this.ingestionJobs = ingestionJobs;
         this.ingestionRuns = ingestionRuns;
         this.ingestionService = ingestionService;
@@ -75,6 +77,7 @@ public class IngestionJobService {
         this.financialMetricCalculateService = financialMetricCalculateService;
         this.marketPriceWorkflowService = marketPriceWorkflowService;
         this.marketIndexWorkflowService = marketIndexWorkflowService;
+        this.supplementaryWorkflow = supplementaryWorkflow;
     }
 
     public IngestionJobResponse create(CreateIngestionJobRequest request) {
@@ -215,6 +218,7 @@ public class IngestionJobService {
 
     private IngestionExecutionResponse dispatch(IngestionJobEntity job, String trigger) {
         String code = job.getCode();
+        if (supplementaryWorkflow.supports(code)) return supplementaryWorkflow.execute(job, trigger);
         if (macroWorkflowService.supports(code)) return macroWorkflowService.execute(job, trigger);
         if (newsWorkflowService.supports(code)) return newsWorkflowService.execute(job, trigger);
         if (marketPriceWorkflowService.supports(code)) return marketPriceWorkflowService.execute(job, trigger);

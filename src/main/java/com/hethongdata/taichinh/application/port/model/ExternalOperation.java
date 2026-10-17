@@ -12,6 +12,7 @@ public enum ExternalOperation {
     COMPANY,
     FINANCIAL_STATEMENT,
     RATIO,
+    FOREIGN_TRADES,
     MANAGEMENT,
     SUBSIDIARIES,
     NEWS,

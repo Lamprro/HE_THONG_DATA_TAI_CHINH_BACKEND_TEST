@@ -10,9 +10,11 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api")
 public class HealthController {
+    @org.springframework.beans.factory.annotation.Value("${APP_BUILD_COMMIT:unknown}")
+    private String buildCommit;
 
     @GetMapping("/health")
     public ResponseEntity<Map<String, String>> health() {
-        return ResponseEntity.ok(Map.of("status", "UP", "service", "financial-data-api"));
+        return ResponseEntity.ok(Map.of("status", "UP", "service", "financial-data-api", "buildCommit", buildCommit));
     }
 }

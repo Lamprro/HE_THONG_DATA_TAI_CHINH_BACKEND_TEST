@@ -29,8 +29,9 @@ class IntegratedJobDispatchTests {
     final FinancialMetricCalculateService calculate=mock(FinancialMetricCalculateService.class);
     final MarketPriceWorkflowService prices=mock(MarketPriceWorkflowService.class);
     final MarketIndexWorkflowService indexes=mock(MarketIndexWorkflowService.class);
+    final SupplementaryDataWorkflowService supplementary=mock(SupplementaryDataWorkflowService.class);
     final IngestionJobService service=new IngestionJobService(jobs,runs,provider,budget,news,
-            statements,macro,metrics,calculate,prices,indexes);
+            statements,macro,metrics,calculate,prices,indexes,supplementary);
     final IngestionExecutionResponse response=new IngestionExecutionResponse(UUID.randomUUID(),null,
             "SUCCESS",200,"application/json",null,false);
 
@@ -42,10 +43,11 @@ class IntegratedJobDispatchTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings={"MACRO","NEWS","STATEMENTS","METRICS","CALCULATE","PRICES","INDEXES"})
+    @ValueSource(strings={"MACRO","NEWS","STATEMENTS","METRICS","CALCULATE","PRICES","INDEXES","FOREIGN_TRADE_BUILD","SECURITY_REFERENCE_BUILD"})
     void mergedWorkflowsNeverFallThroughToRawProvider(String code) {
         var job=job(code);
         switch(code) {
+            case "FOREIGN_TRADE_BUILD", "SECURITY_REFERENCE_BUILD" -> {when(supplementary.supports(code)).thenReturn(true);when(supplementary.execute(job,"MANUAL")).thenReturn(response);}
             case "MACRO" -> {when(macro.supports(code)).thenReturn(true);when(macro.execute(job,"MANUAL")).thenReturn(response);}
             case "NEWS" -> {when(news.supports(code)).thenReturn(true);when(news.execute(job,"MANUAL")).thenReturn(response);}
             case "STATEMENTS" -> {when(statements.supports(code)).thenReturn(true);when(statements.execute(job,"MANUAL")).thenReturn(response);}

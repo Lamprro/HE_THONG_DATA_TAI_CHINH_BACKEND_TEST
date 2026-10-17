@@ -89,6 +89,26 @@ public class MarketPriceEntity {
     @Column(name = "interval_code")
     private String intervalCode;
 
+    @Column(name = "price_basis")
+    private String priceBasis = "UNKNOWN";
+
+    @Column(name = "first_seen_at")
+    private Instant firstSeenAt;
+
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+    @Column(name = "price_metadata", columnDefinition = "jsonb")
+    private com.fasterxml.jackson.databind.JsonNode priceMetadata = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
+
+    public void annotatePriceSource(String provider, Instant fetchedAt) {
+        if (firstSeenAt == null) firstSeenAt = fetchedAt;
+        priceBasis = ("vndirect".equalsIgnoreCase(provider) || "cafef".equalsIgnoreCase(provider))
+                && adjustedClose != null ? "UNADJUSTED" : "UNKNOWN";
+        priceMetadata=com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode()
+                .put("contract","price.source-observation.v1").put("provider",provider)
+                .put("sourceRawId",rawPayloadId.toString()).put("sourceObservedAt",fetchedAt.toString())
+                .put("currency","VND").put("adjustmentMethod","UNKNOWN").put("historicalVintageVerified",false);
+    }
+
     public static MarketPriceEntity create(
             UUID securityId,
             Instant priceTimestamp,

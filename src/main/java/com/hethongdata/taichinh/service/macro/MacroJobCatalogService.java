@@ -66,7 +66,8 @@ public class MacroJobCatalogService {
                             .put("operation", "MACRO_OBSERVATIONS")
                             .put("provider", provider)
                             .put("startDate", start.toString());
-            parameters.putObject("parameters").put("country", "VNM");
+            var sourceParameters=parameters.putObject("parameters").put("country", "VNM");
+            if(provider.equals("bis")) sourceParameters.put("include_monthly","true");
             String code =
                     provider.equals("bis")
                             ? "MACRO_VN_BIS_QUARTERLY"
@@ -122,6 +123,6 @@ public class MacroJobCatalogService {
                 "refreshFrequency",
                 "QUARTERLY",
                 "sourceFrequencies",
-                List.of("YEARLY", "QUARTERLY"));
+                List.of("YEARLY", "QUARTERLY", "MONTHLY"));
     }
 }

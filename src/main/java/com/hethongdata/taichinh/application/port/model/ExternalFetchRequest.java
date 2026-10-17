@@ -35,7 +35,13 @@ public record ExternalFetchRequest(
         if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
             throw new IllegalArgumentException("Ngày bắt đầu không được sau ngày kết thúc.");
         }
-        int maximumYears = operation == ExternalOperation.MACRO_OBSERVATIONS ? 20 : 10;
+        if ((operation==ExternalOperation.RATIO || operation==ExternalOperation.FOREIGN_TRADES)
+                && ((startDate==null)!=(endDate==null))) throw new IllegalArgumentException("History requires both start and end dates");
+        int maximumYears = switch(operation) {
+            case MACRO_OBSERVATIONS -> 20;
+            case RATIO,FOREIGN_TRADES,INDEX_OHLCV -> 15;
+            default -> 10;
+        };
         if (startDate != null && endDate != null
                 && startDate.plusYears(maximumYears).isBefore(endDate)) {
             throw new IllegalArgumentException("Khoảng thời gian truy vấn vượt quá giới hạn của operation.");
@@ -52,6 +58,7 @@ public record ExternalFetchRequest(
                             COMPANY,
                             FINANCIAL_STATEMENT,
                             RATIO,
+                            FOREIGN_TRADES,
                             MANAGEMENT,
                             SUBSIDIARIES,
                             NEWS,

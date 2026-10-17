@@ -9,6 +9,8 @@ COPY src ./src
 RUN mvn -B -DskipTests package
 
 FROM eclipse-temurin:21-jre
+ARG APP_BUILD_COMMIT=unknown
+ENV APP_BUILD_COMMIT=$APP_BUILD_COMMIT
 WORKDIR /app
 COPY --from=build /app/target/*.jar app.jar
 EXPOSE 8080

@@ -292,6 +292,8 @@ public class ValidationJobService {
         return switch (raw.getEntityType().toUpperCase(Locale.ROOT)) {
             case "QUOTE", "OHLCV" -> "MARKET_PRICE";
             case "RATIO" -> "FINANCIAL_METRIC";
+            case "FOREIGN_TRADES" -> "MARKET_FOREIGN";
+            case "COMPANY" -> "SECURITY_REFERENCE";
             case "INDEX_OHLCV", "INDEX_LATEST", "INDEX_MEMBERS" -> "MARKET_INDEX";
             case "FINANCIAL_STATEMENT" -> "FINANCIAL_STATEMENT";
             case "NEWS", "NEWS_COMPANY" -> "NEWS";

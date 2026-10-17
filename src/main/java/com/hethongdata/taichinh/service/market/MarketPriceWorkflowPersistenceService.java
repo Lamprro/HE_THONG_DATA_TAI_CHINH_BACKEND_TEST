@@ -88,18 +88,21 @@ public class MarketPriceWorkflowPersistenceService {
                             row.close(), row.adjustedClose(), row.referencePrice(),
                             row.ceilingPrice(), row.floorPrice(), row.volume(), row.tradingValue(),
                             row.foreignBuyVolume(), row.foreignSellVolume(), raw.getId(), versionId)) {
+                        existing.get().annotatePriceSource(raw.getPayload().path("provider").asText(), raw.getFetchedAt());
                         prices.saveAndFlush(existing.get());
                         updated++;
                     } else {
                         skipped++;
                     }
                 } else {
-                    prices.saveAndFlush(MarketPriceEntity.create(security.getId(), storageTimestamp,
+                    var created=MarketPriceEntity.create(security.getId(), storageTimestamp,
                             row.interval(), row.open(), row.high(), row.low(), row.close(),
                             row.adjustedClose(), row.referencePrice(), row.ceilingPrice(),
                             row.floorPrice(), row.volume(), row.tradingValue(),
                             row.foreignBuyVolume(), row.foreignSellVolume(),
-                            raw.getDataSource().getId(), raw.getId(), versionId));
+                            raw.getDataSource().getId(), raw.getId(), versionId);
+                    created.annotatePriceSource(raw.getPayload().path("provider").asText(), raw.getFetchedAt());
+                    prices.saveAndFlush(created);
                     inserted++;
                 }
                 reconcileCanonical(security.getId(), storageTimestamp, row.interval());
@@ -152,7 +155,8 @@ public class MarketPriceWorkflowPersistenceService {
             sourceById.computeIfAbsent(row.getDataSourceId(), this::source);
         }
         Comparator<MarketPriceEntity> preference = Comparator
-                .comparing((MarketPriceEntity row) -> !sourceById.get(row.getDataSourceId()).isOfficial())
+                .comparing((MarketPriceEntity row) -> !"UNADJUSTED".equals(row.getPriceBasis()))
+                .thenComparing(row -> !sourceById.get(row.getDataSourceId()).isOfficial())
                 .thenComparing(row -> sourceById.get(row.getDataSourceId()).getPriority())
                 .thenComparing(MarketPriceEntity::getDataSourceId);
         MarketPriceEntity winner = bucket.stream().min(preference).orElseThrow();
@@ -180,6 +184,7 @@ public class MarketPriceWorkflowPersistenceService {
                 var created=MarketPriceEntity.create(securityId,row.timestamp(),row.interval(),row.open(),row.high(),row.low(),
                         row.close(),row.adjustedClose(),row.referencePrice(),row.ceilingPrice(),row.floorPrice(),row.volume(),
                         row.tradingValue(),row.foreignBuyVolume(),row.foreignSellVolume(),raw.getDataSource().getId(),raw.getId(),versionId);
+                created.annotatePriceSource(raw.getPayload().path("provider").asText(), raw.getFetchedAt());
                 // A new empty bucket has no canonical row to displace; one INSERT is sufficient.
                 if (bucket.isEmpty()) created.setCanonical(true);
                 bucket.add(prices.saveAndFlush(created));inserted++;
@@ -191,12 +196,14 @@ public class MarketPriceWorkflowPersistenceService {
                 else if (existing.applyCorrection(row.open(),row.high(),row.low(),row.close(),row.adjustedClose(),
                         row.referencePrice(),row.ceilingPrice(),row.floorPrice(),row.volume(),row.tradingValue(),
                         row.foreignBuyVolume(),row.foreignSellVolume(),raw.getId(),versionId)) {
+                    existing.annotatePriceSource(raw.getPayload().path("provider").asText(), raw.getFetchedAt());
                     prices.saveAndFlush(existing);updated++;
                 } else skipped++;
             }
             for (var p:bucket) sourceCache.computeIfAbsent(p.getDataSourceId(),this::source);
             var winner=bucket.stream().min(Comparator
-                    .comparing((MarketPriceEntity p)->!sourceCache.get(p.getDataSourceId()).isOfficial())
+                    .comparing((MarketPriceEntity p)->!"UNADJUSTED".equals(p.getPriceBasis()))
+                    .thenComparing(p->!sourceCache.get(p.getDataSourceId()).isOfficial())
                     .thenComparing(p->sourceCache.get(p.getDataSourceId()).getPriority())
                     .thenComparing(MarketPriceEntity::getDataSourceId)).orElseThrow();
             var displaced=bucket.stream().filter(p->p!=winner && Boolean.TRUE.equals(p.getIsCanonical())).toList();

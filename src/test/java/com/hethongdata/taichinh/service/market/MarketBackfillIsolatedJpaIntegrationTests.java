@@ -44,6 +44,10 @@ class MarketBackfillIsolatedJpaIntegrationTests {
             var tables=new ArrayList<String>();
             try(var r=s.executeQuery("SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'")) {while(r.next())tables.add(r.getString(1));}
             for(var t:tables)s.execute("CREATE TABLE "+SCHEMA+"."+t+" (LIKE public."+t+" INCLUDING ALL)");
+            s.execute("SET search_path TO "+SCHEMA);
+            s.execute(Files.readString(Path.of("src/main/resources/db/manual/V20261012_01__financial_metadata.sql")));
+            s.execute(Files.readString(Path.of("src/main/resources/db/manual/V20261017_01__training_data_quality.sql")));
+            s.execute(Files.readString(Path.of("src/main/resources/db/manual/V20261017_02__training_availability_views.sql")));
             var defaults=new ArrayList<String[]>();
             try(var r=s.executeQuery("SELECT table_name,column_name FROM information_schema.columns WHERE table_schema='"+SCHEMA+"' AND column_default LIKE 'nextval%'")) {while(r.next())defaults.add(new String[]{r.getString(1),r.getString(2)});}
             for(var d:defaults) {
@@ -68,6 +72,7 @@ class MarketBackfillIsolatedJpaIntegrationTests {
     @Autowired ValidationJobService validation;
     @Autowired ValidationRuleCatalogService ruleCatalog;
     @Autowired MarketPriceWorkflowService workflow;
+    @Autowired SupplementaryDataWorkflowService supplementary;
     @MockitoBean ExternalFinancialDataPort provider;
 
     @Test void actualPipelineEnforcesCanonicalUniqueAndStaleReplayForLargeBatches() throws Exception {
@@ -102,5 +107,29 @@ class MarketBackfillIsolatedJpaIntegrationTests {
         assertThat(db.queryForObject("SELECT count(*) FROM market_prices WHERE security_id=?",Integer.class,securityId)).isEqualTo(200);
         assertThat(db.queryForObject("SELECT count(*) FROM market_prices WHERE security_id=? AND is_canonical AND close_price=110",Integer.class,securityId)).isEqualTo(100);
         assertThat(db.queryForObject("SELECT count(*) FROM data_versions WHERE status='ACTIVATED'",Integer.class)).isEqualTo(4);
+        sources.upsert("CAFEF","Fixture foreign source","API",null,"cafef",false,"UNKNOWN",true);
+        var foreignJob=jobs.create("PYTHON_GATEWAY","FOREIGN_TRADE_BUILD","Fixture foreign workflow","OTHER",null,
+            json.createObjectNode(),(short)5,120,true);
+        for(int i=0;i<3;i++) {
+            Instant fetched=Instant.parse(i==2?"2026-10-15T10:00:00Z":"2026-10-16T10:00:00Z");
+            var body=json.createObjectNode().put("schema_version","foreign_trades.v1").put("provider","cafef")
+                .put("dataset","foreign_trades")
+                .put("volume_unit","SHARES").put("symbol","FPT").put("count",1).put("retrieved_at",fetched.toString())
+                .put("source_url","https://cafef.vn/du-lieu/ajax/pagenew/datahistory/gdkhoingoai.ashx")
+                .put("start_date","2016-01-01").put("end_date","2016-01-31");
+            var row=body.putArray("data").addObject().put("Symbol","FPT").put("Ngay","01/01/2016").put("KLBan",i==0?0:20);
+            if(i==0)row.putNull("KLMua");else row.put("KLMua",i==1?100:999);
+            URI uri=URI.create("https://isolated.invalid/foreign/"+i);
+            when(provider.resolveUri(any())).thenReturn(uri);
+            when(provider.fetch(any())).thenReturn(new ExternalFetchResponse(ExternalOperation.FOREIGN_TRADES,"cafef",uri,200,"application/json",Map.of(),body.toString(),fetched));
+            var request=new ManualIngestionRequest();request.setOperation(ExternalOperation.FOREIGN_TRADES);request.setProvider("cafef");
+            request.setSymbol("FPT");request.setDataSourceCode("CAFEF");
+            var accepted=validation.validate(ingestion.ingest(request).getRawPayloadId());
+            assertThat(accepted.getStatus()).isEqualTo("ACCEPTED");
+            assertThat(supplementary.execute(foreignJob,"MANUAL").getStatus()).isEqualTo("SUCCESS");
+        }
+        assertThat(db.queryForObject("SELECT buy_volume FROM security_foreign_observations WHERE is_canonical",java.math.BigDecimal.class)).isEqualByComparingTo("100");
+        assertThat(db.queryForObject("SELECT count(*) FROM market_prices WHERE foreign_buy_volume=100 AND foreign_sell_volume=20 AND foreign_raw_payload_id IS NOT NULL",Integer.class)).isEqualTo(2);
+        assertThat(db.queryForObject("SELECT count(*) FROM data_correction_audit WHERE table_name='market_prices'",Integer.class)).isGreaterThanOrEqualTo(4);
     }
 }

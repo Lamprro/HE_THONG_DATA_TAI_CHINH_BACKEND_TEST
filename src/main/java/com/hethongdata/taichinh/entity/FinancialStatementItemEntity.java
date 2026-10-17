@@ -85,4 +85,11 @@ public class FinancialStatementItemEntity {
         entity.createdAt = Instant.now();
         return entity;
     }
+
+    public static FinancialStatementItemEntity createWithUnit(UUID statementId, String code, String name,
+            BigDecimal value, String rawValue, Integer displayOrder, JsonNode metadata, String unit) {
+        var entity = create(statementId, code, name, value, rawValue, displayOrder, metadata);
+        entity.unit = unit;
+        return entity;
+    }
 }

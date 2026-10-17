@@ -55,7 +55,7 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
     public URI resolveUri(ExternalFetchRequest request) {
         UriComponentsBuilder builder =
                 UriComponentsBuilder.fromUri(properties.getBaseUrl()).path(pathFor(request));
-        if (request.operation() == ExternalOperation.OHLCV
+        if (request.operation() == ExternalOperation.FOREIGN_TRADES || request.operation() == ExternalOperation.RATIO || request.operation() == ExternalOperation.OHLCV
                 || request.operation() == ExternalOperation.INDEX_OHLCV
                 || request.operation() == ExternalOperation.MACRO_OBSERVATIONS) {
             addIfPresent(builder, "start", request.startDate());
@@ -187,6 +187,10 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
                     financialStatementPath(
                             provider, symbol, requiredParameter(request, "statement"));
             case RATIO -> ratioPath(provider, symbol);
+            case FOREIGN_TRADES -> {
+                if (!"cafef".equals(provider)) throw new IllegalArgumentException("Foreign trades require CafeF source");
+                yield "/api/v1/cafef/equities/"+symbol+"/foreign-trades";
+            }
             case MANAGEMENT -> cafefPath(symbol, "management");
             case SUBSIDIARIES -> cafefPath(symbol, "subsidiaries");
             case NEWS -> cafefPath(symbol, "news");
@@ -208,11 +212,11 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
     }
 
     private String indexPath(String provider, String indexCode, String dataset) {
-        if (!"vnstock".equals(provider)) {
+        if (!java.util.Set.of("vnstock", "kbs").contains(provider)) {
             throw new IllegalArgumentException(
-                    "API chỉ số thị trường hiện chỉ hỗ trợ provider vnstock.");
+                    "Index APIs support vnstock or kbs.");
         }
-        String path = "/api/v1/vnstock/indices";
+        String path = "/api/v1/" + provider + "/indices";
         if (indexCode != null) path += "/" + indexCode;
         return dataset == null ? path : path + "/" + dataset;
     }
@@ -273,7 +277,7 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
                     case NEWS, EVENTS, NEWS_COMPANY -> NEWS_PARAMETERS;
                     case NEWS_LATEST, NEWS_HISTORY -> NEWS_FEED_PARAMETERS;
                     case RAW_PROXY -> request.parameters().keySet();
-                    case MACRO_OBSERVATIONS -> Set.of("country");
+                    case MACRO_OBSERVATIONS -> Set.of("country", "include_monthly");
                     case FETCH_URL -> URL_FETCH_PARAMETERS;
                     default -> Set.of();
                 };

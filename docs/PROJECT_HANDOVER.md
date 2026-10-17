@@ -1,3 +1,12 @@
+# Cập nhật 17/10/2026 — nghiệm thu dữ liệu nguồn cho Local AI
+
+Đọc [báo cáo nghiệm thu](TRAINING_DATA_ACCEPTANCE_20261017.md) và
+[hợp đồng/giới hạn dữ liệu](TRAINING_DATA_QUALITY_20261017.md) trước khi train.
+Java/Python đã deploy và chạy source → validation → bảng cuối trên localhost/server.
+Không chạy NEWS/LLM. Chưa đủ bằng chứng công bố lịch sử để chứng nhận point-in-time;
+không thay ngày công bố bằng cuối kỳ + 90 ngày. Cấu hình secret cho API quality đang
+chờ người dùng phê duyệt; code runtime và dữ liệu không phụ thuộc bước này đã nghiệm thu.
+
 # Cập nhật 13/10/2026 — fix phân loại chất lượng forecast trên main
 
 FINANCIAL_SCENARIOS không còn gán cố định quality_status=WARNING. Kết quả
@@ -249,11 +258,3 @@ bỏ bảng legacy yêu cầu bảng rỗng. Không chạy SQL cleanup tùy ti�
 Các tài liệu chi tiết giữ lịch sử để truy vết. Khi mâu thuẫn, dùng code hiện hành
 để xác định implementation và bằng chứng đúng môi trường/ngày để xác định đã chạy
 thành công hay chưa; ghi lại chênh lệch thay vì chọn kết luận thuận lợi hơn.
-# Cập nhật 17/10/2026: dữ liệu cho Local AI
-
-Xem [TRAINING_DATA_QUALITY_20261017](TRAINING_DATA_QUALITY_20261017.md) trước khi
-đánh giá độ sẵn sàng train. Nhánh `fix/training-data-quality` bổ sung lịch sử tỷ số,
-metadata BCTC, khối ngoại, snapshot hồ sơ, monthly FX và view thời điểm biết dữ liệu.
-Không chạy NEWS/LLM. Không dùng ngày kỳ báo cáo cộng 90 ngày làm ngày công bố thật.
-Tài liệu trên phân biệt kiểm thử mock cô lập với nghiệm thu API/source/DB thật.
-

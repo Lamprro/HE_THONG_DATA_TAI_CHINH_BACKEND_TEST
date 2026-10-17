@@ -19,8 +19,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Deploy with Docker Compose
+        env:
+          FINANCIAL_ADMIN_API_TOKEN: ${{ secrets.FINANCIAL_ADMIN_API_TOKEN }}
         run: |
           set -euo pipefail
+          if [ "${#FINANCIAL_ADMIN_API_TOKEN}" -lt 32 ]; then
+            echo "Dedicated admin credential must be configured in deployment secrets."
+            exit 1
+          fi
           # Keep the server's Docker/Maven cache between deployments.
           # The changed service is recreated by compose without taking the
           # whole project down first.
@@ -40,9 +46,15 @@ jobs:
             sleep 2
           done
 
+          curl --fail --silent --show-error --max-time 20 --output /dev/null \
+            --header "Authorization: Bearer ${FINANCIAL_ADMIN_API_TOKEN}" \
+            http://127.0.0.1:8080/api/admin/financial-data/quality/coverage
+
           # Remove only dangling layers; keep tagged images for rollback.
           docker image prune --force
 
       - name: Show deployed containers
         if: always()
+        env:
+          FINANCIAL_ADMIN_API_TOKEN: ${{ secrets.FINANCIAL_ADMIN_API_TOKEN }}
         run: docker compose ps

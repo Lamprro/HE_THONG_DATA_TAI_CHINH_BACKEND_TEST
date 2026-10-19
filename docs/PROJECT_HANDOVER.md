@@ -1,3 +1,13 @@
+# Cập nhật 19/10/2026 — điều hành admin
+
+Đọc [API, kiểm thử và giới hạn admin](ADMIN_CONTROL_20261019.md).
+Đã bổ sung job đã tắt/chỉnh sửa job, lệnh nền có lịch sử/chống trùng,
+tra cứu DB phân trang, catalog API theo bản đang chạy và build đúng một
+market-price version. Toàn bộ đường quản trị dùng token riêng.
+FE độc lập có màn hình vận hành/LLM/forecast/recovery theo hợp đồng API.
+Không đưa code Local AI đang sửa ở checkout gốc vào release này.
+Người dùng chọn chỉ merge FE, chưa tạo hosting mới.
+
 # Cập nhật 17/10/2026 — nghiệm thu dữ liệu nguồn cho Local AI
 
 Đọc [báo cáo nghiệm thu](TRAINING_DATA_ACCEPTANCE_20261017.md) và

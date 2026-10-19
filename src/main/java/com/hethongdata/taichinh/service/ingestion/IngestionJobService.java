@@ -144,6 +144,46 @@ public class IngestionJobService {
         return ingestionJobs.findActiveEntities().stream().map(IngestionJobResponse::from).toList();
     }
 
+    public List<IngestionJobResponse> listAll() {
+        return ingestionJobs.findAllEntities().stream().map(IngestionJobResponse::from).toList();
+    }
+
+    /** A one-off execution never enables the cron schedule. Uses the same dispatcher/retry policy. */
+    public IngestionExecutionResponse runOnce(UUID jobId) {
+        IngestionJobEntity job = ingestionJobs.findEntityById(jobId)
+                .orElseThrow(() -> new IllegalArgumentException("Ingestion job not found: " + jobId));
+        if (!job.getDataSource().isActive()) throw new IllegalArgumentException("Data source is inactive");
+        return executeWithBudget(job, "MANUAL");
+    }
+
+    public IngestionExecutionResponse runPriceVersion(UUID jobId, UUID versionId) {
+        var job=ingestionJobs.findEntityById(jobId).orElseThrow(() -> new IllegalArgumentException("Job not found"));
+        if (!job.getDataSource().isActive()) throw new IllegalArgumentException("Data source is inactive");
+        return marketPriceWorkflowService.executeVersion(job,versionId,"MANUAL");
+    }
+
+    public IngestionJobResponse update(UUID jobId, CreateIngestionJobRequest request) {
+        IngestionJobEntity job = ingestionJobs.findEntityById(jobId)
+                .orElseThrow(() -> new IllegalArgumentException("Ingestion job not found: " + jobId));
+        if (!job.getCode().equals(AppParams.requiredUpper(request.getCode(), "code"))) {
+            throw new IllegalArgumentException("Job code is immutable; create a new job for a new identity");
+        }
+        validateCron(request.getCronExpression());
+        String domain = AppParams.requiredUpper(request.getDatasetType(), "datasetType");
+        validateDatasetType(domain);
+        if (request.getParameters() == null || !request.getParameters().isObject())
+            throw new IllegalArgumentException("parameters must be a JSON object");
+        if (request.getMaxRetries() != null && request.getMaxRetries() != AppParams.DEFAULT_MAX_RETRIES)
+            throw new IllegalArgumentException("maxRetries must be 10");
+        int timeout = request.getTimeoutSeconds() == null ? job.getTimeoutSeconds() : request.getTimeoutSeconds();
+        if (timeout < 1) throw new IllegalArgumentException("timeoutSeconds must be positive");
+        return IngestionJobResponse.from(ingestionJobs.upsert(
+                AppParams.requiredUpper(request.getDataSourceCode(), "dataSourceCode"), job.getCode(),
+                AppParams.requiredTrimmed(request.getName(), "name"), domain, request.getCronExpression(),
+                request.getParameters(), AppParams.DEFAULT_MAX_RETRIES, timeout,
+                request.getActive() == null ? job.isActive() : request.getActive()));
+    }
+
     public IngestionJobResponse setActive(UUID jobId, UpdateIngestionJobActivationRequest request) {
         IngestionJobEntity job = ingestionJobs.setActive(jobId, request.getActive());
         LOGGER.info("Updated ingestion job activation: id={}, code={}, active={}", jobId, job.getCode(), request.getActive());

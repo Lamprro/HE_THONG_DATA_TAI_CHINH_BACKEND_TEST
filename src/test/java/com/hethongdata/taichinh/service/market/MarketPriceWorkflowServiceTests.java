@@ -19,6 +19,25 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 class MarketPriceWorkflowServiceTests {
+    @Test void selectedVersionUsesNativeWriterWithoutScanningOtherPendingVersions() {
+        var versions=mock(DataVersionJpaRepository.class);var raws=mock(RawPayloadJpaRepository.class);
+        var runs=mock(IngestionRunRepository.class);var writes=mock(MarketPriceWorkflowPersistenceService.class);
+        var lifecycle=mock(DataVersionLifecycleService.class);var job=mock(IngestionJobEntity.class);
+        var version=version();var raw=mock(RawPayloadEntity.class);var run=run();
+        when(job.getCode()).thenReturn(MarketPriceWorkflowService.WORKFLOW);
+        when(versions.findById(version.getId())).thenReturn(java.util.Optional.of(version));
+        when(raw.getEntityType()).thenReturn("OHLCV");
+        when(raws.findByIngestionRunIdOrderByFetchedAtDesc(version.getIngestionRunId())).thenReturn(List.of(raw));
+        when(runs.startInternalBatch(null,job,"MANUAL",MarketPriceWorkflowService.WORKFLOW)).thenReturn(run);
+        var service=new MarketPriceWorkflowService(versions,raws,runs,writes,lifecycle);
+        assertThat(service.executeVersion(job,version.getId(),"MANUAL").getRunId()).isEqualTo(run.getId());
+        verify(writes).build(version.getId(),run);
+        verify(versions,never()).findByDataDomainAndStatusOrderByCreatedAtAsc(anyString(),anyString());
+        ReflectionTestUtils.setField(version,"status","REJECTED");
+        org.assertj.core.api.Assertions.assertThatThrownBy(()->service.executeVersion(job,version.getId(),"MANUAL"))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(writes,times(1)).build(any(),any());
+    }
     @Test
     void rejectsFailedVersionAndContinuesWithNextVersion() {
         DataVersionJpaRepository versions = mock(DataVersionJpaRepository.class);

@@ -47,6 +47,17 @@ public class ApiExceptionHandler {
                 exception.getMessage() == null ? "Yêu cầu không hợp lệ." : exception.getMessage());
     }
 
+    @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
+    ResponseEntity<ApiErrorResponse> invalidParameter(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException exception) {
+        String type=exception.getRequiredType()==null?"supported value":exception.getRequiredType().getSimpleName();
+        return error(HttpStatus.BAD_REQUEST,"VALIDATION",null,null,"Invalid parameter '"+exception.getName()+"': expected "+type);
+    }
+
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    ResponseEntity<ApiErrorResponse> unreadableBody(org.springframework.http.converter.HttpMessageNotReadableException exception) {
+        return error(HttpStatus.BAD_REQUEST,"VALIDATION",null,null,"Request JSON is malformed or a field has an invalid type/date/enum value");
+    }
+
     @ExceptionHandler(IngestionExecutionException.class)
     ResponseEntity<ApiErrorResponse> ingestionFailure(IngestionExecutionException exception) {
         LOGGER.error(

@@ -71,4 +71,14 @@ class IntegratedJobDispatchTests {
         service.executeDueMacroJobs();
         verify(macro).execute(macroJob,"SCHEDULED");verifyNoInteractions(provider,news);
     }
+
+    @Test void oneOffRunOfDisabledBuilderDoesNotEnableScheduleOrBypassNativeDispatcher() {
+        var job=job("PRICES"); when(job.isActive()).thenReturn(false);
+        var source=mock(com.hethongdata.taichinh.entity.ingestion.DataSourceEntity.class);
+        when(source.isActive()).thenReturn(true); when(job.getDataSource()).thenReturn(source);
+        when(prices.supports("PRICES")).thenReturn(true); when(prices.execute(job,"MANUAL")).thenReturn(response);
+        assertThat(service.runOnce(job.getId())).isSameAs(response);
+        verify(prices).execute(job,"MANUAL"); verify(job,never()).setActive(anyBoolean()); verifyNoInteractions(provider);
+        assertThatThrownBy(()->service.runNow(job.getId())).isInstanceOf(IllegalArgumentException.class);
+    }
 }

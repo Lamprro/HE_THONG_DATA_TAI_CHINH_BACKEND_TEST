@@ -42,7 +42,7 @@ public class IngestionRunRepository {
         Map<String, Object> query =
                 Map.of(
                         "operation", request.operation().name(),
-                        "provider", request.provider(),
+                        "provider", request.provider() == null ? "" : request.provider(),
                         "symbol", request.symbol() == null ? "" : request.symbol(),
                         "startDate",
                                 request.startDate() == null ? "" : request.startDate().toString(),

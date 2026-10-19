@@ -24,6 +24,16 @@ class AdminAccessMvcTests {
       "/api/securities","/api/ingestion-jobs","/api/ingestions","/api/data-sources","/api/raw-payloads"})
     String protectedRead() { return "ok"; }
     @GetMapping("/api/health") String health() { return "UP"; }
+    @PostMapping("/api/admin/example/{id}") String typed(@PathVariable java.util.UUID id,@RequestBody com.hethongdata.taichinh.dto.forecast.ForecastRequest body) { return "ok"; }
+  }
+  @Test void invalidIdsAndJsonReturnActionableBadRequestInsteadOfInternalServerError() throws Exception {
+    var mvc=MockMvcBuilders.standaloneSetup(new Probe())
+        .setControllerAdvice(new com.hethongdata.taichinh.controller.exception.ApiExceptionHandler()).build();
+    mvc.perform(post("/api/admin/example/not-a-uuid").contentType("application/json").content("{}"))
+        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.category").value("VALIDATION"))
+        .andExpect(jsonPath("$.message").value("Invalid parameter 'id': expected UUID"));
+    mvc.perform(post("/api/admin/example/"+java.util.UUID.randomUUID()).contentType("application/json").content("{broken"))
+        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.category").value("VALIDATION"));
   }
   @Test void allManagementFamiliesRequireCredentialWhilePublicHealthStaysAvailable() throws Exception {
     try(var context=new AnnotationConfigWebApplicationContext()) {

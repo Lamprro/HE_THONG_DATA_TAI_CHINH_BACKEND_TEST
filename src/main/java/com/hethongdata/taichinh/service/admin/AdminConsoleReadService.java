@@ -43,10 +43,25 @@ public class AdminConsoleReadService {
     if (page < 0 || size < 1 || size > 100 || page > 100000) throw new IllegalArgumentException("Invalid page or size (1..100)");
     var cols = columns(table);
     if (cols.isEmpty()) throw new IllegalArgumentException("Dataset is not installed on this deployment");
+    var labels = new LinkedHashMap<String,String>();
+    if(cols.contains("security_id")) labels.put("symbol","(select s.symbol from securities s where s.id=t.security_id)");
+    if(cols.contains("company_id")) labels.put("company_name","(select c.legal_name from companies c where c.id=t.company_id)");
+    if(cols.contains("data_source_id")) labels.put("source_code","(select s.code from data_sources s where s.id=t.data_source_id)");
+    if(cols.contains("metric_definition_id")) labels.put("metric_code","(select d.code from metric_definitions d where d.id=t.metric_definition_id)");
+    if(cols.contains("financial_period_id")) labels.put("period_end","(select p.end_date from financial_periods p where p.id=t.financial_period_id)");
+    if(cols.contains("financial_statement_id")) {
+      labels.put("symbol","(select s.symbol from financial_statements f join securities s on s.id=f.security_id where f.id=t.financial_statement_id)");
+      labels.put("period_end","(select p.end_date from financial_statements f join financial_periods p on p.id=f.financial_period_id where f.id=t.financial_statement_id)");
+      labels.put("statement_type","(select f.statement_type from financial_statements f where f.id=t.financial_statement_id)");
+    }
     var filters = new ArrayList<String>(); var params = new HashMap<String,Object>();
     if (search != null && !search.isBlank()) {
       if (search.length()>100) throw new IllegalArgumentException("Search is limited to 100 characters");
-      filters.add("cast(to_jsonb(t) as text) ilike :q escape '\\'");
+      var searches=new ArrayList<String>(); searches.add("cast(to_jsonb(t) as text) ilike :q escape '\\'");
+      if(cols.contains("security_id")) searches.add("t.security_id in (select s.id from securities s where s.symbol ilike :q escape '\\')");
+      if(cols.contains("financial_statement_id")) searches.add("t.financial_statement_id in (select f.id from financial_statements f join securities s on s.id=f.security_id where s.symbol ilike :q escape '\\')");
+      if(cols.contains("metric_definition_id")) searches.add("t.metric_definition_id in (select d.id from metric_definitions d where d.code ilike :q escape '\\')");
+      filters.add("("+String.join(" or ",searches)+")");
       params.put("q", "%" + search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%");
     }
     if (runId != null && !runId.isBlank()) {
@@ -64,6 +79,8 @@ public class AdminConsoleReadService {
     List<String> visible = cols.stream().filter(c -> !OMIT.contains(c) && !sensitive(c)).toList();
     String projection = "jsonb_build_object(" + visible.stream()
         .map(c -> "'"+c+"',t.\""+c+"\"").collect(java.util.stream.Collectors.joining(",")) + ")";
+    if(!labels.isEmpty()) projection += " || jsonb_build_object("+labels.entrySet().stream()
+        .map(e -> "'"+e.getKey()+"',"+e.getValue()).collect(java.util.stream.Collectors.joining(","))+")";
     String order = cols.contains("created_at") ? "t.created_at desc nulls last," : "";
     order += cols.contains("id") ? "t.id desc" : "cast(to_jsonb(t) as text)";
     params.put("limit", size); params.put("offset", (long)page*size);

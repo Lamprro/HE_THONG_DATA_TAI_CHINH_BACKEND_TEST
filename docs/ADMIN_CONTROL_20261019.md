@@ -22,7 +22,7 @@ uncommitted Local AI/H1–H4 work is excluded and must be rebased separately.
 - `/api/admin/console/session`, `/runtime`, `/catalog`, `/datasets` and
   `/data/{dataset}` expose authenticated capabilities, actual database checks,
   deployed MVC contracts and bounded allowlisted database browsing. Paging uses
-  stable order, exact totals, status/run/search filters and decimal strings.
+  stable order, exact totals, status/run/search filters and decimal strings. Financial rows include symbol, metric code, period and source labels; symbol and metric searches resolve their reference IDs.
   Raw bodies/transport headers are excluded from list responses; nested
   credentials are redacted. Sensitive account/config tables are not allowlisted.
 - `POST /api/admin/console/commands` accepts an idempotency UUID, action, reason
@@ -62,8 +62,8 @@ future scheduling. Scheduler flags show configuration, not invented heartbeat.
 
 ## Evidence
 
-- 181 Java unit/MVC/contract tests plus 4 isolated PostgreSQL ledger tests passed
-  (185 total). New cases cover authorization, decimal precision/redaction,
+- 182 Java unit/MVC/contract tests plus 5 isolated PostgreSQL ledger tests passed
+  (187 total). New cases cover authorization, decimal precision/redaction,
   idempotency, resource conflicts, expired leases, native failure diagnostics,
   disabled one-off dispatch and selected-version isolation.
 - Python: 24 unittest tests passed; source transport contracts use mocks.

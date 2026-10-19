@@ -34,10 +34,14 @@ class AdminCommandIsolatedIntegrationTests {
     assertThat(db.queryForObject("select current_schema()",String.class)).isEqualTo(SCHEMA);
     db.execute(Files.readString(Path.of("src/main/resources/db/manual/V20261019_01__admin_commands.sql")));
     db.execute("create table ingestion_runs(id uuid primary key,ingestion_run_id uuid,status text,created_at timestamptz,payload jsonb,value numeric)");
+    db.execute("create table securities(id uuid primary key,symbol text)");
+    db.execute("create table metric_definitions(id bigint primary key,code text)");
+    db.execute("create table financial_periods(id uuid primary key,end_date date)");
+    db.execute("create table financial_metrics(id uuid primary key,security_id uuid,metric_definition_id bigint,financial_period_id uuid,value numeric,created_at timestamptz)");
   }
   @AfterAll static void cleanup() { if(admin!=null && SCHEMA.matches("admin_console_test_[a-f0-9]{32}")) admin.execute("drop schema "+SCHEMA+" cascade"); }
   @BeforeEach void setup() {
-    db.execute("truncate admin_commands,ingestion_runs");
+    db.execute("truncate admin_commands,ingestion_runs,securities,metric_definitions,financial_periods,financial_metrics");
     service=new AdminCommandService(db,json,jobs,mock(IngestionService.class),mock(ValidationJobService.class),
         Validation.buildDefaultValidatorFactory().getValidator(),new DataSourceTransactionManager(scoped));
   }
@@ -85,5 +89,19 @@ class AdminCommandIsolatedIntegrationTests {
     assertThat(first.get("rows").toString()).contains("12345678901234567890.125").doesNotContain("hidden","payload");
     assertThat(first.get("rows")).isNotEqualTo(second.get("rows"));
     assertThat(reads.browse("ingestion_runs",0,25,null,null,"SUCCESS").get("total")).isEqualTo(0L);
+  }
+  @Test void financialRowsHaveReadableSymbolMetricPeriodAndSearchBySymbolOrMetric() {
+    UUID security=UUID.randomUUID(),period=UUID.randomUUID();
+    db.update("insert into securities values (?,'FPT')",security);
+    db.update("insert into metric_definitions values (1,'ROAE')");
+    db.update("insert into financial_periods values (?,'2026-06-30')",period);
+    db.update("insert into financial_metrics values (?,?,1,?,22.123456789012345,now())",UUID.randomUUID(),security,period);
+    var reads=new AdminConsoleReadService(scoped,json);
+    for(String search:List.of("FPT","ROAE")) {
+      var result=reads.browse("financial_metrics",0,25,search,null,null);
+      assertThat(result.get("total")).isEqualTo(1L);
+      assertThat(result.get("rows").toString()).contains("FPT","ROAE","2026-06-30","22.123456789012345");
+    }
+    assertThat(reads.browse("financial_metrics",0,25,"VCB",null,null).get("total")).isEqualTo(0L);
   }
 }

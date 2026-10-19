@@ -85,3 +85,28 @@ triggered by this work. Their UI contracts and audit views are connected, but th
 does not certify AI providers or the unfinished Local AI branch as production.
 The user explicitly selected **merge FE code only, no new FE hosting project**.
 Runtime deployment evidence is recorded after merge; do not infer it from unit tests.
+
+## Production verification — 19/10/2026, 14:50–14:52 UTC
+
+Python PR #7 merged at `7f379e674d4e1c426402911af0867c15b563c7cf`;
+production capability endpoint returns HTTP 200 and 42 registered routes.
+Java PR #10 merged and deployed at `faa187b4a1d873eef527d0146efc0b7b60feb00f`.
+[Deploy workflow 39272419130](https://github.com/Lamprro/HE_THONG_DATA_TAI_CHINH_BACKEND_TEST/actions/runs/39272419130)
+passed, including exact-build health and authenticated quality checks.
+FE PR #1 merged at `8c1427b72d650279cd36cf922e16fd70acb5c97b`;
+its main-branch browser CI passed. No FE hosting was created.
+
+A real browser running the FE production build against the ngrok Java server
+passed authorization/CORS, all 627 jobs, 78 discovered management APIs and
+pagination; token persistence remained absent. Actual financial-row API reads
+returned FPT symbol, metric code, period and source labels with decimal strings.
+
+Server source ingestion run `55067d1f-9bab-48c9-bd52-9345b3a982b7`, raw
+`7fdf8663-63b3-46fd-b272-3dd8ac7c7923`, passed all six validation rules.
+Selected native build run `d397e9fa-3528-4152-bdae-98295a25dca0` returned SUCCESS;
+version `dbf17bf6-9963-4454-9740-f5778817cf24` is ACTIVATED and exactly one
+canonical FPT session exists for 16/10/2026. One unrelated pending price version
+was left untouched. No LLM call or Local AI deployment was included.
+
+This verification-only documentation commit does not require redeploying Java;
+the deployed functional code remains the commit identified above.

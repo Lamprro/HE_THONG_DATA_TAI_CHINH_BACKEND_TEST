@@ -7,6 +7,11 @@ market-price version. Toàn bộ đường quản trị dùng token riêng.
 FE độc lập có màn hình vận hành/LLM/forecast/recovery theo hợp đồng API.
 Không đưa code Local AI đang sửa ở checkout gốc vào release này.
 Người dùng chọn chỉ merge FE, chưa tạo hosting mới.
+Đã merge Python #7, Java #10, FE #1. Java runtime faa187b đã deploy thành công
+qua workflow 39272419130 ngày 19/10, 14:50 UTC. Kiểm tra trình duyệt thật
+và source → validation → targeted build trên server pass; version dbf17bf6
+đã ACTIVATED, 6 luật PASS, giữ nguyên version chờ khác. Không chạy LLM.
+Commit bàn giao sau đó chỉ cập nhật tài liệu; không thay code runtime này.
 
 # Cập nhật 17/10/2026 — nghiệm thu dữ liệu nguồn cho Local AI
 

@@ -41,6 +41,19 @@ public class MarketPriceWorkflowService {
         if (!supports(job.getCode())) throw new IllegalArgumentException("Workflow market price không được hỗ trợ");
         List<DataVersionEntity> candidates = versions.findByDataDomainAndStatusOrderByCreatedAtAsc(
                 "MARKET_PRICE", "ACTIVE").stream().filter(this::containsPricePayload).toList();
+        return executeCandidates(job, triggerType, candidates);
+    }
+
+    /** Operate on an explicitly reviewed version without consuming other operators' backlog. */
+    public IngestionExecutionResponse executeVersion(IngestionJobEntity job, UUID versionId, String triggerType) {
+        if (!supports(job.getCode())) throw new IllegalArgumentException("Requires MARKET_PRICE_BUILD job");
+        var version=versions.findById(versionId).orElseThrow(() -> new IllegalArgumentException("Data version not found"));
+        if (!"MARKET_PRICE".equals(version.getDataDomain()) || !"ACTIVE".equals(version.getStatus()) || !containsPricePayload(version))
+            throw new IllegalArgumentException("Requires an ACTIVE market-price version with QUOTE/OHLCV source payloads");
+        return executeCandidates(job, triggerType, List.of(version));
+    }
+
+    private IngestionExecutionResponse executeCandidates(IngestionJobEntity job, String triggerType, List<DataVersionEntity> candidates) {
         if (candidates.isEmpty()) {
             IngestionRunEntity run = runs.startInternalBatch(job.getDataSource(), job, triggerType, WORKFLOW);
             writes.noWork(run);

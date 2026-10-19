@@ -42,6 +42,12 @@ public class ExternalFinancialDataController {
                         ExternalOperation.PROVIDERS, null, null, null, null, null, Map.of()));
     }
 
+    @GetMapping("/capabilities")
+    public ResponseEntity<String> capabilities() {
+        return passthrough(new ExternalFetchRequest(
+                ExternalOperation.CAPABILITIES, null, null, null, null, null, Map.of()));
+    }
+
     @GetMapping("/{provider}/equities/{symbol}/quote")
     public ResponseEntity<String> quote(
             @PathVariable String provider, @PathVariable String symbol) {

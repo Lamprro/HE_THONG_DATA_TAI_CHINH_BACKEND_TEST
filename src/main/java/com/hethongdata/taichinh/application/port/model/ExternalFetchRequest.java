@@ -73,6 +73,7 @@ public record ExternalFetchRequest(
         return switch (operation) {
             case HEALTH,
                             PROVIDERS,
+                            CAPABILITIES,
                             NEWS_STATUS,
                             NEWS_SITES,
                             NEWS_LATEST,

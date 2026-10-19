@@ -176,6 +176,7 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
         return switch (request.operation()) {
             case HEALTH -> "/api/v1/health";
             case PROVIDERS -> "/api/v1/providers";
+            case CAPABILITIES -> "/api/v1/capabilities";
             case QUOTE -> equityPath(provider, symbol, "quote");
             case OHLCV -> equityPath(provider, symbol, "ohlcv");
             case INDEX_LIST -> indexPath(provider, null, null);

@@ -117,6 +117,10 @@ public class IngestionJobRepository {
         return ingestionJobs.findByActiveTrue();
     }
 
+    public List<IngestionJobEntity> findAllEntities() {
+        return ingestionJobs.findAll(org.springframework.data.domain.Sort.by("code"));
+    }
+
     public Optional<IngestionJobEntity> findEntityById(UUID id) {
         return ingestionJobs.findById(id);
     }

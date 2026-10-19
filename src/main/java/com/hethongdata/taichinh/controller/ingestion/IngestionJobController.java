@@ -32,8 +32,15 @@ public class IngestionJobController {
     }
 
     @GetMapping
-    public List<IngestionJobResponse> listActive() {
-        return ingestionJobService.listActive();
+    public List<IngestionJobResponse> listActive(
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "true") boolean activeOnly) {
+        return activeOnly ? ingestionJobService.listActive() : ingestionJobService.listAll();
+    }
+
+    @org.springframework.web.bind.annotation.PutMapping("/{jobId}")
+    public IngestionJobResponse update(@PathVariable UUID jobId,
+            @Valid @RequestBody CreateIngestionJobRequest request) {
+        return ingestionJobService.update(jobId, request);
     }
 
     @PostMapping
@@ -52,5 +59,10 @@ public class IngestionJobController {
             @PathVariable UUID jobId,
             @Valid @RequestBody UpdateIngestionJobActivationRequest request) {
         return ingestionJobService.setActive(jobId, request);
+    }
+
+    @PostMapping("/{jobId}/versions/{versionId}/build")
+    public IngestionExecutionResponse buildVersion(@PathVariable UUID jobId,@PathVariable UUID versionId) {
+        return ingestionJobService.runPriceVersion(jobId,versionId);
     }
 }

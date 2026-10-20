@@ -16,6 +16,7 @@ class UserApiIsolatedIntegrationTests {
   static JdbcTemplate admin,db;static UserReadSupport read;static UserSecurityService securities;
   static final UUID COMPANY=UUID.randomUUID(),SECURITY=UUID.randomUUID(),VERSION=UUID.randomUUID(),REJECTED=UUID.randomUUID();
   static final UUID INDEX=UUID.randomUUID(),MACRO=UUID.randomUUID();
+  static final UUID PERIOD=UUID.randomUUID(),REPORT=UUID.randomUUID(),OLD_REPORT=UUID.randomUUID();
   static final ObjectMapper JSON=new ObjectMapper().findAndRegisterModules();
   @BeforeAll static void setup() throws Exception {
     var props=new Properties();try(var r=Files.newBufferedReader(Path.of(System.getProperty("financial.test.config","application-local.properties")))) {props.load(r);}
@@ -39,6 +40,11 @@ class UserApiIsolatedIntegrationTests {
     db.update("insert into security_index_memberships(id,market_index_id,security_id,effective_from,effective_to) values (?,?,?,'2026-10-01','2026-10-02')",UUID.randomUUID(),INDEX,SECURITY);
     db.update("insert into macro_series(id,data_source_id,code,name,is_active,unit) values (?,1,'ZZMACRO','Fixture series',true,'%')",MACRO);
     db.update("insert into macro_observations(id,macro_series_id,observation_date,value,data_version_id) values (1,?,'2025-01-01',1.23456789,?),(2,?,'2026-01-01',999,?)",MACRO,VERSION,MACRO,REJECTED);
+    db.update("insert into financial_periods(id,fiscal_year,period_type,start_date,end_date) values (?,2025,'FY','2025-01-01','2025-12-31')",PERIOD);
+    db.update("insert into financial_statements(id,company_id,financial_period_id,statement_type,data_source_id,data_version_id,is_current,is_canonical,report_scope,period_basis) values (?,?,?,'BALANCE_SHEET',1,?,true,true,'UNKNOWN','POINT_IN_TIME'),(?,?,?,'BALANCE_SHEET',1,?,false,false,'UNKNOWN','POINT_IN_TIME')",REPORT,COMPANY,PERIOD,VERSION,OLD_REPORT,COMPANY,PERIOD,VERSION);
+    db.update("insert into financial_statement_items(id,financial_statement_id,item_code,item_name,value,unit) values (?,?,'TOTAL_ASSETS','Fixture assets',9007199254740993,'VND')",UUID.randomUUID(),REPORT);
+    db.update("insert into metric_definitions(id,code,name,category,unit) values (1,'ZZMETRIC','Fixture metric','PROFITABILITY','%')");
+    db.update("insert into financial_metrics(id,company_id,security_id,metric_definition_id,as_of_date,value,data_version_id,is_derived,is_canonical,quality_status) values (?,?,?,1,'2026-01-01',1.25,?,false,true,'VALID'),(?,?,?,1,'2026-02-01',2.5,null,true,true,'VALID'),(?,?,?,1,'2026-03-01',999,?,false,true,'REJECTED')",UUID.randomUUID(),COMPANY,SECURITY,VERSION,UUID.randomUUID(),COMPANY,SECURITY,UUID.randomUUID(),COMPANY,SECURITY,REJECTED);
     read=new UserReadSupport(db,JSON);securities=new UserSecurityService(read);
   }
   @AfterAll static void cleanup() {if(admin!=null&&SCHEMA.matches("user_api_test_[a-f0-9]{32}"))admin.execute("drop schema "+SCHEMA+" cascade");}
@@ -80,5 +86,24 @@ class UserApiIsolatedIntegrationTests {
     var observations=service.macro(MACRO,java.time.LocalDate.parse("2025-01-01"),java.time.LocalDate.parse("2026-01-01"),0,25);
     assertThat(observations.items()).hasSize(1);assertThat(new java.math.BigDecimal(observations.items().getFirst().get("value").toString())).isEqualByComparingTo("1.23456789");
     assertThatThrownBy(()->service.macro(UUID.randomUUID(),null,null,0,25)).hasMessageContaining("404");
+  }
+  @Test void financialReportsExposeCurrentCanonicalVersionAndStoredUnitsOnly() {
+    var service=new UserFinancialService(read,securities);
+    var reports=service.statements("ZZTEST","HOSE","BALANCE_SHEET","FY",null,null,0,25);
+    assertThat(reports.items()).hasSize(1);assertThat(reports.items().getFirst().get("id")).isEqualTo(REPORT.toString());
+    assertThat(reports.items().getFirst().get("publishedAt")).isNull();
+    var detail=service.statement("ZZTEST","HOSE",REPORT).data();assertThat(detail.get("reportScope")).isEqualTo("UNKNOWN");
+    assertThat(detail.get("items").toString()).contains("9007199254740993","unit=VND");
+    assertThatThrownBy(()->service.statement("ZZTEST","HOSE",OLD_REPORT)).hasMessageContaining("404");
+  }
+  @Test void canonicalMetricsRetainOriginAndNeverPublishRejectedValues() {
+    var service=new UserFinancialService(read,securities);
+    assertThat(service.definitions(0,25).items()).hasSize(1);
+    var all=service.metrics("ZZTEST","HOSE","ZZMETRIC",null,null,null,null,0,25);
+    assertThat(all.items()).hasSize(2);assertThat(all.items().toString()).doesNotContain("999");
+    assertThat(service.metrics("ZZTEST","HOSE",null,"DERIVED",null,null,null,0,25).items()).hasSize(1);
+    assertThat(service.metrics("ZZTEST","HOSE",null,"PROVIDER",null,null,null,0,25).items()).hasSize(1);
+    assertThatThrownBy(()->service.statements("ZZTEST","HOSE","INVENTED",null,null,null,0,25)).isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(()->service.metrics("ZZTEST","HOSE",null,"BAD",null,null,null,0,25)).isInstanceOf(IllegalArgumentException.class);
   }
 }

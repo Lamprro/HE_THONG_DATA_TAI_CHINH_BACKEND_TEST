@@ -18,7 +18,16 @@ public class SupplementaryDataWorkflowService {
     public boolean supports(String code) {return Set.of("FOREIGN_TRADE_BUILD","SECURITY_REFERENCE_BUILD").contains(code);}
     public IngestionExecutionResponse execute(IngestionJobEntity job,String trigger) {
         String domain="FOREIGN_TRADE_BUILD".equals(job.getCode())?"MARKET_FOREIGN":"SECURITY_REFERENCE";
-        var candidates=versions.findByDataDomainAndStatusOrderByCreatedAtAsc(domain,"ACTIVE");UUID last=null;int rejected=0;
+        var candidates=versions.findByDataDomainAndStatusOrderByCreatedAtAsc(domain,"ACTIVE");
+        return executeCandidates(job,trigger,domain,candidates);
+    }
+    public IngestionExecutionResponse executeVersion(IngestionJobEntity job,UUID id,String trigger) {
+        if(!supports(job.getCode())) throw new IllegalArgumentException("Unsupported supplementary builder");
+        String domain="FOREIGN_TRADE_BUILD".equals(job.getCode())?"MARKET_FOREIGN":"SECURITY_REFERENCE";
+        return executeCandidates(job,trigger,domain,List.of(com.hethongdata.taichinh.service.validation.SelectedDataVersion.active(versions,id,domain)));
+    }
+    private IngestionExecutionResponse executeCandidates(IngestionJobEntity job,String trigger,String domain,List<com.hethongdata.taichinh.entity.validation.DataVersionEntity> candidates) {
+        UUID last=null;int rejected=0;
         if(candidates.isEmpty()) {var run=runs.startInternalBatch(job.getDataSource(),job,trigger,job.getCode());writes.noWork(run);last=run.getId();}
         for(var version:candidates) {
             var run=runs.startInternalBatch(job.getDataSource(),job,trigger,job.getCode());last=run.getId();

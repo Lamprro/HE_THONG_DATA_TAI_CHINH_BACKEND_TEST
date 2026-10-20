@@ -63,6 +63,15 @@ public class FinancialStatementBuildService {
     public IngestionExecutionResponse execute(IngestionJobEntity job, String triggerType) {
         List<DataVersionEntity> candidates =
                 versions.findByDataDomainAndStatusOrderByCreatedAtAsc("FINANCIAL_STATEMENT", "ACTIVE");
+        return executeCandidates(job,triggerType,candidates);
+    }
+
+    public IngestionExecutionResponse executeVersion(IngestionJobEntity job,UUID id,String trigger) {
+        if(!supports(job.getCode())) throw new IllegalArgumentException("Requires FINANCIAL_STATEMENT_BUILD job");
+        return executeCandidates(job,trigger,List.of(com.hethongdata.taichinh.service.validation.SelectedDataVersion.active(versions,id,"FINANCIAL_STATEMENT")));
+    }
+
+    private IngestionExecutionResponse executeCandidates(IngestionJobEntity job,String triggerType,List<DataVersionEntity> candidates) {
         if (candidates.isEmpty()) {
             IngestionRunEntity run =
                     ingestionRuns.startInternalBatch(job.getDataSource(), job, triggerType, FINANCIAL_STATEMENT_BUILD);

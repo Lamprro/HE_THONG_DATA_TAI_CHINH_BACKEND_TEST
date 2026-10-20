@@ -1,3 +1,16 @@
+# Cập nhật 20/10/2026 — luồng thao tác admin
+
+Đọc [luồng admin, migration và bằng chứng](ADMIN_FLOWS_20261020.md).
+Thêm pipeline nguồn → validation → build đúng version, tiếp tục nguồn đã lưu,
+hủy lệnh chờ/retry có audit, lịch cron theo phạm vi mặc định tắt, ghi chú lỗi,
+prompt version bất biến và màn hình forecast/news/recovery riêng. Java 210 test
+pass (12 PostgreSQL schema cô lập), FE 11 unit + 3 suite Chrome mô phỏng pass.
+Luồng nguồn FPT thật localhost đã ACTIVATED, resume không fetch lại, giữ nguyên
+24 version chờ khác. Không chạy model, không đụng code Local AI checkout gốc.
+Migration bổ sung đã áp dụng sau backup sổ lệnh. Khi nâng cấp phải tránh worker
+hai phiên bản cùng nhận lệnh mới từ DB chung; xem sự cố nghiệm thu trong báo cáo.
+FE chỉ merge, chưa tạo hosting. Bằng chứng server sau deploy được bổ sung riêng.
+
 # Cập nhật 19/10/2026 — điều hành admin
 
 Đọc [API, kiểm thử và giới hạn admin](ADMIN_CONTROL_20261019.md).

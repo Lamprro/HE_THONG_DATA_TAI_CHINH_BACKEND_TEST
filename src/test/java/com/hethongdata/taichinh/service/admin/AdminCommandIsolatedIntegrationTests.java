@@ -33,15 +33,17 @@ class AdminCommandIsolatedIntegrationTests {
     scoped=source(u,p); db=new JdbcTemplate(scoped);
     assertThat(db.queryForObject("select current_schema()",String.class)).isEqualTo(SCHEMA);
     db.execute(Files.readString(Path.of("src/main/resources/db/manual/V20261019_01__admin_commands.sql")));
+    db.execute(Files.readString(Path.of("src/main/resources/db/manual/V20261020_01__admin_flow_controls.sql")));
     db.execute("create table ingestion_runs(id uuid primary key,ingestion_run_id uuid,status text,created_at timestamptz,payload jsonb,value numeric)");
     db.execute("create table securities(id uuid primary key,symbol text)");
     db.execute("create table metric_definitions(id bigint primary key,code text)");
     db.execute("create table financial_periods(id uuid primary key,end_date date)");
     db.execute("create table financial_metrics(id uuid primary key,security_id uuid,metric_definition_id bigint,financial_period_id uuid,value numeric,created_at timestamptz)");
+    db.execute("create table llm_prompt_templates (like public.llm_prompt_templates including all)");
   }
   @AfterAll static void cleanup() { if(admin!=null && SCHEMA.matches("admin_console_test_[a-f0-9]{32}")) admin.execute("drop schema "+SCHEMA+" cascade"); }
   @BeforeEach void setup() {
-    db.execute("truncate admin_commands,ingestion_runs,securities,metric_definitions,financial_periods,financial_metrics");
+    db.execute("truncate admin_operation_events,admin_commands,ingestion_runs,securities,metric_definitions,financial_periods,financial_metrics,llm_prompt_templates");
     service=new AdminCommandService(db,json,jobs,mock(IngestionService.class),mock(ValidationJobService.class),
         Validation.buildDefaultValidatorFactory().getValidator(),new DataSourceTransactionManager(scoped));
   }
@@ -60,6 +62,13 @@ class AdminCommandIsolatedIntegrationTests {
     assertThat(result.get("result_json").toString()).contains("NO_CHANGE",run.toString());
     verify(jobs,times(1)).runOnce(job);
     assertThatThrownBy(()->service.submit(request(key,job,"Different intent"))).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+  }
+  @Test void workerLeavesFutureActionsQueuedForCompatibleRuntime() {
+    var command=service.submit(request(UUID.randomUUID(),UUID.randomUUID(),"Future runtime compatibility"));
+    db.update("update admin_commands set action='FUTURE_NATIVE_ACTION' where id=?",command.get("id"));
+    ReflectionTestUtils.invokeMethod(service,"work");
+    assertThat(service.find((UUID)command.get("id")).get("status")).isEqualTo("QUEUED");
+    verifyNoInteractions(jobs);
   }
   @Test void activeResourceAndUnknownOutcomeRequireReviewBeforeRetry() {
     UUID job=UUID.randomUUID();var first=service.submit(request(UUID.randomUUID(),job,"Check existing"));
@@ -103,5 +112,71 @@ class AdminCommandIsolatedIntegrationTests {
       assertThat(result.get("rows").toString()).contains("FPT","ROAE","2026-06-30","22.123456789012345");
     }
     assertThat(reads.browse("financial_metrics",0,25,"VCB",null,null).get("total")).isEqualTo(0L);
+  }
+  @Test void cancellationAndRetryAreAuditedWithoutReusingOriginalCommand() {
+    UUID job=UUID.randomUUID();var first=service.submit(request(UUID.randomUUID(),job,"Reviewed job"));UUID id=(UUID)first.get("id");
+    assertThat(service.cancel(id,"Cancelled before execution").get("status")).isEqualTo("CANCELLED");
+    ReflectionTestUtils.invokeMethod(service,"work");verifyNoInteractions(jobs);
+    UUID key=UUID.randomUUID();var retried=service.retry(id,key,"Reviewed and retry",true);
+    assertThat(retried.get("id")).isNotEqualTo(id);assertThat(retried.get("parent_command_id")).isEqualTo(id);
+    assertThat(service.retry(id,key,"Reviewed and retry",true).get("id")).isEqualTo(retried.get("id"));
+    assertThat(db.queryForObject("select count(*) from admin_operation_events where event_type='CANCELLED'",Integer.class)).isEqualTo(1);
+    assertThatThrownBy(()->service.cancel((UUID)retried.get("id")," ")).isInstanceOf(IllegalArgumentException.class);
+  }
+  @Test void reorderedJsonHasSameIdempotentIdentityAndReplaySharesSourceResource() throws Exception {
+    UUID key=UUID.randomUUID();
+    var a=json.readTree("{\"operation\":\"QUOTE\",\"provider\":\"vndirect\",\"symbol\":\"FPT\",\"parameters\":{\"x\":\"a\",\"y\":\"b\"}}");
+    var b=json.readTree("{\"parameters\":{\"y\":\"b\",\"x\":\"a\"},\"symbol\":\"FPT\",\"provider\":\"vndirect\",\"operation\":\"QUOTE\"}");
+    var one=service.submit(new AdminCommandService.Request(key,"MANUAL_INGESTION","Check order",a));
+    assertThat(service.submit(new AdminCommandService.Request(key,"MANUAL_INGESTION","Check order",b)).get("id")).isEqualTo(one.get("id"));
+    assertThatThrownBy(()->service.retry((UUID)one.get("id"),UUID.randomUUID(),"Unsafe retry",true)).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+  }
+  @Test void retryOfPartiallySavedPipelineContinuesOriginalRunRatherThanRefetching() {
+    UUID id=UUID.randomUUID(),run=UUID.randomUUID();
+    db.update("insert into admin_commands(id,idempotency_key,request_hash,action,resource_key,reason,status,request_json,progress_json) values (?,?,'fixture','INGEST_VALIDATE_BUILD','fixture','fixture','FAILED','{}',cast(? as jsonb))",id,UUID.randomUUID(),"{\"sourceRunId\":\""+run+"\",\"stage\":\"VALIDATING\"}");
+    var next=service.retry(id,UUID.randomUUID(),"Continue saved source",true);
+    assertThat(next.get("action")).isEqualTo("PROCESS_RUN");assertThat(next.get("request_json").toString()).contains(run.toString());
+  }
+  @Test void nativeJobGuardBlocksAnotherInstanceAndReleasesAfterFailure() throws Exception {
+    var one=new NativeJobGuard(scoped);var two=new NativeJobGuard(scoped);UUID job=UUID.randomUUID();
+    var entered=new java.util.concurrent.CountDownLatch(1);var release=new java.util.concurrent.CountDownLatch(1);
+    var worker=java.util.concurrent.Executors.newSingleThreadExecutor();
+    try {
+      var held=worker.submit(()->one.run(job,()->{entered.countDown();try{release.await(10,java.util.concurrent.TimeUnit.SECONDS);}catch(InterruptedException e){Thread.currentThread().interrupt();}return "done";}));
+      assertThat(entered.await(5,java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+      assertThatThrownBy(()->two.run(job,()->"must not execute")).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+      release.countDown();assertThat(held.get(5,java.util.concurrent.TimeUnit.SECONDS)).isEqualTo("done");
+      assertThatThrownBy(()->two.run(job,()->{throw new IllegalArgumentException("Fixture native failure");})).isInstanceOf(IllegalArgumentException.class);
+      assertThat(one.run(job,()->"released")).isEqualTo("released");
+    } finally {release.countDown();worker.shutdownNow();}
+  }
+  @Test void schedulerStartsDisabledAndRejectsEmptyOrStaleScope() {
+    db.update("update admin_schedule_policy set enabled=false,version=0,job_codes='[]' where id='INGESTION'");
+    var definitions=mock(com.hethongdata.taichinh.repository.ingestion.IngestionJobRepository.class);
+    var scheduler=new AdminScheduleService(db,json,jobs,definitions,new org.springframework.mock.env.MockEnvironment(),new NativeJobGuard(scoped));
+    try {
+      assertThat(scheduler.status().get("enabled")).isEqualTo(false);
+      ReflectionTestUtils.invokeMethod(scheduler,"tick");verifyNoInteractions(jobs);
+      assertThat(scheduler.status().get("heartbeat_at")).isNotNull();
+      assertThatThrownBy(()->scheduler.update(new AdminScheduleService.Request(true,Set.of(),0,"Enable without scope"))).isInstanceOf(IllegalArgumentException.class);
+      scheduler.update(new AdminScheduleService.Request(false,Set.of(),0,"Keep disabled"));
+      assertThatThrownBy(()->scheduler.update(new AdminScheduleService.Request(false,Set.of(),0,"Stale update"))).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+    } finally {scheduler.stop();}
+  }
+  @Test void promptVersionsRetainSchemasAndPromotionIsAtomicAndAudited() {
+    UUID original=UUID.randomUUID();
+    db.update("insert into llm_prompt_templates(id,task_code,version,input_domain,description,system_prompt,request_schema,response_schema,checksum,enabled) values (?,'NEWS_SUMMARY','fixture-v1','NEWS','Isolated fixture','Original fixture prompt','{\"type\":\"object\"}','{\"required\":[\"evidence\"]}',?,true)",original,"a".repeat(64));
+    var controller=new com.hethongdata.taichinh.controller.admin.AdminPromptController(db,json,new com.hethongdata.taichinh.service.ingestion.ChecksumService());
+    var tx=new org.springframework.transaction.support.TransactionTemplate(new DataSourceTransactionManager(scoped));
+    var request=new com.hethongdata.taichinh.controller.admin.AdminPromptController.VersionRequest(original,"fixture-v2","Updated fixture prompt","Test version lifecycle in isolated schema");
+    var created=tx.execute(s->controller.create(request));UUID id=(UUID)created.get("id");
+    assertThat(created.get("enabled")).isEqualTo(false);
+    assertThat(controller.detail(original).path("system_prompt").asText()).isEqualTo("Original fixture prompt");
+    assertThat(controller.detail(id).path("response_schema").toString()).contains("evidence");
+    tx.execute(s->controller.enabled(id,new com.hethongdata.taichinh.controller.admin.AdminPromptController.EnableRequest(true,"Reviewed isolated version")));
+    assertThat(db.queryForObject("select count(*) from llm_prompt_templates where enabled",Integer.class)).isEqualTo(1);
+    assertThat(controller.detail(id).path("enabled").asBoolean()).isTrue();
+    assertThatThrownBy(()->tx.execute(s->controller.create(request))).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+    assertThat(db.queryForObject("select count(*) from admin_operation_events where event_type like 'PROMPT_%'",Integer.class)).isEqualTo(2);
   }
 }

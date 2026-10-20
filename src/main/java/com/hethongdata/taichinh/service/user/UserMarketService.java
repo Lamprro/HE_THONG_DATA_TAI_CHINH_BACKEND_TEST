@@ -15,7 +15,7 @@ public class UserMarketService {
   static final String PRICE_FIELDS="""
     p.id,p.price_timestamp as "timestamp",(p.price_timestamp at time zone 'Asia/Ho_Chi_Minh')::date as "tradingDate",
     p.interval_code as "interval",p.open_price as "open",p.high_price as "high",p.low_price as "low",p.close_price as "close",
-    p.volume,p.trading_value as "tradingValue",p.price_basis as "priceBasis",p.updated_at as "observedAt",
+    p.volume,p.trading_value as "tradingValue",p.price_basis as "priceBasis",p.updated_at as "storedAt",
     d.code as "sourceCode",d.name as "sourceName",p.data_version_id as "versionId"
     """;
   static final String PRICES=" from market_prices p join data_sources d on d.id=p.data_source_id join data_versions v on v.id=p.data_version_id and v.status='ACTIVATED' ";
@@ -61,8 +61,18 @@ public class UserMarketService {
       int sign=new java.math.BigDecimal(change.toString()).signum();if(sign>0) rising++;else if(sign<0) falling++;else flat++;
     }
     var result=new LinkedHashMap<String,Object>();result.put("requestedAsOfDate",date);result.put("latestStoredTradingDate",latestDate);result.put("securities",quotes);
+    var indices=read.rows("""
+      select i.code,i.name,i.exchange,i.currency,p.close_value as "close",p.price_timestamp as "timestamp",
+      (p.price_timestamp at time zone 'Asia/Ho_Chi_Minh')::date as "tradingDate",d.code as "sourceCode"
+      from market_indices i left join lateral (
+        select p.* from index_prices p join data_versions v on v.id=p.data_version_id and v.status='ACTIVATED'
+        where p.market_index_id=i.id and p.is_canonical and p.interval_code='1d' and p.price_timestamp<:until
+        order by p.price_timestamp desc,p.id desc limit 1) p on true
+      left join data_sources d on d.id=p.data_source_id where i.is_active order by i.code,i.id limit 101
+      """,args);
+    result.put("indicesTruncated",indices.size()>100);result.put("indices",indices.subList(0,Math.min(100,indices.size())));
     result.put("breadth",Map.of("rising",rising,"falling",falling,"unchanged",flat,"unknownChange",unknown,"olderSession",stale,"missingPrice",missing));
-    return data(result,PRICE_NOTE,"Breadth covers tracked active listings on the latest stored session only, not the entire exchange. Changes require comparable source and price basis.");
+    return data(result,PRICE_NOTE,"Breadth covers tracked active listings on the latest stored session only, not the entire exchange. Changes require comparable source and price basis.","exchange filters securities only; index cards cover the stored active index catalog, each with its own actual trading date.");
   }
   private Map<String,Object> index(String code) {return read.one("select id,code,name,exchange,currency,is_active as \"active\" from market_indices where code=:code",Map.of("code",code(code)),"Market index");}
   public Page<Map<String,Object>> indices(int page,int size) {
@@ -90,7 +100,7 @@ public class UserMarketService {
   }
   public Page<Map<String,Object>> macro(UUID id,LocalDate from,LocalDate to,int page,int size) {
     read.one("select id from macro_series where id=:id and is_active",Map.of("id",id),"Macro series");var range=window(from,to,10,100);
-    return read.page("select o.id,m.code,m.unit,m.frequency,m.country_code as \"countryCode\",o.observation_date as \"date\",o.value,o.value_text as \"valueText\",o.updated_at as \"observedAt\",d.code as \"sourceCode\",o.data_version_id as \"versionId\"",
+    return read.page("select o.id,m.code,m.unit,m.frequency,m.country_code as \"countryCode\",o.observation_date as \"date\",o.value,o.value_text as \"valueText\",o.updated_at as \"storedAt\",d.code as \"sourceCode\",o.data_version_id as \"versionId\"",
         "from macro_observations o join macro_series m on m.id=o.macro_series_id join data_sources d on d.id=m.data_source_id join data_versions v on v.id=o.data_version_id and v.status='ACTIVATED' where o.macro_series_id=:id and o.observation_date>=:start and o.observation_date<=:end",
         "order by o.observation_date,o.id",Map.of("id",id,"start",range.from(),"end",range.to()),page,size,500,"Observation dates are economic periods, not verified release/vintage dates. Null values remain missing.");
   }

@@ -80,6 +80,7 @@ class UserApiIsolatedIntegrationTests {
     assertThat(result.get("latestStoredTradingDate")).isEqualTo("2026-10-02");
     assertThat(((Map<?,?>)result.get("breadth")).get("rising")).isEqualTo(1);
     assertThat(result.get("securities").toString()).contains("10.00000000").doesNotContain("999","777");
+    assertThat(result.get("indices").toString()).contains("ZZINDEX","1234");assertThat(result.get("indicesTruncated")).isEqualTo(false);
   }
   @Test void indexMembershipEndIsExclusiveAndMacroRejectsUnpublishedVersions() {
     var service=new UserMarketService(read,securities);

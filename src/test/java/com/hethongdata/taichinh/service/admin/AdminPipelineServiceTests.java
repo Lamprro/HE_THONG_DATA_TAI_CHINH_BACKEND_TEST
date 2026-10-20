@@ -32,7 +32,16 @@ class AdminPipelineServiceTests {
     UUID run=fixture("OHLCV");when(versions.findByIngestionRunId(run)).thenReturn(Optional.empty());
     var progress=new ArrayList<JsonNode>();var result=service.processRun(run,progress::add);
     assertThat(result.path("status").asText()).isEqualTo("VALIDATION_BLOCKED");verifyNoInteractions(jobs,definitions);
-    verify(validation).validate(any());assertThat(progress).isNotEmpty();
+    verify(validation).validate(any());assertThat(progress.getLast()).isEqualTo(result);
+  }
+  @ParameterizedTest @CsvSource({"ACTIVATED,ALREADY_ACTIVATED,COMPLETE","REJECTED,REJECTED,STOPPED_AT_VALIDATION"})
+  void terminalSourceResumePersistsItsActualFinalStage(String state,String status,String stage) {
+    UUID run=fixture("OHLCV");var version=DataVersionEntity.acceptedForRun("MARKET_PRICE",run,1,"fixture");
+    ReflectionTestUtils.setField(version,"id",UUID.randomUUID());ReflectionTestUtils.setField(version,"status",state);
+    when(versions.findByIngestionRunId(run)).thenReturn(Optional.of(version));
+    var progress=new ArrayList<JsonNode>();var result=service.processRun(run,progress::add);
+    assertThat(result.path("status").asText()).isEqualTo(status);assertThat(result.path("stage").asText()).isEqualTo(stage);
+    assertThat(progress.getLast()).isEqualTo(result);verifyNoInteractions(jobs,definitions,ingest);
   }
   @ParameterizedTest @CsvSource({"OHLCV,MARKET_PRICE,MARKET_PRICE_BUILD","FINANCIAL_STATEMENT,FINANCIAL_STATEMENT,FINANCIAL_STATEMENT_BUILD","RATIO,FINANCIAL_METRIC,FINANCIAL_METRIC_BUILD","INDEX_OHLCV,MARKET_INDEX,INDEX_PRICE_BUILD","INDEX_MEMBERS,MARKET_INDEX,INDEX_MEMBERSHIP_BUILD","FOREIGN_TRADES,MARKET_FOREIGN,FOREIGN_TRADE_BUILD","COMPANY,SECURITY_REFERENCE,SECURITY_REFERENCE_BUILD"})
   void usesOnlyMatchingNativeSelectedVersionBuilder(String operation,String domain,String code) {

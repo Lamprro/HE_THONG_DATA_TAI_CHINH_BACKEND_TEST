@@ -1,5 +1,10 @@
 # Cập nhật 20/10/2026 — luồng thao tác admin
 
+Java #12 và FE #2 đã merge, runtime 874bb24 đã deploy và nghiệm thu nguồn thật,
+API + Chrome desktop/mobile pass. [Bằng chứng và sửa tiến trình cuối](ADMIN_ACCEPTANCE_20261020.md)
+ghi rõ run/version, 24 version chờ giữ nguyên, lỗi mixed-worker đã giữ audit và
+sửa stage kết thúc. Bộ unit cuối 200 pass + 12 PostgreSQL cô lập đã pass.
+
 Đọc [luồng admin, migration và bằng chứng](ADMIN_FLOWS_20261020.md).
 Thêm pipeline nguồn → validation → build đúng version, tiếp tục nguồn đã lưu,
 hủy lệnh chờ/retry có audit, lịch cron theo phạm vi mặc định tắt, ghi chú lỗi,

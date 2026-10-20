@@ -17,7 +17,7 @@ public class AdminConsoleReadService {
       "security_index_memberships", "macro_series", "macro_observations", "news_articles", "llm_runs",
       "llm_run_attempts", "llm_validation_rounds", "llm_results", "llm_prompt_templates",
       "security_foreign_observations", "security_reference_observations", "predictions",
-      "prediction_outcomes", "admin_commands");
+      "prediction_outcomes", "admin_commands", "admin_operation_events");
   private static final Set<String> OMIT = Set.of("body", "payload", "raw_text", "payload_json", "request_headers", "response_headers",
       "response_snapshot", "response_text", "request_body");
   private final NamedParameterJdbcTemplate db;
@@ -39,6 +39,9 @@ public class AdminConsoleReadService {
         + "and table_name=:name order by ordinal_position", Map.of("name", name), String.class);
   }
   public Map<String,Object> browse(String table, int page, int size, String search, String runId, String status) {
+    return browse(table,page,size,search,runId,status,Map.of());
+  }
+  public Map<String,Object> browse(String table, int page, int size, String search, String runId, String status,Map<String,String> exact) {
     if (!TABLES.contains(table)) throw new IllegalArgumentException("Dataset is not available in the admin browser");
     if (page < 0 || size < 1 || size > 100 || page > 100000) throw new IllegalArgumentException("Invalid page or size (1..100)");
     var cols = columns(table);
@@ -55,6 +58,13 @@ public class AdminConsoleReadService {
       labels.put("statement_type","(select f.statement_type from financial_statements f where f.id=t.financial_statement_id)");
     }
     var filters = new ArrayList<String>(); var params = new HashMap<String,Object>();
+    int index=0;
+    for(var entry:exact.entrySet()) {
+      if(entry.getValue()==null || entry.getValue().isBlank()) continue;
+      if(!Set.of("id","raw_payload_id","data_version_id","validation_target","llm_run_id","is_canonical","is_current","action","ingestion_job_id","security_id","data_source_id","parent_command_id").contains(entry.getKey()) || !cols.contains(entry.getKey()))
+        throw new IllegalArgumentException("Unsupported dataset filter: "+entry.getKey());
+      String key="exact"+(index++);filters.add("cast(t."+entry.getKey()+" as text)=:"+key);params.put(key,entry.getValue());
+    }
     if (search != null && !search.isBlank()) {
       if (search.length()>100) throw new IllegalArgumentException("Search is limited to 100 characters");
       var searches=new ArrayList<String>(); searches.add("cast(to_jsonb(t) as text) ilike :q escape '\\'");

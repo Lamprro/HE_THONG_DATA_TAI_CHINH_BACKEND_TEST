@@ -36,6 +36,7 @@ import java.util.UUID;
 public class IngestionJobService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(IngestionJobService.class);
+    @org.springframework.beans.factory.annotation.Autowired private com.hethongdata.taichinh.service.admin.NativeJobGuard jobGuard;
 
     private final IngestionJobRepository ingestionJobs;
     private final IngestionRunJpaRepository ingestionRuns;
@@ -157,9 +158,22 @@ public class IngestionJobService {
     }
 
     public IngestionExecutionResponse runPriceVersion(UUID jobId, UUID versionId) {
+        return runVersion(jobId,versionId);
+    }
+
+    public IngestionExecutionResponse runVersion(UUID jobId, UUID versionId) {
+        return jobGuard==null?runVersionUnlocked(jobId,versionId):jobGuard.run(jobId,()->runVersionUnlocked(jobId,versionId));
+    }
+    private IngestionExecutionResponse runVersionUnlocked(UUID jobId, UUID versionId) {
         var job=ingestionJobs.findEntityById(jobId).orElseThrow(() -> new IllegalArgumentException("Job not found"));
-        if (!job.getDataSource().isActive()) throw new IllegalArgumentException("Data source is inactive");
-        return marketPriceWorkflowService.executeVersion(job,versionId,"MANUAL");
+        if(!job.getDataSource().isActive()) throw new IllegalArgumentException("Data source is inactive");
+        String code=job.getCode();
+        if(marketPriceWorkflowService.supports(code)) return marketPriceWorkflowService.executeVersion(job,versionId,"MANUAL");
+        if(financialStatementBuildService.supports(code)) return financialStatementBuildService.executeVersion(job,versionId,"MANUAL");
+        if(financialMetricWorkflowService.supports(code)) return financialMetricWorkflowService.executeVersion(job,versionId,"MANUAL");
+        if(marketIndexWorkflowService.supports(code)) return marketIndexWorkflowService.executeVersion(job,versionId,"MANUAL");
+        if(supplementaryWorkflow.supports(code)) return supplementaryWorkflow.executeVersion(job,versionId,"MANUAL");
+        throw new IllegalArgumentException("This job has no selected-version builder; use its reviewed native workflow");
     }
 
     public IngestionJobResponse update(UUID jobId, CreateIngestionJobRequest request) {
@@ -204,6 +218,12 @@ public class IngestionJobService {
     public void executeDueMacroJobs() {
         executeDueJobs(MacroWorkflowService.JOBS);
     }
+    public void executeDueAdminJobs(Set<String> codes) {
+        if(codes.isEmpty()) return;
+        var allowed=ingestionJobs.findActiveEntities().stream().filter(j->j.getDataSource().isActive() && codes.contains(j.getCode()))
+            .map(IngestionJobEntity::getCode).collect(Collectors.toSet());
+        if(!allowed.isEmpty()) executeDueJobs(allowed);
+    }
 
     private void executeDueJobs(Set<String> allowedCodes) {
         Instant now = Instant.now();
@@ -240,6 +260,9 @@ public class IngestionJobService {
      */
     private IngestionExecutionResponse executeWithBudget(
             IngestionJobEntity job, String triggerType) {
+        return jobGuard==null?executeWithBudgetUnlocked(job,triggerType):jobGuard.run(job.getId(),()->executeWithBudgetUnlocked(job,triggerType));
+    }
+    private IngestionExecutionResponse executeWithBudgetUnlocked(IngestionJobEntity job,String triggerType) {
         try {
             IngestionExecutionResponse response = dispatch(job, triggerType);
             retryBudgetService.resetAfterSuccess(job);

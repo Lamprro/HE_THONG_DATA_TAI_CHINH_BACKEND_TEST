@@ -63,6 +63,6 @@ public class IngestionJobController {
 
     @PostMapping("/{jobId}/versions/{versionId}/build")
     public IngestionExecutionResponse buildVersion(@PathVariable UUID jobId,@PathVariable UUID versionId) {
-        return ingestionJobService.runPriceVersion(jobId,versionId);
+        return ingestionJobService.runVersion(jobId,versionId);
     }
 }

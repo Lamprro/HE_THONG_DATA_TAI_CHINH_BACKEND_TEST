@@ -19,6 +19,8 @@ public class AdminConsoleController {
   private final ObjectMapper json;
   private final Environment environment;
   private final JdbcTemplate db;
+  @org.springframework.beans.factory.annotation.Autowired private AdminScheduleService schedule;
+  @org.springframework.beans.factory.annotation.Autowired private NewsLlmAdminController news;
   public AdminConsoleController(AdminConsoleReadService reads, AdminCommandService commands,
       @Qualifier("requestMappingHandlerMapping") RequestMappingHandlerMapping routes,
       ObjectMapper json, Environment environment, JdbcTemplate db) {
@@ -41,13 +43,51 @@ public class AdminConsoleController {
   @GetMapping("/data/{dataset}") public Map<String,Object> data(@PathVariable String dataset,
       @RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="25") int size,
       @RequestParam(required=false) String search,@RequestParam(required=false) String runId,
-      @RequestParam(required=false) String status) { return reads.browse(dataset,page,size,search,runId,status); }
+      @RequestParam(required=false) String status,@RequestParam Map<String,String> parameters) {
+    var exact=new LinkedHashMap<String,String>(parameters);
+    for(String framework:List.of("page","size","search","runId","status")) exact.remove(framework);
+    return reads.browse(dataset,page,size,search,runId,status,exact);
+  }
   @PostMapping("/commands") public ResponseEntity<Map<String,Object>> submit(@RequestBody AdminCommandService.Request body) {
     return ResponseEntity.accepted().body(commands.submit(body));
   }
   @GetMapping("/commands/{id}") public Map<String,Object> command(@PathVariable UUID id) { return commands.find(id); }
   @PostMapping("/commands/{id}/acknowledge") public Map<String,Object> acknowledge(@PathVariable UUID id,@RequestBody Map<String,String> body) {
     return commands.acknowledge(id,body.get("reason"));
+  }
+  @PostMapping("/commands/{id}/cancel") public Map<String,Object> cancel(@PathVariable UUID id,@RequestBody Map<String,String> body) {
+    return commands.cancel(id,body.get("reason"));
+  }
+  public record RetryRequest(UUID idempotencyKey,String reason,boolean reviewed) {}
+  @PostMapping("/commands/{id}/retry") public ResponseEntity<Map<String,Object>> retry(@PathVariable UUID id,@RequestBody RetryRequest body) {
+    return ResponseEntity.accepted().body(commands.retry(id,body.idempotencyKey(),body.reason(),body.reviewed()));
+  }
+  @GetMapping("/summary") public Map<String,Object> summary() {
+    return Map.of("jobs",db.queryForList("select is_active,count(*) as count from ingestion_jobs group by is_active"),
+      "commands",db.queryForList("select status,count(*) as count from admin_commands group by status"),
+      "runs",db.queryForList("select status,count(*) as count from ingestion_runs group by status"),
+      "versions",db.queryForList("select data_domain,status,count(*) as count from data_versions group by data_domain,status"),
+      "validation",db.queryForList("select validation_target,result_status,count(*) as count from validation_results group by validation_target,result_status"));
+  }
+  @GetMapping("/schedule") public Map<String,Object> schedule() {return schedule.status();}
+  @GetMapping("/news-candidates") public List<Map<String,Object>> newsCandidates(@RequestParam(defaultValue="20") int limit) {
+    if(limit<1||limit>100) throw new IllegalArgumentException("limit must be 1..100");
+    var ids=news.candidates(limit);if(ids.isEmpty()) return List.of();
+    String placeholders=String.join(",",Collections.nCopies(ids.size(),"?"));
+    var rows=db.queryForList("select id as \"articleId\",title,published_at from news_articles where id in ("+placeholders+")",ids.toArray());
+    rows.sort(Comparator.comparingInt(row->ids.indexOf(row.get("articleId"))));return rows;
+  }
+  @PutMapping("/schedule") public Map<String,Object> updateSchedule(@RequestBody AdminScheduleService.Request request) {return schedule.update(request);}
+  @GetMapping("/issues/{id}/reviews") public List<Map<String,Object>> reviews(@PathVariable UUID id) {
+    return db.queryForList("select id,event_type,reason,principal,created_at from admin_operation_events where target_id=? order by created_at desc,id desc",id);
+  }
+  @PostMapping("/issues/{id}/reviews") public Map<String,Object> reviewIssue(@PathVariable UUID id,@RequestBody Map<String,String> body) {
+    String reason=body.get("reason");
+    if(reason==null || reason.isBlank() || reason.length()>2000) throw new IllegalArgumentException("A review reason (1..2000) is required");
+    if(db.queryForObject("select count(*) from validation_results where id=?",Integer.class,id)!=1) throw new IllegalArgumentException("Validation result not found");
+    UUID reviewId=UUID.randomUUID();
+    db.update("insert into admin_operation_events(id,event_type,target_id,reason) values (?,'ISSUE_REVIEWED',?,?)",reviewId,id,reason);
+    return Map.of("id",reviewId,"validationResultId",id,"validationStatusChanged",false);
   }
   /** Discovers the deployed MVC contract; a future controller is visible without pretending it is deployed today. */
   @GetMapping("/catalog") public List<Map<String,Object>> catalog() {

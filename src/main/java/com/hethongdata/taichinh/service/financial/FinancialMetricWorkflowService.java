@@ -22,6 +22,13 @@ public class FinancialMetricWorkflowService {
     public boolean supports(String code) {return WORKFLOW.equals(code);}
     public IngestionExecutionResponse execute(IngestionJobEntity job,String trigger) {
         var candidates=versions.findByDataDomainAndStatusOrderByCreatedAtAsc("FINANCIAL_METRIC","ACTIVE");
+        return executeCandidates(job,trigger,candidates);
+    }
+    public IngestionExecutionResponse executeVersion(IngestionJobEntity job,UUID id,String trigger) {
+        if(!supports(job.getCode())) throw new IllegalArgumentException("Requires FINANCIAL_METRIC_BUILD job");
+        return executeCandidates(job,trigger,java.util.List.of(com.hethongdata.taichinh.service.validation.SelectedDataVersion.active(versions,id,"FINANCIAL_METRIC")));
+    }
+    private IngestionExecutionResponse executeCandidates(IngestionJobEntity job,String trigger,java.util.List<com.hethongdata.taichinh.entity.validation.DataVersionEntity> candidates) {
         UUID last=null;int rejected=0;
         if (candidates.isEmpty()) {
             var run=runs.startInternalBatch(job.getDataSource(),job,trigger,WORKFLOW);

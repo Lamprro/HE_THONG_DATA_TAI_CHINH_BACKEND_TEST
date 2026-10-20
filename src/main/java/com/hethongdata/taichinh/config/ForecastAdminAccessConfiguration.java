@@ -43,7 +43,7 @@ public class ForecastAdminAccessConfiguration implements WebMvcConfigurer {
                         && MessageDigest.isEqual(
                             token.getBytes(StandardCharsets.UTF_8),
                             header.substring(7).getBytes(StandardCharsets.UTF_8));
-                if (valid) return true;
+                if (valid) { request.setAttribute("adminAuthenticated",true); return true; }
                 response.setStatus(configured ? 403 : 503);
                 response.setContentType("application/json");
                 json.writeValue(

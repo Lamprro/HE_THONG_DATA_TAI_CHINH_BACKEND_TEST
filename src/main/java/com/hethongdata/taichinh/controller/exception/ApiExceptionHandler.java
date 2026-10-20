@@ -47,6 +47,14 @@ public class ApiExceptionHandler {
                 exception.getMessage() == null ? "Yêu cầu không hợp lệ." : exception.getMessage());
     }
 
+    @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
+    ResponseEntity<ApiErrorResponse> unsupportedMethod(org.springframework.web.HttpRequestMethodNotSupportedException exception) {
+        var response=error(HttpStatus.METHOD_NOT_ALLOWED,"METHOD_NOT_ALLOWED",null,null,"This endpoint does not support that HTTP method");
+        var headers=new org.springframework.http.HttpHeaders();
+        if(exception.getSupportedHttpMethods()!=null) headers.setAllow(exception.getSupportedHttpMethods());
+        return new ResponseEntity<>(response.getBody(),headers,HttpStatus.METHOD_NOT_ALLOWED);
+    }
+
     @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
     ResponseEntity<ApiErrorResponse> invalidParameter(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException exception) {
         String type=exception.getRequiredType()==null?"supported value":exception.getRequiredType().getSimpleName();

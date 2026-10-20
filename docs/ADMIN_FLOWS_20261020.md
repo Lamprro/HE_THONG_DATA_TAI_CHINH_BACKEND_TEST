@@ -53,7 +53,7 @@ be overwritten. Drain active commands before replacing a runtime.
 
 ## Verification already run before commit
 
-- Java: 209 tests passed, zero failures/errors/skipped, 198 unit/contract plus 11 real
+- Java: 210 tests passed, zero failures/errors/skipped, 198 unit/contract plus 12 real
   PostgreSQL ledger/prompt/schedule/locking tests in disposable schemas. Native
   provider/model services in these tests are mocked. Package passed.
 - FE: TypeScript and production build; 11 unit tests and three intercepted Chrome
@@ -82,4 +82,4 @@ Provider registration does not guarantee upstream availability or full ten-year
 coverage. This release does not certify historical point-in-time training data.
 FE is merge-only: user declined creating new hosting. Post-deploy SHA, GitHub PRs
 and real browser/server acceptance will be recorded in the release follow-up.
-
+The new worker also skips unsupported future action types when claiming commands; a disposable-schema regression test passed. This cannot retrofit an already-running October 19 worker, so the documented cutover requirement still applies.

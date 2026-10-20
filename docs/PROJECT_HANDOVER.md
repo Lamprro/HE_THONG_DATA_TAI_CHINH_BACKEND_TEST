@@ -3,8 +3,8 @@
 Đọc [luồng admin, migration và bằng chứng](ADMIN_FLOWS_20261020.md).
 Thêm pipeline nguồn → validation → build đúng version, tiếp tục nguồn đã lưu,
 hủy lệnh chờ/retry có audit, lịch cron theo phạm vi mặc định tắt, ghi chú lỗi,
-prompt version bất biến và màn hình forecast/news/recovery riêng. Java 209 test
-pass (11 PostgreSQL schema cô lập), FE 11 unit + 3 suite Chrome mô phỏng pass.
+prompt version bất biến và màn hình forecast/news/recovery riêng. Java 210 test
+pass (12 PostgreSQL schema cô lập), FE 11 unit + 3 suite Chrome mô phỏng pass.
 Luồng nguồn FPT thật localhost đã ACTIVATED, resume không fetch lại, giữ nguyên
 24 version chờ khác. Không chạy model, không đụng code Local AI checkout gốc.
 Migration bổ sung đã áp dụng sau backup sổ lệnh. Khi nâng cấp phải tránh worker
@@ -287,4 +287,3 @@ bỏ bảng legacy yêu cầu bảng rỗng. Không chạy SQL cleanup tùy ti�
 Các tài liệu chi tiết giữ lịch sử để truy vết. Khi mâu thuẫn, dùng code hiện hành
 để xác định implementation và bằng chứng đúng môi trường/ngày để xác định đã chạy
 thành công hay chưa; ghi lại chênh lệch thay vì chọn kết luận thuận lợi hơn.
-

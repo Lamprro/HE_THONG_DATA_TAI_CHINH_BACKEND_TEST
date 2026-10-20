@@ -22,6 +22,13 @@ import org.springframework.http.HttpStatus;
 @Service
 public class AdminCommandService {
   public record Request(UUID idempotencyKey, String action, String reason, JsonNode input) {}
+  private static final Set<String> WORKER_ACTIONS;
+  static {
+    var actions=new TreeSet<>(AdminAiActionService.ACTIONS);
+    actions.addAll(List.of("RUN_JOB","BUILD_VERSION","BUILD_MARKET_PRICE_VERSION","MANUAL_INGESTION",
+        "INGEST_VALIDATE_BUILD","PROCESS_RUN","REPLAY_RUN","VALIDATE_RAW","VALIDATE_PENDING"));
+    WORKER_ACTIONS=Collections.unmodifiableSet(actions);
+  }
   private final JdbcTemplate db;
   private final ObjectMapper json;
   private final IngestionJobService jobs;
@@ -180,8 +187,10 @@ public class AdminCommandService {
   private void work() {
     try {
       Map<String,Object> command=tx.execute(s -> {
+        // A worker must leave actions introduced by a newer runtime for a compatible worker.
+        String placeholders=String.join(",",Collections.nCopies(WORKER_ACTIONS.size(),"?"));
         var rows=db.queryForList("select id,action,request_json::text from admin_commands where status='QUEUED' "
-            +"order by created_at,id for update skip locked limit 1");
+            +"and action in ("+placeholders+") order by created_at,id for update skip locked limit 1",WORKER_ACTIONS.toArray());
         if(rows.isEmpty()) return null;
         var row=rows.getFirst();
         db.update("update admin_commands set status='RUNNING',owner_id=?,started_at=now(),lease_until=now()+interval '90 seconds' where id=?",owner,row.get("id"));

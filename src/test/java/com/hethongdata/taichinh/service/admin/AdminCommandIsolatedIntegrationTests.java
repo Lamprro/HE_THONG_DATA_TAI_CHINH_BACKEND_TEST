@@ -63,6 +63,13 @@ class AdminCommandIsolatedIntegrationTests {
     verify(jobs,times(1)).runOnce(job);
     assertThatThrownBy(()->service.submit(request(key,job,"Different intent"))).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
   }
+  @Test void workerLeavesFutureActionsQueuedForCompatibleRuntime() {
+    var command=service.submit(request(UUID.randomUUID(),UUID.randomUUID(),"Future runtime compatibility"));
+    db.update("update admin_commands set action='FUTURE_NATIVE_ACTION' where id=?",command.get("id"));
+    ReflectionTestUtils.invokeMethod(service,"work");
+    assertThat(service.find((UUID)command.get("id")).get("status")).isEqualTo("QUEUED");
+    verifyNoInteractions(jobs);
+  }
   @Test void activeResourceAndUnknownOutcomeRequireReviewBeforeRetry() {
     UUID job=UUID.randomUUID();var first=service.submit(request(UUID.randomUUID(),job,"Check existing"));
     assertThatThrownBy(()->service.submit(request(UUID.randomUUID(),job,"Duplicate"))).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);

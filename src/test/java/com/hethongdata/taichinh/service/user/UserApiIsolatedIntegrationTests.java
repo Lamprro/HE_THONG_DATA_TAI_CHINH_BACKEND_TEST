@@ -71,6 +71,7 @@ class UserApiIsolatedIntegrationTests {
     var service=new UserMarketService(read,securities);
     var result=service.prices("ZZTEST","HOSE","1d",java.time.LocalDate.parse("2026-10-01"),java.time.LocalDate.parse("2026-10-02"),0,1);
     assertThat(result.total()).isEqualTo(2);assertThat(result.hasNext()).isTrue();assertThat(result.items().getFirst().get("tradingDate")).isEqualTo("2026-10-01");
+    assertThat(result.items().getFirst().get("currency")).isEqualTo("VND");assertThat(result.items().getFirst().get("volumeUnit")).isEqualTo("SHARES");
     var next=service.prices("ZZTEST","HOSE","1d",java.time.LocalDate.parse("2026-10-01"),java.time.LocalDate.parse("2026-10-02"),1,1);
     assertThat(next.items().getFirst().get("tradingDate")).isEqualTo("2026-10-02");assertThat(next.hasNext()).isFalse();
     var quote=service.latest("ZZTEST","HOSE").data();assertThat(quote.get("daily").toString()).contains("110");assertThat(quote.get("snapshot").toString()).contains("999");

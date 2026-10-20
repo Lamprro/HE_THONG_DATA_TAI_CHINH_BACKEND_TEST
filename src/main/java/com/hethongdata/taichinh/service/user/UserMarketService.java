@@ -16,9 +16,9 @@ public class UserMarketService {
     p.id,p.price_timestamp as "timestamp",(p.price_timestamp at time zone 'Asia/Ho_Chi_Minh')::date as "tradingDate",
     p.interval_code as "interval",p.open_price as "open",p.high_price as "high",p.low_price as "low",p.close_price as "close",
     p.volume,p.trading_value as "tradingValue",p.price_basis as "priceBasis",p.updated_at as "storedAt",
-    d.code as "sourceCode",d.name as "sourceName",p.data_version_id as "versionId"
+    d.code as "sourceCode",d.name as "sourceName",p.data_version_id as "versionId",security.currency,'SHARES' as "volumeUnit"
     """;
-  static final String PRICES=" from market_prices p join data_sources d on d.id=p.data_source_id join data_versions v on v.id=p.data_version_id and v.status='ACTIVATED' ";
+  static final String PRICES=" from market_prices p join securities security on security.id=p.security_id join data_sources d on d.id=p.data_source_id join data_versions v on v.id=p.data_version_id and v.status='ACTIVATED' ";
   public Page<Map<String,Object>> prices(String symbol,String exchange,String interval,LocalDate from,LocalDate to,int page,int size) {
     var security=securities.resolve(symbol,exchange);String frame=option(interval==null?"1D":interval,Set.of("1D","SNAPSHOT")).toLowerCase(Locale.ROOT);
     var window=window(from,to,1,15);var args=new HashMap<String,Object>();args.put("id",UUID.fromString(security.get("id").toString()));args.put("interval",frame);args.put("start",window.start());args.put("until",window.until());
@@ -36,7 +36,7 @@ public class UserMarketService {
     String filter="";if(exchange!=null&&!exchange.isBlank()) {args.put("exchange",code(exchange));filter=" and s.exchange=:exchange";}
     // Lateral bounded lookups use the existing security/timestamp index; no provider call or all-history sort.
     var quotes=read.rows("""
-      select s.symbol,s.exchange,s.currency,c.legal_name as "companyName",p.close_price as "close",
+      select s.symbol,s.exchange,s.currency,'SHARES' as "volumeUnit",c.legal_name as "companyName",p.close_price as "close",
       (p.price_timestamp at time zone 'Asia/Ho_Chi_Minh')::date as "tradingDate",p.price_timestamp as "timestamp",p.volume,
       d.code as "sourceCode",p.price_basis as "priceBasis",previous.close_price as "previousClose",
       case when previous.close_price>0 and previous.data_source_id=p.data_source_id and previous.price_basis=p.price_basis and p.price_basis<>'UNKNOWN'
@@ -62,7 +62,7 @@ public class UserMarketService {
     }
     var result=new LinkedHashMap<String,Object>();result.put("requestedAsOfDate",date);result.put("latestStoredTradingDate",latestDate);result.put("securities",quotes);
     var indices=read.rows("""
-      select i.code,i.name,i.exchange,i.currency,p.close_value as "close",p.price_timestamp as "timestamp",
+      select i.code,i.name,i.exchange,i.currency,'POINTS' as "unit",p.close_value as "close",p.price_timestamp as "timestamp",
       (p.price_timestamp at time zone 'Asia/Ho_Chi_Minh')::date as "tradingDate",d.code as "sourceCode"
       from market_indices i left join lateral (
         select p.* from index_prices p join data_versions v on v.id=p.data_version_id and v.status='ACTIVATED'
@@ -84,7 +84,7 @@ public class UserMarketService {
     return read.page("""
       select p.id,p.price_timestamp as "timestamp",(p.price_timestamp at time zone 'Asia/Ho_Chi_Minh')::date as "tradingDate",
       p.open_value as "open",p.high_value as "high",p.low_value as "low",p.close_value as "close",p.volume,p.trading_value as "tradingValue",
-      p.interval_code as "interval",d.code as "sourceCode",p.data_version_id as "versionId"
+      p.interval_code as "interval",'POINTS' as "unit",d.code as "sourceCode",p.data_version_id as "versionId"
       ""","from index_prices p join data_sources d on d.id=p.data_source_id join data_versions v on v.id=p.data_version_id and v.status='ACTIVATED' where p.market_index_id=:id and p.is_canonical and p.interval_code='1d' and p.price_timestamp>=:start and p.price_timestamp<:until",
       "order by p.price_timestamp,p.id",Map.of("id",UUID.fromString(index.get("id").toString()),"start",range.start(),"until",range.until()),page,size,500,"Index values are points; stored daily bars only. Missing observations are not interpolated.");
   }

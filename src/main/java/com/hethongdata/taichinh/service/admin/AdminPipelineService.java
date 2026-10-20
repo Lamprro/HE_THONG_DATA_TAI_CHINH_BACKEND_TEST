@@ -58,13 +58,18 @@ public class AdminPipelineService {
     var version=versions.findByIngestionRunId(runId);
     if(version.isEmpty()) {
       result.put("status","VALIDATION_BLOCKED").put("stage","STOPPED_AT_VALIDATION");
+      progress.accept(result.deepCopy());
       return result;
     }
     result.put("versionId",version.get().getId().toString());
-    if("ACTIVATED".equals(version.get().getStatus()))
-      return result.put("status","ALREADY_ACTIVATED").put("stage","COMPLETE");
-    if(!"ACTIVE".equals(version.get().getStatus()))
-      return result.put("status",version.get().getStatus()).put("stage","STOPPED_AT_VALIDATION");
+    if("ACTIVATED".equals(version.get().getStatus())) {
+      result.put("status","ALREADY_ACTIVATED").put("stage","COMPLETE");
+      progress.accept(result.deepCopy());return result;
+    }
+    if(!"ACTIVE".equals(version.get().getStatus())) {
+      result.put("status",version.get().getStatus()).put("stage","STOPPED_AT_VALIDATION");
+      progress.accept(result.deepCopy());return result;
+    }
     var definition=definitions.findAllEntities().stream().filter(j->code.equals(j.getCode())).findFirst()
         .orElseThrow(()->new IllegalArgumentException("Required builder job is not configured: "+code));
     result.put("stage","BUILDING"); progress.accept(result.deepCopy());

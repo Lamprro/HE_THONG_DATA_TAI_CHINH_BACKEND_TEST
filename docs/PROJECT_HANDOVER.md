@@ -1,3 +1,13 @@
+# Cập nhật 20/10/2026 — API đọc cho user, chỉ trên nhánh
+
+Nhánh `feature/user-api` từ main 8a65bc5; chỉ push, **chưa PR/merge/deploy**.
+Đọc [hợp đồng 19 API user và nghiệm thu](USER_API_20261020.md).
+Gồm danh mục/hồ sơ mã, tổng quan, quote/chart, chỉ số/rổ, macro, báo cáo, metrics,
+tin và kết quả phân tích đã được reader gốc chấp nhận. Không đưa code Local AI
+checkout gốc vào nhánh. 206 unit/contract + 8 PostgreSQL schema tạm pass;
+29 HTTP localhost dùng DB read-only pass, không token admin, không gọi model/job.
+Snapshot và giới hạn dữ liệu được ghi trong báo cáo; không coi là chứng nhận đủ data.
+
 # Cập nhật 20/10/2026 — luồng thao tác admin
 
 Java #12 và FE #2 đã merge, runtime 874bb24 đã deploy và nghiệm thu nguồn thật,

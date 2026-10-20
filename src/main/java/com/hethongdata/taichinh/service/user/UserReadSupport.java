@@ -52,7 +52,7 @@ public class UserReadSupport {
     return new Window(start,end);
   }
   public List<Map<String,Object>> rows(String sql,Map<String,?> params) {
-    return db.query(sql,params,(rs,n)->{
+    return db.query(sql,parameters(params),(rs,n)->{
       var row=new LinkedHashMap<String,Object>();var columns=rs.getMetaData();
       for(int i=1;i<=columns.getColumnCount();i++) row.put(columns.getColumnLabel(i),value(rs.getObject(i)));return row;
     });
@@ -63,8 +63,11 @@ public class UserReadSupport {
   }
   public Page<Map<String,Object>> page(String select,String fromWhere,String order,Map<String,?> params,int page,int size,int max,String... notes) {
     paging(page,size,max);var args=new HashMap<String,Object>(params);args.put("limit",size);args.put("offset",(long)page*size);
-    long total=Objects.requireNonNull(db.queryForObject("select count(*) "+fromWhere,params,Long.class));
+    long total=Objects.requireNonNull(db.queryForObject("select count(*) "+fromWhere,parameters(params),Long.class));
     return new Page<>(rows(select+" "+fromWhere+" "+order+" limit :limit offset :offset",args),total,page,size,((long)page+1)*size<total,meta(notes));
+  }
+  private Map<String,Object> parameters(Map<String,?> params) {
+    var result=new HashMap<String,Object>();params.forEach((key,value)->result.put(key,value instanceof Instant t?Timestamp.from(t):value));return result;
   }
   private Object value(Object value) {
     if(value instanceof BigDecimal n) return n.toPlainString();

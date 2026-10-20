@@ -17,9 +17,19 @@ class UserApiMvcTests {
   @Configuration @EnableWebMvc static class Config {
     @Bean UserSecurityService service() {return mock(UserSecurityService.class);}
     @Bean UserSecurityController controller(UserSecurityService s) {return new UserSecurityController(s);}
+    @Bean UserMarketService market() {return mock(UserMarketService.class);}
+    @Bean com.hethongdata.taichinh.controller.user.UserMarketController marketController(UserMarketService s) {return new com.hethongdata.taichinh.controller.user.UserMarketController(s);}
     @Bean ApiExceptionHandler errors() {return new ApiExceptionHandler();}
     @Bean ForecastAdminAccessConfiguration access() {return new ForecastAdminAccessConfiguration("fixture-token-at-least-32-characters",new ObjectMapper().findAndRegisterModules());}
     @Bean Probe probe() {return new Probe();}
+  }
+  @Test void chartDateParametersBindAsIsoDatesAndBadRangesAreNotSilentlyCoerced() throws Exception {
+    try(var context=new AnnotationConfigWebApplicationContext()) {
+      context.setServletContext(new MockServletContext());context.register(Config.class);context.refresh();var mvc=MockMvcBuilders.webAppContextSetup(context).build();
+      mvc.perform(get("/api/v1/securities/FPT/prices").param("from","2016-10-01").param("to","2026-10-01")).andExpect(status().isOk());
+      verify(context.getBean(UserMarketService.class)).prices("FPT",null,"1d",java.time.LocalDate.parse("2016-10-01"),java.time.LocalDate.parse("2026-10-01"),0,250);
+      mvc.perform(get("/api/v1/securities/FPT/prices").param("from","invalid")).andExpect(status().isBadRequest());
+    }
   }
   @RestController static class Probe {@GetMapping("/api/admin/probe") String admin() {return "private";}}
   @Test void publicReadsDoNotRequireAdminTokenAndWritesAreNotAvailable() throws Exception {

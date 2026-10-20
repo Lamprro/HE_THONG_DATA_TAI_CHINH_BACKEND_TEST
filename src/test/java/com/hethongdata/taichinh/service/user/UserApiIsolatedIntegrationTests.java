@@ -15,6 +15,7 @@ class UserApiIsolatedIntegrationTests {
   static final String SCHEMA="user_api_test_"+UUID.randomUUID().toString().replace("-","");
   static JdbcTemplate admin,db;static UserReadSupport read;static UserSecurityService securities;
   static final UUID COMPANY=UUID.randomUUID(),SECURITY=UUID.randomUUID(),VERSION=UUID.randomUUID(),REJECTED=UUID.randomUUID();
+  static final UUID INDEX=UUID.randomUUID(),MACRO=UUID.randomUUID();
   static final ObjectMapper JSON=new ObjectMapper().findAndRegisterModules();
   @BeforeAll static void setup() throws Exception {
     var props=new Properties();try(var r=Files.newBufferedReader(Path.of(System.getProperty("financial.test.config","application-local.properties")))) {props.load(r);}
@@ -32,6 +33,12 @@ class UserApiIsolatedIntegrationTests {
     db.update("insert into securities(id,company_id,symbol,exchange,currency,is_active,shares_outstanding) values (?,?,'ZZTEST','HOSE','VND',true,9007199254740993)",SECURITY,COMPANY);
     db.update("insert into data_sources(id,code,name,source_type) values (1,'FIXTURE','Fixture source','API')");
     db.update("insert into data_versions(id,data_domain,version_code,status) values (?,'MARKET_PRICE','FIXTURE','ACTIVATED'),(?,'MARKET_PRICE','REJECTED','REJECTED')",VERSION,REJECTED);
+    db.update("insert into market_prices(id,security_id,data_source_id,data_version_id,price_timestamp,interval_code,close_price,is_canonical,price_basis) values (1,?,1,?,'2026-10-01T08:00:00Z','1d',100,true,'UNADJUSTED'),(2,?,1,?,'2026-10-02T08:00:00Z','1d',110,true,'UNADJUSTED'),(3,?,1,?,'2026-10-02T09:00:00Z','snapshot',999,true,'UNKNOWN'),(4,?,1,?,'2026-10-02T10:00:00Z','1d',777,true,'UNADJUSTED')",SECURITY,VERSION,SECURITY,VERSION,SECURITY,VERSION,SECURITY,REJECTED);
+    db.update("insert into market_indices(id,code,name,is_active) values (?,'ZZINDEX','Fixture index',true)",INDEX);
+    db.update("insert into index_prices(id,market_index_id,data_source_id,data_version_id,price_timestamp,interval_code,close_value,is_canonical) values (1,?,1,?,'2026-10-01T08:00:00Z','1d',1234,true)",INDEX,VERSION);
+    db.update("insert into security_index_memberships(id,market_index_id,security_id,effective_from,effective_to) values (?,?,?,'2026-10-01','2026-10-02')",UUID.randomUUID(),INDEX,SECURITY);
+    db.update("insert into macro_series(id,data_source_id,code,name,is_active,unit) values (?,1,'ZZMACRO','Fixture series',true,'%')",MACRO);
+    db.update("insert into macro_observations(id,macro_series_id,observation_date,value,data_version_id) values (1,?,'2025-01-01',1.23456789,?),(2,?,'2026-01-01',999,?)",MACRO,VERSION,MACRO,REJECTED);
     read=new UserReadSupport(db,JSON);securities=new UserSecurityService(read);
   }
   @AfterAll static void cleanup() {if(admin!=null&&SCHEMA.matches("user_api_test_[a-f0-9]{32}"))admin.execute("drop schema "+SCHEMA+" cascade");}
@@ -48,5 +55,30 @@ class UserApiIsolatedIntegrationTests {
     try {assertThatThrownBy(()->securities.resolve("ZZTEST",null)).isInstanceOf(org.springframework.web.server.ResponseStatusException.class).hasMessageContaining("409");assertThat(securities.resolve("ZZTEST","HNX").get("id")).isEqualTo(other.toString());}
     finally {db.update("delete from securities where id=?",other);}
     assertThatThrownBy(()->securities.company(UUID.randomUUID())).hasMessageContaining("404");
+  }
+  @Test void dailyChartExcludesSnapshotsAndRejectedVersionsAndKeepsPagingOrder() {
+    var service=new UserMarketService(read,securities);
+    var result=service.prices("ZZTEST","HOSE","1d",java.time.LocalDate.parse("2026-10-01"),java.time.LocalDate.parse("2026-10-02"),0,1);
+    assertThat(result.total()).isEqualTo(2);assertThat(result.hasNext()).isTrue();assertThat(result.items().getFirst().get("tradingDate")).isEqualTo("2026-10-01");
+    var next=service.prices("ZZTEST","HOSE","1d",java.time.LocalDate.parse("2026-10-01"),java.time.LocalDate.parse("2026-10-02"),1,1);
+    assertThat(next.items().getFirst().get("tradingDate")).isEqualTo("2026-10-02");assertThat(next.hasNext()).isFalse();
+    var quote=service.latest("ZZTEST","HOSE").data();assertThat(quote.get("daily").toString()).contains("110");assertThat(quote.get("snapshot").toString()).contains("999");
+  }
+  @Test void marketBreadthUsesOnlyDailyComparableTrackedPrices() {
+    var result=new UserMarketService(read,securities).overview("HOSE",java.time.LocalDate.parse("2026-10-02")).data();
+    assertThat(result.get("latestStoredTradingDate")).isEqualTo("2026-10-02");
+    assertThat(((Map<?,?>)result.get("breadth")).get("rising")).isEqualTo(1);
+    assertThat(result.get("securities").toString()).contains("10.00000000").doesNotContain("999","777");
+  }
+  @Test void indexMembershipEndIsExclusiveAndMacroRejectsUnpublishedVersions() {
+    var service=new UserMarketService(read,securities);
+    assertThat(service.indices(0,25).items()).hasSize(1);
+    assertThat(service.indexPrices("ZZINDEX",java.time.LocalDate.parse("2026-10-01"),java.time.LocalDate.parse("2026-10-02"),0,25).items()).hasSize(1);
+    assertThat(service.members("ZZINDEX",java.time.LocalDate.parse("2026-10-01"),0,25).items()).hasSize(1);
+    assertThat(service.members("ZZINDEX",java.time.LocalDate.parse("2026-10-02"),0,25).items()).isEmpty();
+    assertThat(service.macroSeries(0,25).items()).hasSize(1);
+    var observations=service.macro(MACRO,java.time.LocalDate.parse("2025-01-01"),java.time.LocalDate.parse("2026-01-01"),0,25);
+    assertThat(observations.items()).hasSize(1);assertThat(new java.math.BigDecimal(observations.items().getFirst().get("value").toString())).isEqualByComparingTo("1.23456789");
+    assertThatThrownBy(()->service.macro(UUID.randomUUID(),null,null,0,25)).hasMessageContaining("404");
   }
 }

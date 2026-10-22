@@ -101,6 +101,12 @@ def main():
         availability = call('/api/v1/analysis/availability')['data']
         assert availability['executesModels'] is False
         assert availability['localAi']['publicPredictionReader'] == 'NOT_INTEGRATED'
+        suite = availability['localAi']['registeredSuite']['data']
+        models = call('/api/v1/local-ai/models?size=100')
+        local_ai = call(security + '/local-ai' + exchange)['data']
+        assert local_ai['publicResultsAvailable'] is False and local_ai['executionAvailable'] is False
+        if suite['state'] == 'RESEARCH_ONLY':
+            assert models['items'] and all(model['readiness'] == 'RESEARCH_ONLY' and model['publicResultsAvailable'] is False for model in models['items'])
         overview = call(security + '/overview' + exchange)['data']
         assert overview['profile']['data']['id'] == profile['id']
         assert overview['financialScenarioState'] in ('AVAILABLE', 'NO_ELIGIBLE_RESULT')
@@ -113,9 +119,13 @@ def main():
             ('/api/v1/market/screener?metric=DOES_NOT_EXIST', 404),
             ('/api/v1/securities/compare?symbols=FPT&codes=', 400),
             (security + '/foreign-trades?from=2026-02-01&to=2026-01-01', 400),
+            ('/api/v1/local-ai/models?packageId=wrong', 400),
+            ('/api/v1/local-ai/models?size=101', 400),
+            ('/api/v1/securities/ZZUNKNOWN/local-ai', 404),
             ('/api/admin/console/session', (403, 503))]:
             call(path, expected)
         call(security + '/overview', 405, 'POST')
+        call('/api/v1/local-ai/models', 405, 'POST')
         visited = [urlsplit(row['path']).path for row in evidence if row['method'] == 'GET' and row['http'] == 200]
         missing = [path for path in contract['paths'] if not any(re.fullmatch(re.sub(r'\{[^}]+\}', '[^/]+', path), visit) for visit in visited)]
         assert not missing, missing

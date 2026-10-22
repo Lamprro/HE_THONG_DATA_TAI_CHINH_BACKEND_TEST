@@ -9,8 +9,10 @@ import static com.hethongdata.taichinh.service.user.UserReadSupport.*;
 public class UserOverviewService {
   private final UserReadSupport read;private final UserSecurityService securities;private final UserMarketService market;
   private final UserFinancialService financial;private final UserNewsService news;private final UserAnalysisService analysis;private final UserDataStatusService status;
-  public UserOverviewService(UserReadSupport read,UserSecurityService securities,UserMarketService market,UserFinancialService financial,UserNewsService news,UserAnalysisService analysis,UserDataStatusService status){
+  private final UserLocalAiService localAi;
+  public UserOverviewService(UserReadSupport read,UserSecurityService securities,UserMarketService market,UserFinancialService financial,UserNewsService news,UserAnalysisService analysis,UserDataStatusService status,UserLocalAiService localAi){
     this.read=read;this.securities=securities;this.market=market;this.financial=financial;this.news=news;this.analysis=analysis;this.status=status;
+    this.localAi=localAi;
   }
   public Data<Map<String,Object>> availability(){
     var local=new LinkedHashMap<String,Object>();boolean registry=read.hasColumns("model_versions",Set.of("target_name","status","trained_at"));
@@ -18,6 +20,7 @@ public class UserOverviewService {
     local.put("registry",registry?read.rows("select target_name as target,status,count(*) as count,max(trained_at) as \"lastTrainedAt\" from model_versions group by target_name,status order by target_name,status limit 101",Map.of()):List.of());
     @SuppressWarnings("unchecked") var entries=(List<Map<String,Object>>)local.get("registry");
     if(entries.size()>100){local.put("registry",List.copyOf(entries.subList(0,100)));local.put("registryTruncated",true);}else local.put("registryTruncated",false);
+    local.put("registeredSuite",localAi.summary());
     var result=new LinkedHashMap<String,Object>();result.put("localAi",local);
     result.put("newsAnalysis",Map.of("readerAvailable",true,"publicationGuard","CURRENT_SOURCE_AND_COMPLETE_VALIDATION","route","/api/v1/news/{id}/analysis"));
     result.put("financialScenarios",Map.of("readerAvailable",true,"publicationGuard","CURRENT_SOURCE_AND_COMPLETE_VALIDATION","route","/api/v1/securities/{symbol}/forecasts"));
@@ -31,6 +34,7 @@ public class UserOverviewService {
     result.put("metrics",financial.metrics(symbol,resolvedExchange,null,null,null,null,null,0,10));
     result.put("news",news.news(symbol,resolvedExchange,null,null,null,0,3));result.put("financialScenarios",forecasts);
     result.put("financialScenarioState",forecasts.data().isEmpty()?"NO_ELIGIBLE_RESULT":"AVAILABLE");result.put("analysisAvailability",availability());
+    result.put("localAi",localAi.security(symbol,resolvedExchange,null));
     return data(result,"Bounded overview: 3 statements, 10 metric observations, 3 news and at most 3 current scenario candidates. Follow each paginated resource for history; metric observations are not one latest value per code.","All sections share the read transaction snapshot. No eligible scenario can mean absent, outdated or blocked by publication guards; reads do not repair or execute it.");
   }
 }

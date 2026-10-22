@@ -20,6 +20,8 @@ class UserApiMvcTests {
     @Bean UserMarketService market() {return mock(UserMarketService.class);}
     @Bean com.hethongdata.taichinh.controller.user.UserMarketController marketController(UserMarketService s) {return new com.hethongdata.taichinh.controller.user.UserMarketController(s);}
     @Bean ApiExceptionHandler errors() {return new ApiExceptionHandler();}
+    @Bean UserFinancialViewService financialView() {return mock(UserFinancialViewService.class);}
+    @Bean com.hethongdata.taichinh.controller.user.UserFinancialViewController financialViewController(UserFinancialViewService s) {return new com.hethongdata.taichinh.controller.user.UserFinancialViewController(s);}
     @Bean ForecastAdminAccessConfiguration access() {return new ForecastAdminAccessConfiguration("fixture-token-at-least-32-characters",new ObjectMapper().findAndRegisterModules());}
     @Bean Probe probe() {return new Probe();}
   }
@@ -29,6 +31,7 @@ class UserApiMvcTests {
       mvc.perform(get("/api/v1/securities/FPT/prices").param("from","2016-10-01").param("to","2026-10-01")).andExpect(status().isOk());
       verify(context.getBean(UserMarketService.class)).prices("FPT",null,"1d",java.time.LocalDate.parse("2016-10-01"),java.time.LocalDate.parse("2026-10-01"),0,250);
       mvc.perform(get("/api/v1/securities/FPT/prices").param("from","invalid")).andExpect(status().isBadRequest());
+      mvc.perform(get("/api/v1/securities/FPT/financials")).andExpect(status().isBadRequest()).andExpect(jsonPath("message").value("Missing parameter 'codes'"));
     }
   }
   @RestController static class Probe {@GetMapping("/api/admin/probe") String admin() {return "private";}}

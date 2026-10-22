@@ -60,6 +60,10 @@ public class ApiExceptionHandler {
         String type=exception.getRequiredType()==null?"supported value":exception.getRequiredType().getSimpleName();
         return error(HttpStatus.BAD_REQUEST,"VALIDATION",null,null,"Invalid parameter '"+exception.getName()+"': expected "+type);
     }
+    @ExceptionHandler(org.springframework.web.bind.MissingServletRequestParameterException.class)
+    ResponseEntity<ApiErrorResponse> missingParameter(org.springframework.web.bind.MissingServletRequestParameterException exception) {
+        return error(HttpStatus.BAD_REQUEST,"VALIDATION",null,null,"Missing parameter '"+exception.getParameterName()+"'");
+    }
 
     @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
     ResponseEntity<ApiErrorResponse> unreadableBody(org.springframework.http.converter.HttpMessageNotReadableException exception) {

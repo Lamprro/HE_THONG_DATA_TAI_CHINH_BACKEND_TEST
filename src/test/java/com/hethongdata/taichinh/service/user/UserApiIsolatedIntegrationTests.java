@@ -121,6 +121,37 @@ class UserApiIsolatedIntegrationTests {
     var detail=service.detail(ARTICLE).data();assertThat(detail.get("contentText")).isNull();assertThat(detail.get("publishedAt")).isNull();assertThat(detail.get("companies").toString()).contains("SOURCE_JOB");
     assertThatThrownBy(()->service.detail(HIDDEN_ARTICLE)).hasMessageContaining("404");
   }
+  @Test void comparisonSelectsOriginAndAsOfAndDoesNotChooseAmbiguousCanonicalMetrics() {
+    var service=new UserComparisonService(read,securities);var date=java.time.LocalDate.parse("2026-03-01");
+    var provider=service.screen(null,"HOSE",null,"ZZMETRIC","PROVIDER",date,"1","2","METRIC_DESC",0,25);
+    assertThat(provider.items()).hasSize(1);assertThat(provider.items().getFirst().get("asOfDate")).isEqualTo("2026-01-01");
+    assertThat(provider.items().toString()).doesNotContain("999");
+    var comparison=service.compare("ZZTEST","HOSE","ZZMETRIC,UNKNOWN","DERIVED",date).data();
+    assertThat(comparison.get("securities").toString()).contains("2026-02-01","AVAILABLE");assertThat(comparison.get("unknownCodes")).isEqualTo(List.of("UNKNOWN"));
+    UUID tie=UUID.randomUUID();db.update("insert into financial_metrics(id,company_id,security_id,metric_definition_id,as_of_date,value,data_version_id,is_derived,is_canonical,quality_status) values (?,?,?,1,'2026-01-01',8,?,false,true,'VALID')",tie,COMPANY,SECURITY,VERSION);
+    try {
+      var tied=service.screen(null,"HOSE",null,"ZZMETRIC","PROVIDER",date,null,null,"SYMBOL",0,25).items().getFirst();
+      assertThat(tied.get("metricState")).isEqualTo("AMBIGUOUS");assertThat(tied.get("value")).isNull();
+      assertThat(service.screen(null,"HOSE",null,"ZZMETRIC","PROVIDER",date,"1",null,"SYMBOL",0,25).items()).isEmpty();
+    } finally {db.update("delete from financial_metrics where id=?",tie);}
+    assertThatThrownBy(()->service.screen(null,null,null,null,"PROVIDER",date,"1",null,"SYMBOL",0,25)).isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(()->service.screen(null,null,null,"ZZMETRIC","PROVIDER",date,"1e99999999",null,"SYMBOL",0,25)).isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(()->service.screen(null,null,null,"ZZMETRIC","PROVIDER",date,null,null,"value;drop",0,25)).isInstanceOf(IllegalArgumentException.class);
+  }
+  @Test void financialMatrixKeepsScopeAndMissingValuesSeparate() {
+    var service=new UserFinancialViewService(read,securities);
+    var result=service.matrix("ZZTEST","HOSE","BALANCE_SHEET","FY",null,"TOTAL_ASSETS,MISSING",null,null,12).data();
+    assertThat(result.get("periods").toString()).contains("2025-12-31");
+    assertThat(result.get("series").toString()).contains("9007199254740993","UNKNOWN","POINT_IN_TIME");
+    assertThat(result.get("missingCodes")).isEqualTo(List.of("MISSING"));
+    assertThat(service.items("ZZTEST","HOSE","BALANCE_SHEET",0,25).items()).hasSize(1);
+    assertThat(service.matrix("ZZTEST","HOSE","BALANCE_SHEET","QUARTER",null,"TOTAL_ASSETS",null,null,12).data().get("series")).isEqualTo(List.of());
+    UUID separate=UUID.randomUUID();
+    db.update("insert into financial_statements(id,company_id,financial_period_id,statement_type,data_source_id,data_version_id,is_current,is_canonical,report_scope,period_basis) values (?,?,?,'BALANCE_SHEET',1,?,true,true,'SEPARATE','POINT_IN_TIME')",separate,COMPANY,PERIOD,VERSION);
+    db.update("insert into financial_statement_items(id,financial_statement_id,item_code,item_name,value,unit) values (?,?,'TOTAL_ASSETS','Separate assets',12,'VND')",UUID.randomUUID(),separate);
+    try {assertThat((List<?>)service.matrix("ZZTEST","HOSE","BALANCE_SHEET","FY",null,"TOTAL_ASSETS",null,null,12).data().get("series")).hasSize(2);}
+    finally {db.update("delete from financial_statement_items where financial_statement_id=?",separate);db.update("delete from financial_statements where id=?",separate);}
+  }
   @Test void coverageAndLineageRetainUnknownsAndNeverExposeSourceCredentials() throws Exception {
     var financial=new UserFinancialService(read,securities);var service=new UserDataStatusService(read,securities,financial);
     var status=service.status("ZZTEST","HOSE").data();assertThat(status.get("pointInTimeCertified")).isEqualTo(false);

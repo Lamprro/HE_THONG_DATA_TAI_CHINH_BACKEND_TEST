@@ -19,6 +19,7 @@ public class UserComparisonService {
       case when count(*)=1 then min(m.value) end as value,
       case when count(*)=1 then min(m.value_text) end as value_text,
       case when count(*)=1 then min(m.quality_status) end as quality,
+      case when count(*)=1 then min(m.calculation_version) end as calculation_version,
       case when count(*)=1 then min(ds.code) end as source
       from financial_metrics m left join data_sources ds on ds.id=m.data_source_id
       where m.company_id=s.company_id and (m.security_id is null or m.security_id=s.id)
@@ -29,7 +30,7 @@ public class UserComparisonService {
     ) metric on true
     """;
   private static final String METRIC_FIELDS="""
-    d.code as "metricCode",d.name as "metricName",d.unit,metric.value,metric.value_text as "valueText",
+    d.code as "metricCode",d.name as "metricName",d.unit,metric.value,metric.value_text as "valueText",:derived as derived,metric.calculation_version as "calculationVersion",
     metric.as_of_date as "asOfDate",metric.source as "sourceCode",metric.quality as "qualityStatus",
     coalesce(metric.candidates,0) as "candidateCount",
     case when metric.candidates>1 then 'AMBIGUOUS' when metric.candidates is null then 'MISSING' else 'AVAILABLE' end as "metricState"

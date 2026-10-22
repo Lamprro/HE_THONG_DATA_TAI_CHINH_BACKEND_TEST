@@ -136,6 +136,7 @@ class UserApiIsolatedIntegrationTests {
     var service=new UserComparisonService(read,securities);var date=java.time.LocalDate.parse("2026-03-01");
     var provider=service.screen(null,"HOSE",null,"ZZMETRIC","PROVIDER",date,"1","2","METRIC_DESC",0,25);
     assertThat(provider.items()).hasSize(1);assertThat(provider.items().getFirst().get("asOfDate")).isEqualTo("2026-01-01");
+    assertThat(provider.items().getFirst().get("derived")).isEqualTo(false);
     assertThat(provider.items().toString()).doesNotContain("999");
     var comparison=service.compare("ZZTEST","HOSE","ZZMETRIC,UNKNOWN","DERIVED",date).data();
     assertThat(comparison.get("securities").toString()).contains("2026-02-01","AVAILABLE");assertThat(comparison.get("unknownCodes")).isEqualTo(List.of("UNKNOWN"));

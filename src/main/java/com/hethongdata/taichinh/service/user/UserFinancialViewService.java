@@ -33,12 +33,12 @@ public class UserFinancialViewService {
       args.put("ids",periods.stream().map(p->UUID.fromString(p.get("id").toString())).toList());args.put("codes",selected);
       var rows=read.rows("""
         select p.id as "periodId",i.item_code as code,i.item_name as name,i.unit,i.value,
-        f.id as "statementId",f.report_scope as scope,f.period_basis as basis,f.currency,d.code as "sourceCode",f.published_at as "publishedAt"
+        f.id as "statementId",f.report_scope as scope,f.period_basis as basis,f.currency,f.unit_scale as "unitScale",d.code as "sourceCode",f.published_at as "publishedAt"
         """+UserFinancialService.STATEMENTS.replace("where f.company_id", "join financial_statement_items i on i.financial_statement_id=f.id where f.company_id")+
         filter+" and p.id in (:ids) and i.item_code in (:codes) order by p.end_date,p.id,i.item_code,f.report_scope,f.id",args);
       for(var row:rows) {
-        List<Object> key=Arrays.asList(row.get("code"),row.get("scope"),row.get("basis"),row.get("currency"),row.get("unit"));
-        var line=series.computeIfAbsent(key,k->{var item=new LinkedHashMap<String,Object>();for(String field:List.of("code","name","unit","scope","basis","currency"))item.put(field,row.get(field));item.put("values",new LinkedHashMap<String,Object>());return item;});
+        List<Object> key=Arrays.asList(row.get("code"),row.get("scope"),row.get("basis"),row.get("currency"),row.get("unit"),row.get("unitScale"));
+        var line=series.computeIfAbsent(key,k->{var item=new LinkedHashMap<String,Object>();for(String field:List.of("code","name","unit","scope","basis","currency","unitScale"))item.put(field,row.get(field));item.put("values",new LinkedHashMap<String,Object>());return item;});
         @SuppressWarnings("unchecked") var values=(Map<String,Object>)line.get("values");var point=new LinkedHashMap<String,Object>();
         for(String field:List.of("value","statementId","sourceCode","publishedAt"))point.put(field,row.get(field));
         if(values.putIfAbsent(row.get("periodId").toString(),point)!=null)throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,"Multiple canonical cells for the same period/scope/unit");

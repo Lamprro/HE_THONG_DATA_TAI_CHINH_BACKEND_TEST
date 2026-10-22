@@ -17,4 +17,5 @@ public class UserSecurityController {
   }
   @GetMapping("/securities/{symbol}") public Data<Map<String,Object>> security(@PathVariable String symbol,@RequestParam(required=false) String exchange) {return service.detail(symbol,exchange);}
   @GetMapping("/companies/{id}") public Data<Map<String,Object>> company(@PathVariable UUID id) {return service.company(id);}
+  @GetMapping("/companies") public Page<Map<String,Object>> companies(@RequestParam(required=false) String search,@RequestParam(defaultValue="true") boolean activeOnly,@RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="25") int size){return service.companies(search,activeOnly,page,size);}
 }

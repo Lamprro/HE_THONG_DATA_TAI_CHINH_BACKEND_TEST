@@ -25,7 +25,7 @@ class UserApiIsolatedIntegrationTests {
     admin=new JdbcTemplate(new DriverManagerDataSource(url,user,password));admin.execute("create schema "+SCHEMA);
     String scoped=url.contains("currentSchema=")?url.replaceAll("currentSchema=[^&]+","currentSchema="+SCHEMA):url+(url.contains("?")?"&":"?")+"currentSchema="+SCHEMA;
     db=new JdbcTemplate(new DriverManagerDataSource(scoped,user,password));assertThat(db.queryForObject("select current_schema()",String.class)).isEqualTo(SCHEMA);
-    for(String table:List.of("companies","securities","data_sources","data_versions","raw_payloads","market_prices","market_indices","index_prices","security_index_memberships","financial_periods","financial_statements","financial_statement_items","financial_metrics","metric_definitions","macro_series","macro_observations","news_articles","news_article_companies")) {
+    for(String table:List.of("companies","securities","data_sources","data_versions","raw_payloads","market_prices","market_indices","index_prices","security_index_memberships","financial_periods","financial_statements","financial_statement_items","financial_metrics","metric_definitions","macro_series","macro_observations","news_articles","news_article_companies","security_foreign_observations","security_reference_observations")) {
       db.execute("create table "+table+" (like public."+table+" including defaults including constraints)");
       // Never advance a sequence belonging to public, even if a future fixture omits an explicit ID.
       var defaults=db.queryForList("select column_name from information_schema.columns where table_schema=? and table_name=? and column_default like 'nextval%'",String.class,SCHEMA,table);
@@ -120,6 +120,17 @@ class UserApiIsolatedIntegrationTests {
     assertThat(service.news(null,null,null,java.time.LocalDate.parse("2026-10-01"),java.time.LocalDate.parse("2026-10-01"),0,25).items()).isEmpty();
     var detail=service.detail(ARTICLE).data();assertThat(detail.get("contentText")).isNull();assertThat(detail.get("publishedAt")).isNull();assertThat(detail.get("companies").toString()).contains("SOURCE_JOB");
     assertThatThrownBy(()->service.detail(HIDDEN_ARTICLE)).hasMessageContaining("404");
+  }
+  @Test void supplementarySourcesKeepNullVolumesAndSeparateObservationAndEffectiveDates() throws Exception {
+    UUID foreign=UUID.randomUUID(),hidden=UUID.randomUUID(),reference=UUID.randomUUID();
+    db.update("insert into security_foreign_observations(id,security_id,trading_date,data_source_id,raw_payload_id,data_version_id,buy_volume,sell_volume,source_observed_at,source_record,is_canonical) values (?,?,'2026-10-01',1,?,?,null,99,now(),'{}',true),(?,?,'2026-10-02',1,?,?,999,999,now(),'{}',true)",foreign,SECURITY,RAW,VERSION,hidden,SECURITY,RAW,REJECTED);
+    db.update("insert into security_reference_observations(id,security_id,data_source_id,raw_payload_id,data_version_id,observed_at,source_effective_at,outstanding_shares,source_record) values (?,?,1,?,?,'2026-09-30T18:00:00Z',null,9007199254740993,'{\"private\":\"hidden\"}')",reference,SECURITY,RAW,VERSION);
+    try {
+      var service=new UserSupplementaryService(read,securities);var from=java.time.LocalDate.parse("2026-10-01");
+      var trades=service.foreign("ZZTEST","HOSE",from,from.plusDays(1),0,25);assertThat(trades.items()).hasSize(1);assertThat(trades.items().getFirst().get("buyVolume")).isNull();
+      var refs=service.reference("ZZTEST","HOSE",from,from,0,25);assertThat(refs.items()).hasSize(1);assertThat(refs.items().getFirst().get("sourceEffectiveAt")).isNull();assertThat(JSON.writeValueAsString(refs)).doesNotContain("private","hidden");
+      assertThat(securities.companies("fixture",true,0,25).items()).hasSize(1);
+    }finally {db.update("delete from security_foreign_observations where id in (?,?)",foreign,hidden);db.update("delete from security_reference_observations where id=?",reference);}
   }
   @Test void comparisonSelectsOriginAndAsOfAndDoesNotChooseAmbiguousCanonicalMetrics() {
     var service=new UserComparisonService(read,securities);var date=java.time.LocalDate.parse("2026-03-01");

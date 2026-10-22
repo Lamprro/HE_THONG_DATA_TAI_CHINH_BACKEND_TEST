@@ -46,4 +46,9 @@ public class UserSecurityService {
     company.put("securities",read.rows("select "+FIELDS+JOIN+"where c.id=:id order by s.symbol,s.exchange,s.id",Map.of("id",id)));
     return data(company,"Company profile and listing metadata may be incomplete.");
   }
+  public Page<Map<String,Object>> companies(String search,boolean activeOnly,int page,int size) {
+    return read.page("select c.id,c.company_code as \"companyCode\",c.legal_name as \"legalName\",c.short_name as \"shortName\",c.industry_name as \"industryName\",c.sector_name as \"sectorName\",c.is_active as active",
+      "from companies c where (:activeOnly=false or c.is_active) and (c.legal_name ilike :search or c.short_name ilike :search or c.company_code ilike :search)",
+      "order by c.legal_name,c.id",Map.of("search",search(search),"activeOnly",activeOnly),page,size,100,"Company UUIDs are distinct from security UUIDs. One company can have multiple listings.");
+  }
 }

@@ -1,3 +1,15 @@
+# Cập nhật 23/10/2026 — ghép API user từ các dự án workspace
+
+Tiếp tục `feature/user-api`, chỉ push, **chưa PR/merge/deploy**.
+Đọc [33 API user, đối chiếu các dự án và giới hạn tích hợp](USER_API_INTEGRATION_20261023.md).
+Thêm coverage/lineage/periods, financial matrix, screener/compare, company directory,
+foreign/reference observations, security overview, AI availability và OpenAPI public.
+209 unit/contract + 12 PostgreSQL schema tạm pass; 48 HTTP trên DB read-only pass,
+bao phủ 33 GET và CORS. Chưa nghiệm thu UI user hoàn chỉnh hoặc production.
+Local AI đang do chat khác sửa: chỉ đọc registry, chưa có reader công bố dự đoán
+trong build này; không đưa output nghiên cứu/NPAT RESEARCH_ONLY ra user.
+Không sửa checkout gốc, FE hoặc Python; không gọi job/model và không sửa DB public.
+
 # Cập nhật 20/10/2026 — API đọc cho user, chỉ trên nhánh
 
 Nhánh `feature/user-api` từ main 8a65bc5; chỉ push, **chưa PR/merge/deploy**.

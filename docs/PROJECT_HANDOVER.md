@@ -1,3 +1,15 @@
+# Cập nhật 23/10/2026 — reader gói Local AI mới và client FE
+
+Tiếp tục `feature/user-api`, chỉ push, **chưa PR/merge/deploy**.
+Đọc [35 GET, registry Local AI thật và luồng browser](USER_LOCAL_AI_FE_20261023.md).
+Thêm model catalog/per-security progress từ suite registry, nối availability/overview;
+không xuất prediction nghiên cứu hoặc sửa thư mục train/checkout gốc.
+Client FE có UUID/envelope/decimal string, chỉ GET không credential, TypeScript và
+browser harness. 209 Java unit + 15 PostgreSQL cô lập + 4 client test pass;
+54 HTTP bao phủ 35 GET và Chrome thật 12 request qua DB read-only pass.
+Đối chiếu 11 model/218 input/218 result lưu trong DB; chưa gọi lại PKL hoặc nghiệm thu
+UI user hoàn chỉnh. FE demo vẫn cần chuyển ID số/POST cũ sang hợp đồng mới.
+
 # Cập nhật 23/10/2026 — ghép API user từ các dự án workspace
 
 Tiếp tục `feature/user-api`, chỉ push, **chưa PR/merge/deploy**.

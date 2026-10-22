@@ -1,5 +1,8 @@
 # API user: ghép chức năng trong workspace — 23/10/2026
 
+Bổ sung tiếp theo: [35 GET, gói Local AI mới và client FE](USER_LOCAL_AI_FE_20261023.md).
+Các số lượng 33 route dưới đây là snapshot trước khi nối suite registry mới.
+
 Nhánh `feature/user-api`, tiếp tục từ `58a03e8`. Chỉ commit/push nhánh theo yêu cầu;
 không tạo PR, merge hoặc deploy. Chỉ sửa checkout Java `_training_data_java`.
 Không sửa checkout gốc đang làm Local AI, FE admin hoặc Python đang chạy.

@@ -22,6 +22,7 @@ class UserApiMvcTests {
     @Bean ApiExceptionHandler errors() {return new ApiExceptionHandler();}
     @Bean UserFinancialViewService financialView() {return mock(UserFinancialViewService.class);}
     @Bean com.hethongdata.taichinh.controller.user.UserFinancialViewController financialViewController(UserFinancialViewService s) {return new com.hethongdata.taichinh.controller.user.UserFinancialViewController(s);}
+    @Bean com.hethongdata.taichinh.controller.user.UserContractController contract(org.springframework.beans.factory.ObjectProvider<org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping> routes){return new com.hethongdata.taichinh.controller.user.UserContractController(routes);}
     @Bean ForecastAdminAccessConfiguration access() {return new ForecastAdminAccessConfiguration("fixture-token-at-least-32-characters",new ObjectMapper().findAndRegisterModules());}
     @Bean Probe probe() {return new Probe();}
   }
@@ -35,6 +36,15 @@ class UserApiMvcTests {
     }
   }
   @RestController static class Probe {@GetMapping("/api/admin/probe") String admin() {return "private";}}
+  @Test void contractDescribesOnlyPublicGetRoutesAndRequiredParameters() throws Exception {
+    try(var context=new AnnotationConfigWebApplicationContext()){
+      context.setServletContext(new MockServletContext());context.register(Config.class);context.refresh();var mvc=MockMvcBuilders.webAppContextSetup(context).build();
+      String body=mvc.perform(get("/api/v1/openapi.json")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+      var json=new ObjectMapper().readTree(body);org.assertj.core.api.Assertions.assertThat(body).doesNotContain("/api/admin","fixture-token");
+      org.assertj.core.api.Assertions.assertThat(json.path("paths").path("/api/v1/securities/{symbol}/financials").path("get").path("parameters").toString()).contains("codes","required\":true");
+      org.assertj.core.api.Assertions.assertThat(json.path("paths").path("/api/v1/securities").has("post")).isFalse();
+    }
+  }
   @Test void publicReadsDoNotRequireAdminTokenAndWritesAreNotAvailable() throws Exception {
     try(var context=new AnnotationConfigWebApplicationContext()) {
       context.setServletContext(new MockServletContext());context.register(Config.class);context.refresh();

@@ -31,10 +31,13 @@ public class UserFinancialService {
     return read.page("select "+FIELDS,where,"order by p.end_date desc,f.statement_type,f.report_scope,f.id",args,page,size,100,NOTE,"Period filters use period end, not publication date. Financial reports belong to the company, shared by its listings.");
   }
   public Data<Map<String,Object>> statement(String symbol,String exchange,UUID id) {
-    var args=company(symbol,exchange);args.put("id",id);var report=new LinkedHashMap<>(read.one("select "+FIELDS+STATEMENTS+" and f.id=:id",args,"Published statement"));
+    var report=new LinkedHashMap<>(publishedReport(symbol,exchange,id));
     var items=read.rows("select item_code as \"code\",item_name as \"name\",parent_item_code as \"parentCode\",value,unit,display_order as \"displayOrder\",is_total as \"total\" from financial_statement_items where financial_statement_id=:id order by display_order nulls last,item_code,id limit 2001",Map.of("id",id));
     if(items.size()>2000) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY,"Statement exceeds 2000 display items");
     report.put("items",items);return data(report,NOTE,"Read each item's stored unit. Do not multiply monetary values by report unitScale without checking the source normalization contract.");
+  }
+  public Map<String,Object> publishedReport(String symbol,String exchange,UUID id) {
+    var args=company(symbol,exchange);args.put("id",id);return read.one("select "+FIELDS+STATEMENTS+" and f.id=:id",args,"Published statement");
   }
   public Page<Map<String,Object>> definitions(int page,int size) {
     return read.page("select code,name,category,description,formula,unit,higher_is_better as \"higherIsBetter\"","from metric_definitions","order by category,code,id",Map.of(),page,size,100,"Definitions do not guarantee that every metric has data for a security or period.");

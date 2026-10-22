@@ -121,4 +121,16 @@ class UserApiIsolatedIntegrationTests {
     var detail=service.detail(ARTICLE).data();assertThat(detail.get("contentText")).isNull();assertThat(detail.get("publishedAt")).isNull();assertThat(detail.get("companies").toString()).contains("SOURCE_JOB");
     assertThatThrownBy(()->service.detail(HIDDEN_ARTICLE)).hasMessageContaining("404");
   }
+  @Test void coverageAndLineageRetainUnknownsAndNeverExposeSourceCredentials() throws Exception {
+    var financial=new UserFinancialService(read,securities);var service=new UserDataStatusService(read,securities,financial);
+    var status=service.status("ZZTEST","HOSE").data();assertThat(status.get("pointInTimeCertified")).isEqualTo(false);
+    assertThat(status.get("availability")).isEqualTo("PARTIAL");assertThat(status.get("limitations").toString()).contains("PUBLICATION_DATES_INCOMPLETE","REPORT_SCOPE_INCOMPLETE");
+    assertThat(((Map<?,?>)status.get("prices")).get("count")).isEqualTo("2");
+    assertThat(service.periods("ZZTEST","HOSE").data()).hasSize(1);assertThat(service.filters().data().get("exchanges").toString()).contains("HOSE");
+    db.update("update financial_statements set raw_payload_id=? where id=?",RAW,REPORT);
+    db.update("update raw_payloads set source_url='https://provider.invalid/report?api_key=private-value' where id=?",RAW);
+    try {String body=JSON.writeValueAsString(service.lineage("ZZTEST","HOSE",REPORT));assertThat(body).contains("ACTIVATED").doesNotContain("private-value","api_key");}
+    finally {db.update("update raw_payloads set source_url=null where id=?",RAW);}
+    assertThatThrownBy(()->service.lineage("ZZTEST","HOSE",OLD_REPORT)).hasMessageContaining("404");
+  }
 }

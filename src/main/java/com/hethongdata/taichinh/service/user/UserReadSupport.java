@@ -45,6 +45,23 @@ public class UserReadSupport {
     if(value==null||value.isBlank()) return null;String normalized=value.trim().toUpperCase(Locale.ROOT);
     if(!allowed.contains(normalized)) throw new IllegalArgumentException("Expected one of "+new TreeSet<>(allowed));return normalized;
   }
+  public static List<String> codes(String csv,int max) {
+    if(csv==null||csv.isBlank()) throw new IllegalArgumentException("A comma-separated code list is required");
+    if(csv.length()>max*41) throw new IllegalArgumentException("Code list is too long");
+    var values=Arrays.stream(csv.split(",",-1)).map(UserReadSupport::code).distinct().toList();
+    if(values.size()>max) throw new IllegalArgumentException("At most "+max+" distinct codes");return values;
+  }
+  public static String publicSourceUrl(Object value) {
+    if(value==null) return null;
+    try {var uri=java.net.URI.create(value.toString());
+      return Set.of("http","https").contains(Objects.toString(uri.getScheme(),"").toLowerCase(Locale.ROOT))
+          && uri.getHost()!=null && uri.getUserInfo()==null && uri.getRawQuery()==null && uri.getFragment()==null?uri.toASCIIString():null;
+    } catch(IllegalArgumentException e) {return null;}
+  }
+  public boolean hasColumns(String table,Set<String> required) {
+    var columns=rows("select column_name as name from information_schema.columns where table_schema=current_schema() and table_name=:table",Map.of("table",table));
+    return columns.stream().map(r->r.get("name").toString()).collect(java.util.stream.Collectors.toSet()).containsAll(required);
+  }
   public static Window window(LocalDate from,LocalDate to,int defaultYears,int maxYears) {
     LocalDate end=to==null?LocalDate.now(ZONE):to;LocalDate start=from==null?end.minusYears(defaultYears):from;
     if(start.isAfter(end)||start.isBefore(end.minusYears(maxYears))||start.getYear()<1900||end.getYear()>2200)

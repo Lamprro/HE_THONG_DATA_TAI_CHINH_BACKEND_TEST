@@ -59,6 +59,6 @@ public class ForecastAdminAccessConfiguration implements WebMvcConfigurer {
                 return false;
               }
             })
-        .addPathPatterns("/api/admin/forecasts/**", "/api/admin/llm/**", "/api/admin/news-recovery/**");
+        .addPathPatterns("/api/admin/forecasts/**", "/api/admin/llm/**", "/api/admin/news-recovery/**", "/api/admin/financial-data/**");
   }
 }

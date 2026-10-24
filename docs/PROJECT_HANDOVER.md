@@ -186,3 +186,26 @@ bỏ bảng legacy yêu cầu bảng rỗng. Không chạy SQL cleanup tùy ti�
 Các tài liệu chi tiết giữ lịch sử để truy vết. Khi mâu thuẫn, dùng code hiện hành
 để xác định implementation và bằng chứng đúng môi trường/ngày để xác định đã chạy
 thành công hay chưa; ghi lại chênh lệch thay vì chọn kết luận thuận lợi hơn.
+
+### 24/10/2026 — sửa CafeF, VNStock và metadata FPT
+
+Đọc [FINANCIAL_DATA_REPAIR_20261024.md](FINANCIAL_DATA_REPAIR_20261024.md) để nối FE.
+Python main đã lên Vercel 0.7.1, build 25fdde9. Đã sửa parser CafeF, cài đúng
+VNStock/vnai và khóa dependencies, bổ sung nguồn tài liệu công bố FPT.
+Java giữ metadata có bằng chứng, bỏ qua dòng VNStock toàn ô trống, lưu PDF/SHA
+và lỗi upstream, thêm ba API admin để xem chất lượng, danh sách và refresh tài liệu.
+
+Migration đã qua kiểm tra schema riêng, rollback và bốn constraint âm rồi mới áp
+DB thật. Đã thêm 88 tài liệu; refresh lặp không thêm bản ghi trùng. Chín request
+Spring -> Vercel -> provider -> DB đều HTTP 200, ACCEPTED và parse thành công.
+HTTP Java thật: thiếu quyền trả 403; đọc và refresh có quyền trả 200.
+32 Java tests và 36 Python tests PASS; Python được kiểm trên 3.12 với lockfile và
+3.13. Unit tests dùng fixture/mock; các lần nghiệm thu nguồn và DB là dữ liệu thật.
+
+Đã tải lại tám PDF, SHA không đổi; tám giá trị VNDirect vẫn khác tài liệu của chính
+kỳ đó. Đọc PDF xác nhận số vendor của 2022Q2, 2024Q2, 2024Q4 và 2025Q2 khớp cột so sánh
+ở báo cáo năm sau. Chi tiết đối chiếu tiếp theo xem báo cáo ở trên. Không gán ngày
+bản cũ cho giá trị cập nhật sau, không chạy build canonical hoặc train/promote model.
+FPT còn 156 báo cáo canonical thiếu ngày/scope/revision được xác minh; 88 tài liệu
+mới không tự chứng nhận phiên bản số liệu vendor. Bằng chứng nằm trong
+`artifacts/financial-provider-repair-20261024`.

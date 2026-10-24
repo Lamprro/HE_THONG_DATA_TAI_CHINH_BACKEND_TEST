@@ -11,6 +11,13 @@ import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.*;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
 class FinancialDisclosureAdapterTests {
+ @Test void eachIssuerRoutesToItsOwnListing() {
+  var adapter=new PythonExternalFinancialDataAdapter(RestClient.create(),new PythonFinancialDataProperties(),new SensitiveHeaderSanitizer());
+  for(String symbol:List.of("FPT","HPG","VNM")) {
+   var source=OfficialFinancialSources.forSymbol(symbol);
+   assertThat(adapter.resolveUri(new ExternalFetchRequest(ExternalOperation.FINANCIAL_DISCLOSURES,source.provider(),symbol,null,null,null,Map.of("page","1"))).getPath()).isEqualTo("/api/v1/disclosures/"+symbol);
+  }
+ }
  @Test void compressedListingIsDecodedBeforeUtf8Persistence() throws Exception {
   var data=new java.io.ByteArrayOutputStream();try(var zip=new java.util.zip.GZIPOutputStream(data)){zip.write("<html>source listing</html>".getBytes(java.nio.charset.StandardCharsets.UTF_8));}
   var builder=RestClient.builder();var server=MockRestServiceServer.bindTo(builder).build();var adapter=new PythonExternalFinancialDataAdapter(builder.build(),new PythonFinancialDataProperties(),new SensitiveHeaderSanitizer());server.expect(anything()).andRespond(withSuccess(data.toByteArray(),MediaType.TEXT_HTML).header("Content-Encoding","gzip"));var r=adapter.fetch(new ExternalFetchRequest(ExternalOperation.RAW_PROXY,"fpt-ir","FPT",null,null,null,Map.of("upstream_path","vi/nha-dau-tu/thong-tin-cong-bo")));assertThat(r.rawBody()).isEqualTo("<html>source listing</html>");server.verify();

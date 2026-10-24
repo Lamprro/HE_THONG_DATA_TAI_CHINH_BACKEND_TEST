@@ -17,6 +17,8 @@ class FinancialDataAdminAccessTests {
  @Autowired MockMvc mvc;
  @MockitoBean FinancialDataQualityService service;
  @MockitoBean FinancialDisclosureDocumentStore store;
+ @MockitoBean FinancialValueBindingService bindings;
+ @MockitoBean FinancialReconciliationEvidenceService reviews;
  @Test void missingCredentialCannotRefreshOrRead()throws Exception {
   mvc.perform(post("/api/admin/financial-data/disclosures/refresh").contentType("application/json").content("{\"symbol\":\"FPT\"}")).andExpect(status().isForbidden());
   mvc.perform(get("/api/admin/financial-data/status?symbol=FPT")).andExpect(status().isForbidden());verifyNoInteractions(service,store);

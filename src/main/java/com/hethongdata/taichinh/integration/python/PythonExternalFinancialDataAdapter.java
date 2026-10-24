@@ -88,9 +88,9 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
                                     (httpRequest, httpResponse) -> {
                                         String contentType = httpResponse.getHeaders().getContentType() == null
                                                 ? "application/octet-stream" : httpResponse.getHeaders().getContentType().toString();
-                                        byte[] bytes = request.operation() == ExternalOperation.RAW_PROXY && "fpt-ir".equals(request.provider()) ? httpResponse.getBody().readNBytes(25 * 1024 * 1024 + 1) : httpResponse.getBody().readAllBytes();
+                                        byte[] bytes = request.operation() == ExternalOperation.RAW_PROXY && com.hethongdata.taichinh.service.financial.OfficialFinancialSources.isProvider(request.provider()) ? httpResponse.getBody().readNBytes(25 * 1024 * 1024 + 1) : httpResponse.getBody().readAllBytes();
                                         String encoding = httpResponse.getHeaders().getFirst("Content-Encoding");
-                                        if (request.operation() == ExternalOperation.RAW_PROXY && "fpt-ir".equals(request.provider())
+                                        if (request.operation() == ExternalOperation.RAW_PROXY && com.hethongdata.taichinh.service.financial.OfficialFinancialSources.isProvider(request.provider())
                                                 && encoding != null && !encoding.equalsIgnoreCase("identity")) {
                                             if (encoding.equalsIgnoreCase("gzip")) {
                                                 try (var gzip = new java.util.zip.GZIPInputStream(new java.io.ByteArrayInputStream(bytes))) {
@@ -98,10 +98,10 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
                                                 }
                                             } else throw new IOException("Unsupported financial disclosure content encoding");
                                         }
-                                        if (request.operation() == ExternalOperation.RAW_PROXY && "fpt-ir".equals(request.provider())
+                                        if (request.operation() == ExternalOperation.RAW_PROXY && com.hethongdata.taichinh.service.financial.OfficialFinancialSources.isProvider(request.provider())
                                                 && bytes.length > 25 * 1024 * 1024) throw new IOException("Disclosure exceeds25MiB");
                                         boolean document = request.operation() == ExternalOperation.RAW_PROXY
-                                                && "fpt-ir".equals(request.provider())
+                                                && com.hethongdata.taichinh.service.financial.OfficialFinancialSources.isProvider(request.provider())
                                                 && contentType.toLowerCase(Locale.ROOT).startsWith("application/pdf")
                                                 && httpResponse.getStatusCode().is2xxSuccessful();
                                         String body = new String(bytes, StandardCharsets.UTF_8);
@@ -113,7 +113,7 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
                                                 String digest = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
                                                 var envelope = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
                                                 envelope.put("schema_version", "financial.disclosure.binary.v1");
-                                                envelope.put("provider", "fpt-ir");
+                                                envelope.put("provider", request.provider());
                                                 envelope.put("source_content_type", contentType);
                                                 envelope.put("source_sha256", digest);
                                                 envelope.put("source_bytes", bytes.length);
@@ -239,9 +239,9 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
     }
 
     private String disclosurePath(String provider, String symbol) {
-        if (!"fpt-ir".equals(provider) || !"FPT".equals(symbol))
-            throw new IllegalArgumentException("Official disclosure adapter currently supports fpt-ir/FPT only");
-        return "/api/v1/disclosures/FPT";
+        if (!com.hethongdata.taichinh.service.financial.OfficialFinancialSources.forSymbol(symbol).provider().equals(provider))
+            throw new IllegalArgumentException("Official disclosure provider does not match issuer");
+        return "/api/v1/disclosures/" + symbol;
     }
 
     private String indexPath(String provider, String indexCode, String dataset) {
@@ -287,7 +287,7 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
     }
 
     private String rawProxyPath(String provider, String upstreamPath) {
-        if (!Set.of("vndirect", "cafef", "cafef-financial", "fpt-ir").contains(provider)) {
+        if (!Set.of("vndirect", "cafef", "cafef-financial", "fpt-ir", "hpg-ir", "vnm-ir", "acb-ir").contains(provider)) {
             throw new IllegalArgumentException("Nhà cung cấp proxy không được hỗ trợ: " + provider);
         }
         if (upstreamPath.isBlank() || upstreamPath.startsWith("/") || upstreamPath.contains("..")) {
@@ -300,7 +300,7 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
         Set<String> allowed =
                 switch (request.operation()) {
                     case FINANCIAL_STATEMENT -> FINANCIAL_PARAMETERS;
-                    case FINANCIAL_DISCLOSURES -> Set.of("year");
+                    case FINANCIAL_DISCLOSURES -> Set.of("year", "page");
                     case NEWS, EVENTS, NEWS_COMPANY -> NEWS_PARAMETERS;
                     case NEWS_LATEST, NEWS_HISTORY -> NEWS_FEED_PARAMETERS;
                     case RAW_PROXY -> request.parameters().keySet();

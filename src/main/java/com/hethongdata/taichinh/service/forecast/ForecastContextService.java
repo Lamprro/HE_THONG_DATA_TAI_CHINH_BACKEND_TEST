@@ -15,6 +15,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class ForecastContextService {
+  static LocalDate targetDate(LocalDate asOf, int horizon) {
+    YearMonth first = YearMonth.of(asOf.getYear(), ((asOf.getMonthValue() - 1) / 3 + 1) * 3);
+    if (!first.atEndOfMonth().isAfter(asOf)) first = first.plusMonths(3);
+    return first.plusMonths((horizon - 1L) * 3).atEndOfMonth();
+  }
+
   public record Context(
       UUID company,
       ForecastRequest request,
@@ -217,14 +223,7 @@ ORDER BY o.observation_date DESC,s.code,o.id DESC LIMIT 120
     points.addAll(macro);
     var metrics = calculator.calculate(points);
     var root = json.mapper().createObjectNode();
-    LocalDate date =
-        YearMonth.of(
-                request.asOfDate().getYear(),
-                ((request.asOfDate().getMonthValue() - 1) / 3 + 1) * 3)
-            .plusMonths((request.horizonQuarters() - 1L) * 3)
-            .atEndOfMonth();
-    if (!date.isAfter(request.asOfDate()))
-      date = date.plusMonths(3).withDayOfMonth(1).plusMonths(1).minusDays(1);
+    LocalDate date = targetDate(request.asOfDate(), request.horizonQuarters());
     root.put("schema_version", "financial.forecast.input.v1")
         .put("company_id", company.toString())
         .put("security_id", request.securityId().toString())

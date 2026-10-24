@@ -98,6 +98,10 @@ class ForecastPipelineIntegrationTests {
       s.execute("SET search_path TO " + SCHEMA);
       s.execute(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
     }
+    try (var c = connection(); var s = c.createStatement(); var in = new ClassPathResource("db/manual/V20261024_04__forecast_result_period.sql").getInputStream()) {
+      s.execute("SET search_path TO " + SCHEMA);
+      s.execute(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+    }
     registry.add(
         "spring.datasource.url",
         () -> url + (url.contains("?") ? "&" : "?") + "currentSchema=" + SCHEMA);
@@ -206,6 +210,36 @@ class ForecastPipelineIntegrationTests {
       }
     }
     return o;
+  }
+
+  @Test
+  void olderSnapshotCannotReplaceNewerCurrentResult() {
+    var newer = new ForecastRequest(request.securityId(), request.asOfDate().plusDays(1), 1, request.targets(), false);
+    assertThat(service.execute(newer).status()).isEqualTo("SUCCESS");
+    assertThat(service.execute(request).status()).isEqualTo("SUCCESS");
+    assertThat(db.queryForObject("SELECT as_of_date FROM llm_results WHERE is_current", LocalDate.class))
+        .isEqualTo(newer.asOfDate());
+  }
+
+  @Test
+  void differentTargetSetsKeepSeparateCurrentResults() {
+    assertThat(service.execute(request).status()).isEqualTo("SUCCESS");
+    var single = new ForecastRequest(request.securityId(), request.asOfDate(), 1,
+        EnumSet.of(ForecastRequest.Target.TOTAL_ASSETS), false);
+    assertThat(service.execute(single).status()).isEqualTo("SUCCESS");
+    assertThat(db.queryForObject("SELECT count(*) FROM llm_results WHERE is_current", Integer.class)).isEqualTo(2);
+  }
+
+  @Test
+  void differentHorizonsKeepSeparateCurrentResults() {
+    assertThat(service.execute(request).status()).isEqualTo("SUCCESS");
+    var farther = new ForecastRequest(request.securityId(), request.asOfDate(), 2, request.targets(), false);
+    assertThat(service.execute(farther).status()).isEqualTo("SUCCESS");
+    assertThat(db.queryForObject("SELECT count(*) FROM llm_results WHERE is_current", Integer.class)).isEqualTo(2);
+    assertThat(db.queryForList("SELECT forecast_period_end::text FROM llm_results ORDER BY forecast_period_end", String.class))
+        .containsExactly("2026-12-31", "2027-03-31");
+    assertThat(service.execute(request).status()).isEqualTo("CACHED");
+    assertThat(service.execute(farther).status()).isEqualTo("CACHED");
   }
 
   @Test

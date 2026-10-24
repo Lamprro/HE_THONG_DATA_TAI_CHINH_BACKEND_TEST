@@ -37,7 +37,7 @@ POST refresh 200. Không bật scheduler, không chạy build canonical hàng lo
 ## Đối chiếu 8 khoản lệch FPT
 
 Đã gọi lại đúng 8 kỳ VNDirect, tải lại đủ 8 PDF qua Spring/proxy, so SHA và đọc trực
-tiếp các trang KQKD. Đọc thêm bản lưu 2023Q2 để đối chiếu cột so sánh 2022. Tất cả tám PDF giữ nguyên SHA; số vendor mới vẫn như lần kiểm trước.
+tiếp các trang KQKD. Tải thêm PDF 2023Q2 qua Vercel mới, SHA khớp bản lưu, để đối chiếu cột so sánh 2022. Tất cả tám PDF giữ nguyên SHA; số vendor mới vẫn như lần kiểm trước.
 Đơn vị chênh lệch trong bảng là đồng, tính bằng VNDirect trừ tài liệu của chính kỳ đó.
 
 | Kỳ | Chênh lệch | Kết luận có bằng chứng |

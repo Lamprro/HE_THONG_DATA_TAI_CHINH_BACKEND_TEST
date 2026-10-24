@@ -43,11 +43,19 @@ public class FinancialStatementEntity {
     @Column(name = "accounting_standard")
     private String accountingStandard;
 
-    @Column(name = "currency")
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.CHAR)
+    @Column(name = "currency", columnDefinition = "char(3)")
     private String currency;
 
     @Column(name = "unit_scale")
     private Long unitScale;
+
+    @Column(name = "period_basis")
+    private String periodBasis;
+
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+    @Column(name = "metadata_provenance")
+    private com.fasterxml.jackson.databind.JsonNode metadataProvenance;
 
     @Column(name = "audited")
     private Boolean audited;
@@ -116,11 +124,13 @@ public class FinancialStatementEntity {
         entity.financialPeriodId = financialPeriodId;
         entity.statementType = statementType;
         entity.reportScope = reportScope;
-        entity.currency = "VND";
-        entity.unitScale = 1L;
+        entity.currency = null;
+        entity.unitScale = null;
+        entity.periodBasis = "UNKNOWN";
+        entity.metadataProvenance = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
         entity.audited = false;
         entity.revisionNo = revisionNo;
-        entity.isRestated = false;
+        entity.isRestated = null;
         entity.dataSourceId = dataSourceId;
         entity.rawPayloadId = rawPayloadId;
         entity.dataVersionId = dataVersionId;
@@ -138,6 +148,18 @@ public class FinancialStatementEntity {
         this.isCurrent = false;
         this.effectiveTo = effectiveTo;
         this.isCanonical = false;
+    }
+
+    public void applyMetadata(com.hethongdata.taichinh.service.financial.FinancialStatementMetadata metadata) {
+        this.reportScope = metadata.reportScope();
+        this.periodBasis = metadata.periodBasis();
+        this.currency = metadata.currency();
+        this.unitScale = metadata.unitScale();
+        this.publishedAt = metadata.publishedAt();
+        this.metadataProvenance = metadata.provenance();
+        this.isRestated = switch(metadata.provenance().path("source").path("revision_status").asText("UNKNOWN")) {
+            case "ORIGINAL" -> false;case "RESTATED" -> true;default -> null;
+        };
     }
 
     public void setCanonical(boolean canonical) {

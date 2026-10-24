@@ -116,16 +116,15 @@ public class FinancialStatementBuildService {
         if (symbol == null) symbol = payload.getSourceSymbol();
         if (symbol == null || symbol.isBlank()) throw new IllegalArgumentException("Statement raw payload has no symbol: " + payload.getId());
         String statementType = statementType(firstText(root, "dataset", "statement_type", "statementType"));
-        String reportScope = reportScope(firstText(root, "report_scope", "reportScope", "formType"));
         String provider = firstText(root, "provider");
         JsonNode data = root.path("data");
-        if (data.isArray()) return arrayDrafts(payload, symbol, statementType, reportScope, provider, root, data);
-        if (data.isObject()) return keyedDrafts(payload, symbol, statementType, reportScope, provider, data);
+        if (data.isArray()) return arrayDrafts(payload, symbol, statementType, provider, root, data);
+        if (data.isObject()) return keyedDrafts(payload, symbol, statementType, provider, data);
         throw new IllegalArgumentException("Statement raw payload has unsupported data shape: " + payload.getId());
     }
 
     private List<StatementDraft> arrayDrafts(
-            RawPayloadEntity payload, String symbol, String statementType, String reportScope, String provider, JsonNode root, JsonNode data) {
+            RawPayloadEntity payload, String symbol, String statementType, String provider, JsonNode root, JsonNode data) {
         Map<Period, List<ItemDraft>> grouped = new LinkedHashMap<>();
         for (JsonNode entry : data) {
             List<PeriodValue> periodValues = rowPeriodValues(entry);
@@ -136,16 +135,21 @@ public class FinancialStatementBuildService {
                 }
                 continue;
             }
+            // A wide row with only null fiscal values is missing data, not a long row.
+            boolean hasFiscalColumns = false;
+            var fields = entry.fieldNames();
+            while (fields.hasNext()) if (PERIOD_KEY.matcher(fields.next().trim()).matches()) hasFiscalColumns = true;
+            if (hasFiscalColumns) continue;
             Period period = period(entry, root);
             grouped.computeIfAbsent(period, ignored -> new ArrayList<>()).add(item(entry, null, provider));
         }
         return grouped.entrySet().stream()
-                .map(entry -> new StatementDraft(payload, symbol, statementType, reportScope, entry.getKey(), uniqueItemCodes(entry.getValue())))
+                .map(entry -> draft(payload, symbol, statementType, entry.getKey(), entry.getValue()))
                 .toList();
     }
 
     private List<StatementDraft> keyedDrafts(
-            RawPayloadEntity payload, String symbol, String statementType, String reportScope, String provider, JsonNode data) {
+            RawPayloadEntity payload, String symbol, String statementType, String provider, JsonNode data) {
         Map<Period, List<ItemDraft>> grouped = new LinkedHashMap<>();
         data.fields().forEachRemaining(
                 item -> {
@@ -160,7 +164,7 @@ public class FinancialStatementBuildService {
                             });
                 });
         return grouped.entrySet().stream()
-                .map(entry -> new StatementDraft(payload, symbol, statementType, reportScope, entry.getKey(), uniqueItemCodes(entry.getValue())))
+                .map(entry -> draft(payload, symbol, statementType, entry.getKey(), entry.getValue()))
                 .toList();
     }
 
@@ -238,7 +242,9 @@ public class FinancialStatementBuildService {
     private Period period(LocalDate end, String reportType) {
         String normalized = reportType == null ? "QUARTER" : reportType.toUpperCase(Locale.ROOT);
         if (normalized.contains("YEAR") || normalized.contains("ANNUAL")) {
-            return new Period(end.getYear(), "FY", LocalDate.of(end.getYear(), 1, 1), end);
+            if (end.getDayOfMonth() != end.lengthOfMonth())
+                throw new IllegalArgumentException("Annual fiscal date must be a month end");
+            return new Period(end.getYear(), "FY", end.minusMonths(11).withDayOfMonth(1), end);
         }
         int quarter = (end.getMonthValue() - 1) / 3 + 1;
         LocalDate start = LocalDate.of(end.getYear(), (quarter - 1) * 3 + 1, 1);
@@ -253,12 +259,6 @@ public class FinancialStatementBuildService {
             case "cash_flow", "cashflow" -> "CASH_FLOW";
             default -> throw new IllegalArgumentException("Unsupported financial statement dataset " + dataset);
         };
-    }
-
-    private String reportScope(String value) {
-        if (value == null) return "UNKNOWN";
-        String normalized = value.trim().toUpperCase(Locale.ROOT);
-        return "CONSOLIDATED".equals(normalized) || "SEPARATE".equals(normalized) ? normalized : "UNKNOWN";
     }
 
     private static JsonNode first(JsonNode node, String... names) {
@@ -288,7 +288,13 @@ public class FinancialStatementBuildService {
 
     private static String code(String value) {
         if (value == null || value.isBlank()) return null;
-        return value.trim().toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9]+", "_").replaceAll("^_+|_+$", "");
+        return boundedItemCode(value.trim().toUpperCase(Locale.ROOT)
+                .replaceAll("[^A-Z0-9]+", "_").replaceAll("^_+|_+$", ""));
+    }
+
+    /** Keep the DB key bounded without losing identity when provider labels share a long prefix. */
+    private static String boundedItemCode(String code) {
+        return code.length() <= 100 ? code : code.substring(0, 87) + "_" + shortSha256(code);
     }
 
     /**
@@ -315,7 +321,7 @@ public class FinancialStatementBuildService {
                 if (duplicateNumber > 1) candidate += "_" + duplicateNumber;
                 normalized.set(
                         index,
-                        new ItemDraft(candidate, item.itemName(), item.value(), item.rawValue(), item.displayOrder(), item.sourceItemCode(), item.sourceItemName(), item.provider()));
+                        new ItemDraft(boundedItemCode(candidate), item.itemName(), item.value(), item.rawValue(), item.displayOrder(), item.sourceItemCode(), item.sourceItemName(), item.provider()));
             }
         }
         return List.copyOf(normalized);
@@ -341,5 +347,30 @@ public class FinancialStatementBuildService {
     public record Period(int fiscalYear, String periodType, LocalDate startDate, LocalDate endDate) {}
     private record PeriodValue(Period period, JsonNode value) {}
     public record ItemDraft(String itemCode, String itemName, BigDecimal value, String rawValue, Integer displayOrder, String sourceItemCode, String sourceItemName, String provider) {}
-    public record StatementDraft(RawPayloadEntity rawPayload, String symbol, String statementType, String reportScope, Period period, List<ItemDraft> items) {}
+    private StatementDraft draft(RawPayloadEntity raw, String symbol, String type, Period period, List<ItemDraft> items) {
+        validateCafeFIncomeIdentity(items);
+        var metadata = FinancialStatementMetadata.parse(raw.getPayload(), period.endDate(), type);
+        if ("ANNUAL".equals(metadata.periodBasis()) && !"FY".equals(period.periodType()))
+            throw new IllegalArgumentException("Annual basis does not match fiscal period");
+        return new StatementDraft(raw, symbol, type, metadata.reportScope(), period, uniqueItemCodes(items), metadata);
+    }
+
+    // Recheck saved raw batches too: upstream CafeF has served bank values with
+    // non-bank labels. A syntactically accepted payload is not a valid statement.
+    static void validateCafeFIncomeIdentity(List<ItemDraft> items) {
+        ItemDraft gross = null, deductions = null, net = null;
+        for (ItemDraft item : items) {
+            if (!"cafef".equalsIgnoreCase(item.provider())) continue;
+            if (item.sourceItemCode().startsWith("CAF_01_")) gross = item;
+            if (item.sourceItemCode().startsWith("CAF_02_")) deductions = item;
+            if (item.sourceItemCode().startsWith("CAF_10_")
+                    && item.itemName().replaceAll("\\s", "").contains("10=01-02")) net = item;
+        }
+        if (gross != null && deductions != null && net != null
+                && gross.value().subtract(deductions.value()).compareTo(net.value()) != 0)
+            throw new IllegalArgumentException("CAFEF_INCOME_IDENTITY_MISMATCH: review source labels and values before building");
+    }
+
+    public record StatementDraft(RawPayloadEntity rawPayload, String symbol, String statementType,
+            String reportScope, Period period, List<ItemDraft> items, FinancialStatementMetadata metadata) {}
 }

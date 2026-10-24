@@ -292,28 +292,39 @@ public class ForecastRunStore {
           run);
       return new Outcome("SUCCESS", run, current.getFirst(), List.of());
     }
+    LocalDate periodEnd = ctx.targetDate();
+    LocalDate periodStart = periodEnd.withDayOfMonth(1).minusMonths(2);
+    String targetScope = String.join(",", request.targets().stream().map(Enum::name).sorted().toList());
     if (!pending
         && db.queryForObject(
                 "SELECT count(*) FROM llm_results WHERE llm_run_id=? OR (security_id=? AND"
-                    + " as_of_date=? AND is_current)",
+                    + " source_domain='FINANCIAL' AND task_code=? AND forecast_period_start=?"
+                    + " AND forecast_period_end=? AND target_scope=? AND is_current)",
                 Integer.class,
                 run,
                 security,
-                request.asOfDate())
+                ForecastPromptService.TASK, periodStart, periodEnd, targetScope)
             > 0)
       return new Outcome(
           "SUCCESS", run, null, List.of("Audit only: never reactivate a superseded result"));
+    if (db.queryForObject(
+            "SELECT count(*) FROM llm_results WHERE source_domain='FINANCIAL' AND security_id=?"
+                + " AND task_code=? AND forecast_period_start=? AND forecast_period_end=?"
+                + " AND target_scope=? AND is_current AND as_of_date>?",
+            Integer.class, security, ForecastPromptService.TASK, periodStart, periodEnd, targetScope,
+            request.asOfDate()) > 0)
+      return new Outcome("SUCCESS", run, null, List.of("Audit only: a newer as-of result is current"));
     var result = validations.projections(ctx, output);
     UUID id = UUID.randomUUID();
     db.update(
         "UPDATE llm_results SET is_current=false WHERE source_domain='FINANCIAL' AND security_id=?"
-            + " AND as_of_date=? AND is_current",
-        security,
-        request.asOfDate());
+            + " AND task_code=? AND forecast_period_start=? AND forecast_period_end=?"
+            + " AND target_scope=? AND is_current",
+        security, ForecastPromptService.TASK, periodStart, periodEnd, targetScope);
     db.update(
         "INSERT INTO"
-            + " llm_results(id,llm_run_id,prompt_template_id,task_code,source_domain,company_id,security_id,as_of_date,source_hash,input_hash,schema_version,overview,result_json,quality_status,validation_round_id,validation_policy_hash)"
-            + " VALUES (?,?,?,?,'FINANCIAL',?,?,?,?,?,?,?,?::jsonb,'WARNING',?,?)",
+            + " llm_results(id,llm_run_id,prompt_template_id,task_code,source_domain,company_id,security_id,as_of_date,source_hash,input_hash,schema_version,overview,result_json,quality_status,validation_round_id,validation_policy_hash,forecast_period_start,forecast_period_end,target_scope)"
+            + " VALUES (?,?,?,?,'FINANCIAL',?,?,?,?,?,?,?,?::jsonb,'WARNING',?,?,?,?,?)",
         id,
         run,
         template.id(),
@@ -327,7 +338,7 @@ public class ForecastRunStore {
         output.path("overview").asText(),
         result.toString(),
         evaluation.round(),
-        policy);
+        policy, periodStart, periodEnd, targetScope);
     db.update(
         "UPDATE llm_runs SET status='SUCCESS',validation_errors='[]'::jsonb,error_message=null"
             + " WHERE id=?",

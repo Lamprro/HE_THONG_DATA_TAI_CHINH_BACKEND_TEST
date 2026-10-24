@@ -35,6 +35,33 @@ class FinancialStatementBuildServiceTests {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
+    void explicitSeptemberYearEndKeepsTwelveMonthFiscalYear() throws Exception {
+        RawPayloadEntity raw = mock(RawPayloadEntity.class);
+        when(raw.getPayload()).thenReturn(objectMapper.readTree("""
+            {"symbol":"HSG","dataset":"income_statement","provider":"vndirect","data":[
+             {"fiscalDate":"2025-09-30","reportType":"YEAR","itemEnName":"Revenue","numericValue":100}]}
+            """));
+        var period = service().parse(raw).getFirst().period();
+        assertThat(period.startDate()).isEqualTo(LocalDate.of(2024,10,1));
+        assertThat(period.endDate()).isEqualTo(LocalDate.of(2025,9,30));
+        assertThat(period.periodType()).isEqualTo("FY");
+    }
+
+    @Test
+    void skipsAllNullWideRowsWithoutTreatingQuarterFrequencyAsFiscalPeriod() throws Exception {
+        RawPayloadEntity raw = mock(RawPayloadEntity.class);
+        when(raw.getPayload()).thenReturn(objectMapper.readTree("""
+            {"symbol":"FPT","dataset":"income_statement","period":"quarter","data":[
+              {"item_id":"unavailable","2026-Q1":null,"2026-Q2":null},
+              {"item_id":"profit","2026-Q1":0,"2026-Q2":12}]}
+            """));
+        var drafts = service().parse(raw);
+        assertThat(drafts).hasSize(2);
+        assertThat(drafts.getFirst().items()).hasSize(1);
+        assertThat(drafts.getFirst().items().getFirst().value()).isEqualByComparingTo("0");
+    }
+
+    @Test
     void parsesProviderArrayIntoOneQuarterlyStatementAndItems() throws Exception {
         RawPayloadEntity raw = mock(RawPayloadEntity.class);
         when(raw.getPayload())

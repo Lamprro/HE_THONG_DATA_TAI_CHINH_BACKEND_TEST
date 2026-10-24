@@ -11,6 +11,7 @@ public enum ExternalOperation {
     INDEX_MEMBERS,
     COMPANY,
     FINANCIAL_STATEMENT,
+    FINANCIAL_DISCLOSURES,
     RATIO,
     MANAGEMENT,
     SUBSIDIARIES,

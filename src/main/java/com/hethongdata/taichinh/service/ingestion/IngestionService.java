@@ -48,6 +48,7 @@ public class IngestionService {
     private final IngestionCompletionService completionService;
     private final ChecksumService checksumService;
     private final ObjectMapper objectMapper;
+    private final ObjectMapper documentObjectMapper;
 
     public IngestionService(
             ExternalFinancialDataPort externalFinancialDataPort,
@@ -64,6 +65,7 @@ public class IngestionService {
         this.completionService = completionService;
         this.checksumService = checksumService;
         this.objectMapper = objectMapper;
+        this.documentObjectMapper = com.hethongdata.taichinh.service.financial.FinancialDocumentJson.copyForStorage(objectMapper);
     }
 
     public IngestionExecutionResponse ingest(ManualIngestionRequest manualRequest) {
@@ -301,7 +303,9 @@ public class IngestionService {
             return new ParsedBody(null, response.rawBody());
         }
         try {
-            return new ParsedBody(objectMapper.readTree(response.rawBody()), null);
+            boolean officialDocument = response.operation() == ExternalOperation.RAW_PROXY
+                    && com.hethongdata.taichinh.service.financial.OfficialFinancialSources.isProvider(response.provider());
+            return new ParsedBody((officialDocument ? documentObjectMapper : objectMapper).readTree(response.rawBody()), null);
         } catch (JsonProcessingException exception) {
             throw new ExternalFetchException(
                     ExternalErrorCategory.PROTOCOL,

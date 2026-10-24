@@ -13,9 +13,10 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 class FinancialDisclosureAdapterTests {
  @Test void eachIssuerRoutesToItsOwnListing() {
   var adapter=new PythonExternalFinancialDataAdapter(RestClient.create(),new PythonFinancialDataProperties(),new SensitiveHeaderSanitizer());
-  for(String symbol:List.of("FPT","HPG","VNM")) {
+  for(String symbol:List.of("FPT","HPG","VNM","ACB","HSG","EIB")) {
    var source=OfficialFinancialSources.forSymbol(symbol);
    assertThat(adapter.resolveUri(new ExternalFetchRequest(ExternalOperation.FINANCIAL_DISCLOSURES,source.provider(),symbol,null,null,null,Map.of("page","1"))).getPath()).isEqualTo("/api/v1/disclosures/"+symbol);
+   assertThat(adapter.resolveUri(new ExternalFetchRequest(ExternalOperation.RAW_PROXY,source.provider(),symbol,null,null,null,Map.of("upstream_path",source.documentPrefix().substring(1)+"report.pdf"))).getPath()).startsWith("/api/v1/proxy/"+source.provider()+"/");
   }
  }
  @Test void compressedListingIsDecodedBeforeUtf8Persistence() throws Exception {

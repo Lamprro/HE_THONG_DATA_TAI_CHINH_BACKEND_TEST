@@ -14,7 +14,9 @@ public final class OfficialFinancialSources {
                 return url.startsWith(documentOrigin + documentPrefix)
                         && (uri.getScheme() + "://" + uri.getRawAuthority()).equals(documentOrigin)
                         && uri.getPath().endsWith(".pdf") && uri.getQuery() == null && uri.getFragment() == null
-                        && !uri.getRawPath().replace("%20", "").contains("%") && !uri.getPath().contains("..")
+                        && !uri.getRawPath().matches("(?i).*%(2f|5c|25).*")
+                        && !uri.getPath().contains("%") && !uri.getPath().contains("..")
+                        && uri.getPath().chars().allMatch(c -> c >= 32 && c != 127)
                         && !url.contains("\\");
             } catch (IllegalArgumentException e) { return false; }
         }
@@ -22,11 +24,14 @@ public final class OfficialFinancialSources {
             if (listing.equals(url)) return true;
             if (symbol.equals("ACB")) return url.matches(java.util.regex.Pattern.quote(listing) + "-20[0-9]{2}");
             if (symbol.equals("HPG")) return url.matches(java.util.regex.Pattern.quote(listing) + "\\?page=([1-9][0-9]?|100)");
+            if (symbol.equals("HSG")) return url.matches(java.util.regex.Pattern.quote(listing) + "\\?pg=([1-9][0-9]?|100)");
             if (symbol.equals("VNM")) return url.matches(java.util.regex.Pattern.quote(listing) + "\\?year=20[0-9]{2}");
             return false;
         }
     }
     private static final Map<String, Source> SOURCES = Map.of(
+            "EIB", new Source("EIB", "EIB_IR", "eib-ir", "https://eximbank.com.vn/bao-cao-tai-chinh", "https://media.eximbank.com.vn", "/exim/files/"),
+            "HSG", new Source("HSG", "HSG_IR", "hsg-ir", "https://hoasengroup.vn/vi/quan-he-co-dong/bao-cao-tai-chinh/29/", "https://hoasengroup.vn", "/wp-content/uploads/"),
             "ACB", new Source("ACB", "ACB_IR", "acb-ir", "https://acb.com.vn/nha-dau-tu/bao-cao-tai-chinh", "https://acb.com.vn", "/acbwebsite/"),
             "FPT", new Source("FPT", "FPT_IR", "fpt-ir", "https://fpt.com/vi/nha-dau-tu/thong-tin-cong-bo", "https://fpt.com", "/api/media/"),
             "HPG", new Source("HPG", "HPG_IR", "hpg-ir", "https://www.hoaphat.com.vn/quan-he-co-dong/bao-cao-tai-chinh", "https://file.hoaphat.com.vn", "/hoaphat-com-vn/"),

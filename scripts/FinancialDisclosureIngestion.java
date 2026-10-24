@@ -14,7 +14,7 @@ import java.nio.file.*;
 import java.time.*;
 import java.util.*;
 
-/** Real Spring -> configured existing Python proxy -> official FPT source, raw evidence only. */
+/** Real Spring -> configured Python proxy -> registered issuer, raw evidence only. */
 public class FinancialDisclosureIngestion {
  public static void main(String[]args)throws Exception{
   Path out=Path.of(args[1]);Files.createDirectories(out);String mode=args[2];
@@ -43,10 +43,14 @@ public class FinancialDisclosureIngestion {
    var docs=mode.equals("listing")?mapper.readTree("[{\"id\":\"listing\",\"path\":\"vi/nha-dau-tu/thong-tin-cong-bo\"}]"):mapper.readTree(Files.readString(Path.of(args[3])));
    var receipt=new ArrayList<Map<String,Object>>();
    for(var doc:docs){
-    String path=doc.path("path").asText();if(!(path.equals("vi/nha-dau-tu/thong-tin-cong-bo")||path.matches("api/media/[A-Za-z0-9_.-]+\\.pdf")))throw new IllegalArgumentException("Unapproved disclosure path");
+    String symbol=doc.path("symbol").asText("FPT");var official=OfficialFinancialSources.forSymbol(symbol);
+    String path=doc.path("path").asText();
+    if(!(symbol.equals("FPT")&&mode.equals("listing")&&path.equals("vi/nha-dau-tu/thong-tin-cong-bo"))
+      &&!official.acceptsDocument(official.documentOrigin()+"/"+path))throw new IllegalArgumentException("Unapproved disclosure path");
+    if(!doc.path("id").asText().matches("[A-Za-z0-9_-]{1,100}"))throw new IllegalArgumentException("Invalid output id");
     var r=new LinkedHashMap<String,Object>();r.put("document",doc);r.put("started_at",Instant.now().toString());
     try{
-     var req=new ManualIngestionRequest();req.setOperation(ExternalOperation.RAW_PROXY);req.setProvider("fpt-ir");req.setDataSourceCode("FPT_IR");req.setSymbol("FPT");req.setParameters(Map.of("upstream_path",path));
+     var req=new ManualIngestionRequest();req.setOperation(ExternalOperation.RAW_PROXY);req.setProvider(official.provider());req.setDataSourceCode(official.code());req.setSymbol(symbol);req.setParameters(Map.of("upstream_path",path));
      var fetched=ingest.ingest(req);r.put("ingestion",mapper.valueToTree(fetched));var raw=raws.findById(fetched.getRawPayloadId()).orElseThrow();
      if(mode.equals("listing")){Files.writeString(out.resolve("listing.html"),raw.getRawText());}
      else{

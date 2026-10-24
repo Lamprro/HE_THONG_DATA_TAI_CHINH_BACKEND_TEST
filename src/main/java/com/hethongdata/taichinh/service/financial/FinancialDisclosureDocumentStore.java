@@ -38,6 +38,12 @@ public class FinancialDisclosureDocumentStore {
    String title=d.path("source_record").path("name").asText();
    require(!title.isBlank()&&title.equals(d.path("title").asText())&&title.equals(d.path("scope_evidence").path("value").asText()),"SCOPE_EVIDENCE");
    String plain=java.text.Normalizer.normalize(title.replace('đ','d').replace('Đ','D'),java.text.Normalizer.Form.NFD).replaceAll("\\p{M}","").toLowerCase(Locale.ROOT);
+   validateFiscalPeriod(source.symbol(),plain,period,d.path("report_kind").asText());
+   if(source.symbol().equals("EIB")) {
+    String release=d.path("source_record").path("source_record").path("published_start").asText();
+    require(release.length()>=10 && (release.endsWith("+07")||release.endsWith("+07:00"))
+      && published.toString().equals(release.substring(0,10)),"EIB_PUBLICATION_EVIDENCE");
+   }
    require(!"CONSOLIDATED".equals(d.path("report_scope").asText())||plain.contains("hop nhat"),"CONSOLIDATED_EVIDENCE");
    require(!"SEPARATE".equals(d.path("report_scope").asText())||(plain.contains("rieng")||plain.contains("cong ty me")),"SEPARATE_EVIDENCE");
    String recordedUrl=d.path("source_record").path("pdfUrl").asText();
@@ -47,6 +53,22 @@ public class FinancialDisclosureDocumentStore {
    require(!"RESTATED".equals(d.path("revision_status").asText())||List.of("dieu chinh","dinh chinh","thay the","restated").stream().anyMatch(plain::contains),"REVISION_EVIDENCE");
    require(d.path("training_eligible").isBoolean()&&!d.path("training_eligible").asBoolean()&&"UNVERIFIED".equals(d.path("vendor_value_binding").asText())&&"ARCHIVED_DISCLOSURE_RECONSTRUCTION".equals(d.path("vintage_status").asText()),"VINTAGE_NOT_CERTIFIED");
   }
+ }
+ static void validateFiscalPeriod(String symbol,String plain,LocalDate period,String kind) {
+  if(!symbol.equals("HSG"))return;
+  var years=java.util.regex.Pattern.compile("(20[0-9]{2})\\s*[-\\u2013\\u2014]\\s*(20[0-9]{2})").matcher(plain);
+  require(years.find(),"HSG_FISCAL_YEARS");
+  int start=Integer.parseInt(years.group(1)),end=Integer.parseInt(years.group(2));
+  require(end==start+1,"HSG_FISCAL_YEAR_RANGE");
+  var quarter=java.util.regex.Pattern.compile("quy\\s*(iv|iii|ii|i|[1-4])\\b").matcher(plain);
+  LocalDate expected;String expectedKind;
+  if(quarter.find()) {
+   int q=switch(quarter.group(1)){case "i","1"->1;case "ii","2"->2;case "iii","3"->3;default->4;};
+   expected=java.time.YearMonth.of(q==1?start:end,q==1?12:(q-1)*3).atEndOfMonth();expectedKind="QUARTER";
+  }else if(plain.contains("6 thang")||plain.contains("ban nien")||plain.contains("giua nien do")) {
+   expected=LocalDate.of(end,3,31);expectedKind="HALF_YEAR";
+  }else {expected=LocalDate.of(end,9,30);expectedKind="ANNUAL";}
+  require(expected.equals(period)&&expectedKind.equals(kind),"HSG_FISCAL_PERIOD");
  }
  @Transactional
  public Map<String,Object> save(UUID rawId,JsonNode root) {

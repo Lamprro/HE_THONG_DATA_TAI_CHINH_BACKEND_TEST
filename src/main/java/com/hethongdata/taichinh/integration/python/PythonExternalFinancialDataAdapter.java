@@ -287,7 +287,8 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
     }
 
     private String rawProxyPath(String provider, String upstreamPath) {
-        if (!Set.of("vndirect", "cafef", "cafef-financial", "fpt-ir", "hpg-ir", "vnm-ir", "acb-ir").contains(provider)) {
+        if (!Set.of("vndirect", "cafef", "cafef-financial").contains(provider)
+                && !com.hethongdata.taichinh.service.financial.OfficialFinancialSources.isProvider(provider)) {
             throw new IllegalArgumentException("Nhà cung cấp proxy không được hỗ trợ: " + provider);
         }
         if (upstreamPath.isBlank() || upstreamPath.startsWith("/") || upstreamPath.contains("..")) {

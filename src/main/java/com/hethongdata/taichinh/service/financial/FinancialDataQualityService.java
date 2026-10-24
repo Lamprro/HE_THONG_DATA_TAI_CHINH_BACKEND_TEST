@@ -20,7 +20,7 @@ public class FinancialDataQualityService {
  }
  public Map<String,Object> refresh(String symbol,Integer year,int page) {
   var official=OfficialFinancialSources.forSymbol(symbol);
-  if((year!=null&&(year<2000||year>2099))||page<1||page>100||(!symbol.equals("HPG")&&page!=1))throw new IllegalArgumentException("Invalid year or page");
+  if((year!=null&&(year<2000||year>2099))||page<1||page>100||(!Set.of("HPG","HSG").contains(symbol)&&page!=1))throw new IllegalArgumentException("Invalid year or page");
   var source=sources.findByCodeIgnoreCase(official.code()).orElseThrow(()->new IllegalStateException("Apply financial metadata migration first"));
   if(!official.provider().equals(source.getProvider())||!official.documentOrigin().equals(source.getBaseUrl())||!source.isActive())throw new IllegalStateException("Official source identity mismatch");
   var parameters=new HashMap<String,String>();parameters.put("page",String.valueOf(page));

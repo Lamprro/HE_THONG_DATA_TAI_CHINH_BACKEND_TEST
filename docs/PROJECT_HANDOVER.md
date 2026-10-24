@@ -209,3 +209,33 @@ bản cũ cho giá trị cập nhật sau, không chạy build canonical hoặc 
 FPT còn 156 báo cáo canonical thiếu ngày/scope/revision được xác minh; 88 tài liệu
 mới không tự chứng nhận phiên bản số liệu vendor. Bằng chứng nằm trong
 `artifacts/financial-provider-repair-20261024`.
+
+### 24/10/2026 — liên kết phiên bản và nghiệm thu production cục bộ
+
+Đợt mới thay thế kết luận snapshot FPT ở mục trên. Đọc
+[FINANCIAL_PRODUCTION_REVIEW_20261024.md](FINANCIAL_PRODUCTION_REVIEW_20261024.md)
+để xem API, migration, cấu hình và giới hạn còn lại.
+
+Đã mở registry chính thức FPT/HPG/VNM/ACB; DB có 392 tài liệu duy nhất
+(121/173/78/20), 37 liên kết giá trị và sáu bằng chứng đối chiếu bổ sung.
+FPT có 5/8 giải thích khớp số, ba trường hợp còn dư 11/1/1 đồng. Không sửa số vendor
+hoặc backdate bản cập nhật. ACB 2020–2023 chưa lấy được ngày công bố xác minh;
+21 mã khác chưa có adapter nguồn công bố chính thức. 3.900 canonical statements
+vẫn thiếu ngày/scope gắn đúng giá trị; chưa chứng nhận dataset point-in-time.
+
+Đã sửa thiếu kỳ khi lưu forecast, phân biệt kỳ và nhóm target, chặn bản as-of cũ
+thay kết quả mới, sửa biên cuối quý. Profile production bảo vệ mọi API trừ health,
+kiểm token/CORS/schema; đồng bộ mapping CHAR theo DB. Thêm CI và Docker non-root.
+
+Bằng chứng mới: 45 Python tests; 221 Java tests đạt gồm 44 tích hợp schema cô lập
+(LLM mock). 18 request CafeF/VNStock/VNDirect cho ba mã đều ACCEPTED và parse được.
+Production profile cục bộ validate schema đạt, HTTP 403/200 đúng quyền, bốn nguồn
+Spring -> Vercel -> DB thành công. HPG trang 1–24 và VNM 2020–2026 đã gọi;
+bốn request ACB lịch sử bị chặn, không ghi thành metadata đủ chuẩn. Migration
+02/03/04 và import evidence đã rehearsal riêng trước khi áp DB thật.
+
+Python main/Vercel 0.7.2 a5bb3c4. Java commit 0013434/d47606b/9be189a trên
+fix/financial-metadata-flow, PR #14 vào feature/llm-processing. Chưa merge master,
+chưa deploy Java production, chưa bật shared token Vercel, chưa test Docker/load/
+backup restore, chưa có auth người dùng cho FE. Các phần local AI/KBS/FE dở ở
+checkout gốc không được gom vào release này. Không train/promote model trong đợt này.

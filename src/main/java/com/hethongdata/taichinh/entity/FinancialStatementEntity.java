@@ -43,7 +43,8 @@ public class FinancialStatementEntity {
     @Column(name = "accounting_standard")
     private String accountingStandard;
 
-    @Column(name = "currency")
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.CHAR)
+    @Column(name = "currency", columnDefinition = "char(3)")
     private String currency;
 
     @Column(name = "unit_scale")

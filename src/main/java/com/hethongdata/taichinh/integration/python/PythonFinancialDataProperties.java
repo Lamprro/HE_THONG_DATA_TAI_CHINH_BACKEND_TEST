@@ -11,6 +11,9 @@ public class PythonFinancialDataProperties {
     private URI baseUrl = URI.create("https://he-thong-data-tai-chinh-test.vercel.app");
     private Duration connectTimeout = Duration.ofSeconds(5);
     private Duration readTimeout = Duration.ofSeconds(45);
+    private String apiToken = "";
+    public String getApiToken() { return apiToken; }
+    public void setApiToken(String apiToken) { this.apiToken = apiToken; }
 
     public URI getBaseUrl() {
         return baseUrl;

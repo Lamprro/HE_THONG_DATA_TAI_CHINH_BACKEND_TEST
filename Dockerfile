@@ -10,6 +10,8 @@ RUN mvn -B -DskipTests package
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
+RUN groupadd --system financial && useradd --system --gid financial financial && chown financial:financial /app
 COPY --from=build /app/target/*.jar app.jar
+USER financial
 EXPOSE 8080
 ENTRYPOINT ["java", "-Xmx512m", "-jar", "app.jar"]

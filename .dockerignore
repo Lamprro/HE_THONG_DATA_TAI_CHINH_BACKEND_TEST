@@ -1,4 +1,14 @@
 .git
+artifacts
+_*
+AI_LOCAL
+FE_*
+logs
+scripts
+python_*
+*.pkl
+*.pdf
+*.docx
 .github
 .gitignore
 FE_APP

@@ -18,6 +18,10 @@ public class PythonFinancialDataConfiguration {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(properties.getConnectTimeout());
         requestFactory.setReadTimeout(properties.getReadTimeout());
+        if (!properties.getApiToken().isBlank()) {
+            if (properties.getApiToken().length()<32) throw new IllegalStateException("Python service token must have at least 32 characters");
+            builder.defaultHeader("Authorization", "Bearer " + properties.getApiToken());
+        }
         return builder.baseUrl(properties.getBaseUrl().toString())
                 .requestFactory(requestFactory)
                 .defaultHeader("User-Agent", "financial-data-api/phase-1")

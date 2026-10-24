@@ -35,6 +35,20 @@ class FinancialStatementBuildServiceTests {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
+    void skipsAllNullWideRowsWithoutTreatingQuarterFrequencyAsFiscalPeriod() throws Exception {
+        RawPayloadEntity raw = mock(RawPayloadEntity.class);
+        when(raw.getPayload()).thenReturn(objectMapper.readTree("""
+            {"symbol":"FPT","dataset":"income_statement","period":"quarter","data":[
+              {"item_id":"unavailable","2026-Q1":null,"2026-Q2":null},
+              {"item_id":"profit","2026-Q1":0,"2026-Q2":12}]}
+            """));
+        var drafts = service().parse(raw);
+        assertThat(drafts).hasSize(2);
+        assertThat(drafts.getFirst().items()).hasSize(1);
+        assertThat(drafts.getFirst().items().getFirst().value()).isEqualByComparingTo("0");
+    }
+
+    @Test
     void parsesProviderArrayIntoOneQuarterlyStatementAndItems() throws Exception {
         RawPayloadEntity raw = mock(RawPayloadEntity.class);
         when(raw.getPayload())

@@ -106,7 +106,6 @@ public class FinancialStatementBuildPersistenceService {
                 statements.saveAndFlush(previous);
             }
             FinancialStatementEntity statement =
-                    statements.save(
                             FinancialStatementEntity.create(
                                     security.getCompanyId(),
                                     security.getId(),
@@ -116,11 +115,13 @@ public class FinancialStatementBuildPersistenceService {
                                     draft.rawPayload().getDataSource().getId(),
                                     draft.rawPayload().getId(),
                                     version.getId(),
-                                    draft.rawPayload().getPublishedAt(),
-                                    revisionNo));
+                                    draft.metadata().publishedAt(),
+                                    revisionNo);
+            statement.applyMetadata(draft.metadata());
+            statement = statements.save(statement);
             for (FinancialStatementBuildService.ItemDraft item : draft.items()) {
                 items.save(
-                        FinancialStatementItemEntity.create(
+                        FinancialStatementItemEntity.createWithUnit(
                                 statement.getId(),
                                 item.itemCode(),
                                 item.itemName(),
@@ -131,7 +132,8 @@ public class FinancialStatementBuildPersistenceService {
                                         Map.of(
                                                 "sourceItemId", item.sourceItemCode(),
                                                 "sourceItemName", item.sourceItemName(),
-                                                "provider", item.provider() == null ? "UNKNOWN" : item.provider()))));
+                                                "provider", item.provider() == null ? "UNKNOWN" : item.provider())),
+                                draft.metadata().currency()));
             }
             statements.flush();
             reconcileCanonical(security.getCompanyId(), period.getId(), draft.statementType(), draft.reportScope());

@@ -25,6 +25,9 @@ import java.time.Instant;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.Base64;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 
 @Component
 public class PythonExternalFinancialDataAdapter implements ExternalFinancialDataPort {
@@ -80,24 +83,55 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
                             .get()
                             .uri(uri)
                             .accept(MediaType.APPLICATION_JSON)
+                            .header("Accept-Encoding", "identity")
                             .exchange(
-                                    (httpRequest, httpResponse) ->
-                                            new ExternalFetchResponse(
+                                    (httpRequest, httpResponse) -> {
+                                        String contentType = httpResponse.getHeaders().getContentType() == null
+                                                ? "application/octet-stream" : httpResponse.getHeaders().getContentType().toString();
+                                        byte[] bytes = request.operation() == ExternalOperation.RAW_PROXY && "fpt-ir".equals(request.provider()) ? httpResponse.getBody().readNBytes(25 * 1024 * 1024 + 1) : httpResponse.getBody().readAllBytes();
+                                        String encoding = httpResponse.getHeaders().getFirst("Content-Encoding");
+                                        if (request.operation() == ExternalOperation.RAW_PROXY && "fpt-ir".equals(request.provider())
+                                                && encoding != null && !encoding.equalsIgnoreCase("identity")) {
+                                            if (encoding.equalsIgnoreCase("gzip")) {
+                                                try (var gzip = new java.util.zip.GZIPInputStream(new java.io.ByteArrayInputStream(bytes))) {
+                                                    bytes = gzip.readNBytes(25 * 1024 * 1024 + 1);
+                                                }
+                                            } else throw new IOException("Unsupported financial disclosure content encoding");
+                                        }
+                                        if (request.operation() == ExternalOperation.RAW_PROXY && "fpt-ir".equals(request.provider())
+                                                && bytes.length > 25 * 1024 * 1024) throw new IOException("Disclosure exceeds25MiB");
+                                        boolean document = request.operation() == ExternalOperation.RAW_PROXY
+                                                && "fpt-ir".equals(request.provider())
+                                                && contentType.toLowerCase(Locale.ROOT).startsWith("application/pdf")
+                                                && httpResponse.getStatusCode().is2xxSuccessful();
+                                        String body = new String(bytes, StandardCharsets.UTF_8);
+                                        if (document) {
+                                            if (bytes.length > 25 * 1024 * 1024 || bytes.length < 5
+                                                    || !new String(bytes, 0, 5, StandardCharsets.US_ASCII).equals("%PDF-"))
+                                                throw new IOException("Invalid financial PDF signature or size");
+                                            try {
+                                                String digest = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+                                                var envelope = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+                                                envelope.put("schema_version", "financial.disclosure.binary.v1");
+                                                envelope.put("provider", "fpt-ir");
+                                                envelope.put("source_content_type", contentType);
+                                                envelope.put("source_sha256", digest);
+                                                envelope.put("source_bytes", bytes.length);
+                                                envelope.put("content_base64", Base64.getEncoder().encodeToString(bytes));
+                                                body = envelope.toString();
+                                            } catch (java.security.NoSuchAlgorithmException e) { throw new IOException(e); }
+                                        }
+                                        return new ExternalFetchResponse(
                                                     request.operation(),
                                                     request.provider(),
                                                     uri,
                                                     httpResponse.getStatusCode().value(),
-                                                    httpResponse.getHeaders().getContentType()
-                                                                    == null
-                                                            ? null
-                                                            : httpResponse
-                                                                    .getHeaders()
-                                                                    .getContentType()
-                                                                    .toString(),
+                                                    document ? "application/json" : contentType,
                                                     headerSanitizer.sanitize(
                                                             httpResponse.getHeaders()),
-                                                    readBody(httpResponse.getBody()),
-                                                    Instant.now()));
+                                                    body,
+                                                    Instant.now());
+                                    });
             if (response == null) {
                 LOGGER.error("External financial data adapter received null response for URI: {}", uri);
                 throw new ExternalFetchException(
@@ -112,11 +146,9 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
                     response.httpStatus(),
                     durationMs);
             if (!response.isSuccessful()) {
-                ExternalErrorCategory category = classifyUpstreamStatus(response.httpStatus());
-                throw new ExternalFetchException(
-                        category,
-                        response.httpStatus(),
-                        friendlyUpstreamMessage(request, response.httpStatus()));
+                // IngestionService classifies HTTP failures and stores their diagnostic body.
+                // Throwing here discarded the source evidence before markFailedResponse.
+                LOGGER.warn("Upstream HTTP response retained for ingestion audit: status={}", response.httpStatus());
             }
             return response;
         } catch (ResourceAccessException exception) {
@@ -185,6 +217,7 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
             case FINANCIAL_STATEMENT ->
                     financialStatementPath(
                             provider, symbol, requiredParameter(request, "statement"));
+            case FINANCIAL_DISCLOSURES -> disclosurePath(provider, symbol);
             case RATIO -> ratioPath(provider, symbol);
             case MANAGEMENT -> cafefPath(symbol, "management");
             case SUBSIDIARIES -> cafefPath(symbol, "subsidiaries");
@@ -203,6 +236,12 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
 
     private String equityPath(String provider, String symbol, String dataset) {
         return "/api/v1/" + equityProvider(provider) + "/equities/" + symbol + "/" + dataset;
+    }
+
+    private String disclosurePath(String provider, String symbol) {
+        if (!"fpt-ir".equals(provider) || !"FPT".equals(symbol))
+            throw new IllegalArgumentException("Official disclosure adapter currently supports fpt-ir/FPT only");
+        return "/api/v1/disclosures/FPT";
     }
 
     private String indexPath(String provider, String indexCode, String dataset) {
@@ -248,7 +287,7 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
     }
 
     private String rawProxyPath(String provider, String upstreamPath) {
-        if (!Set.of("vndirect", "cafef", "cafef-financial").contains(provider)) {
+        if (!Set.of("vndirect", "cafef", "cafef-financial", "fpt-ir").contains(provider)) {
             throw new IllegalArgumentException("Nhà cung cấp proxy không được hỗ trợ: " + provider);
         }
         if (upstreamPath.isBlank() || upstreamPath.startsWith("/") || upstreamPath.contains("..")) {
@@ -261,6 +300,7 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
         Set<String> allowed =
                 switch (request.operation()) {
                     case FINANCIAL_STATEMENT -> FINANCIAL_PARAMETERS;
+                    case FINANCIAL_DISCLOSURES -> Set.of("year");
                     case NEWS, EVENTS, NEWS_COMPANY -> NEWS_PARAMETERS;
                     case NEWS_LATEST, NEWS_HISTORY -> NEWS_FEED_PARAMETERS;
                     case RAW_PROXY -> request.parameters().keySet();

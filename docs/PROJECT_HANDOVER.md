@@ -239,3 +239,38 @@ fix/financial-metadata-flow, PR #14 vào feature/llm-processing. Chưa merge mas
 chưa deploy Java production, chưa bật shared token Vercel, chưa test Docker/load/
 backup restore, chưa có auth người dùng cho FE. Các phần local AI/KBS/FE dở ở
 checkout gốc không được gom vào release này. Không train/promote model trong đợt này.
+
+### 24/10/2026 lúc 12 giờ 30 — EIB HSG và kiểm tra nội dung nguồn
+
+Đọc bản cập nhật FINANCIAL_PRODUCTION_REVIEW_20261024.md. Python main/Vercel
+0.7.4, SHA 8259a5d. Java vẫn ở fix/financial-metadata-flow, PR #14 vào
+feature/llm-processing. Các commit b1c9bd4, d472ead và e9fe76c bổ sung nguồn
+EIB/HSG, kiểm tra CafeF/niên độ và sửa lưu PDF lớn. Chưa merge master.
+
+DB hiện có 613 tài liệu duy nhất: FPT121, HPG173, VNM78, ACB20, EIB111, HSG110.
+HSG đã gọi trang 1–20; các trang sau chưa nghiệm thu. HSG dùng niên độ tháng10–9;
+không tự dịch chuyển quý vendor khi chưa biết cách đánh số của nguồn. EIB dùng
+published_start; ngày đăng lại trên các trang lưu trữ cũ không chứng nhận vintage
+gốc. Còn19/25 mã chưa có adapter công bố. Canonical vẫn3900 báo cáo thiếu metadata
+đúng phiên bản; không promote canonical hoặc train model trong đợt này.
+
+Phát hiện CafeF EIB/ACB trả số ngân hàng dưới tên chỉ tiêu doanh nghiệp thường.
+Kết luận18 request trước đạt cấu trúc không đồng nghĩa đúng ngữ nghĩa. Python chặn
+mẫu sai; Spring kiểm công thức trên raw cũ trước build, có replay dữ liệu thật.
+Lượt mới18 request:13 parse ngay,4 bị chặn đúng,1 lỗi HSG tạm thời đã gọi lại đạt.
+VNStock HSG ban đầu502 nhưng lần gọi lại qua pipeline thật thành công.
+
+PDF EIB thiếu intermediate TLS, đã bổ sung CA công khai được kiểm chain; không
+tắt verify. Tệp15.427.322 byte vượt giới hạn chuỗi JSON mặc định sau base64;
+đã tách mapper tài liệu nội bộ và cấu hình Hibernate đọc35MiB, PDF vẫn giới hạn25MiB.
+Spring -> Vercel -> nguồn -> DB -> đọc lại đạt với PDF EIB và HSG, SHA khớp.
+
+53 Python tests và230 Java tests đạt;44 integration tests ở schema cô lập dùng
+LLM mock. Migration05/06 có rehearsal rollback trước apply. Đã sao lưu và dọn
+đúng3 metadata HSG trùng do URL encode dấu ngoặc; raw giữ nguyên. Sáu refresh
+cuối0.7.4 đều200/inserted0; HTTP production403/200 đúng quyền. Bằng chứng tại
+artifacts/financial-production-followup-20261024. FPT vẫn5/8 khớp bằng chứng,
+ba số dư11/1/1 đồng chưa xác minh; không tuyên bố đã xử lý hết chênh lệch.
+
+Chưa bật shared token trên Vercel, chưa deploy Java production, chưa kiểm tải/
+backup restore hoặc auth người dùng FE. Không gọi code hiện tại là production-ready.

@@ -35,6 +35,19 @@ class FinancialStatementBuildServiceTests {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
+    void explicitSeptemberYearEndKeepsTwelveMonthFiscalYear() throws Exception {
+        RawPayloadEntity raw = mock(RawPayloadEntity.class);
+        when(raw.getPayload()).thenReturn(objectMapper.readTree("""
+            {"symbol":"HSG","dataset":"income_statement","provider":"vndirect","data":[
+             {"fiscalDate":"2025-09-30","reportType":"YEAR","itemEnName":"Revenue","numericValue":100}]}
+            """));
+        var period = service().parse(raw).getFirst().period();
+        assertThat(period.startDate()).isEqualTo(LocalDate.of(2024,10,1));
+        assertThat(period.endDate()).isEqualTo(LocalDate.of(2025,9,30));
+        assertThat(period.periodType()).isEqualTo("FY");
+    }
+
+    @Test
     void skipsAllNullWideRowsWithoutTreatingQuarterFrequencyAsFiscalPeriod() throws Exception {
         RawPayloadEntity raw = mock(RawPayloadEntity.class);
         when(raw.getPayload()).thenReturn(objectMapper.readTree("""

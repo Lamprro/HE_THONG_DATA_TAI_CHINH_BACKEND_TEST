@@ -242,7 +242,9 @@ public class FinancialStatementBuildService {
     private Period period(LocalDate end, String reportType) {
         String normalized = reportType == null ? "QUARTER" : reportType.toUpperCase(Locale.ROOT);
         if (normalized.contains("YEAR") || normalized.contains("ANNUAL")) {
-            return new Period(end.getYear(), "FY", LocalDate.of(end.getYear(), 1, 1), end);
+            if (end.getDayOfMonth() != end.lengthOfMonth())
+                throw new IllegalArgumentException("Annual fiscal date must be a month end");
+            return new Period(end.getYear(), "FY", end.minusMonths(11).withDayOfMonth(1), end);
         }
         int quarter = (end.getMonthValue() - 1) / 3 + 1;
         LocalDate start = LocalDate.of(end.getYear(), (quarter - 1) * 3 + 1, 1);
@@ -346,10 +348,27 @@ public class FinancialStatementBuildService {
     private record PeriodValue(Period period, JsonNode value) {}
     public record ItemDraft(String itemCode, String itemName, BigDecimal value, String rawValue, Integer displayOrder, String sourceItemCode, String sourceItemName, String provider) {}
     private StatementDraft draft(RawPayloadEntity raw, String symbol, String type, Period period, List<ItemDraft> items) {
+        validateCafeFIncomeIdentity(items);
         var metadata = FinancialStatementMetadata.parse(raw.getPayload(), period.endDate(), type);
         if ("ANNUAL".equals(metadata.periodBasis()) && !"FY".equals(period.periodType()))
             throw new IllegalArgumentException("Annual basis does not match fiscal period");
         return new StatementDraft(raw, symbol, type, metadata.reportScope(), period, uniqueItemCodes(items), metadata);
+    }
+
+    // Recheck saved raw batches too: upstream CafeF has served bank values with
+    // non-bank labels. A syntactically accepted payload is not a valid statement.
+    static void validateCafeFIncomeIdentity(List<ItemDraft> items) {
+        ItemDraft gross = null, deductions = null, net = null;
+        for (ItemDraft item : items) {
+            if (!"cafef".equalsIgnoreCase(item.provider())) continue;
+            if (item.sourceItemCode().startsWith("CAF_01_")) gross = item;
+            if (item.sourceItemCode().startsWith("CAF_02_")) deductions = item;
+            if (item.sourceItemCode().startsWith("CAF_10_")
+                    && item.itemName().replaceAll("\\s", "").contains("10=01-02")) net = item;
+        }
+        if (gross != null && deductions != null && net != null
+                && gross.value().subtract(deductions.value()).compareTo(net.value()) != 0)
+            throw new IllegalArgumentException("CAFEF_INCOME_IDENTITY_MISMATCH: review source labels and values before building");
     }
 
     public record StatementDraft(RawPayloadEntity rawPayload, String symbol, String statementType,

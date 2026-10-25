@@ -39,6 +39,9 @@ public class AdminCommandService {
   @org.springframework.beans.factory.annotation.Autowired private AdminPipelineService pipeline;
   @org.springframework.beans.factory.annotation.Autowired private AdminAiActionService ai;
   private final UUID owner=UUID.randomUUID();
+  @org.springframework.beans.factory.annotation.Value("${financial.admin.commands.enabled:true}")
+  private boolean enabled=true;
+  public boolean workerEnabled() {return enabled;}
   private final Set<UUID> inFlight=ConcurrentHashMap.newKeySet();
   private static final org.slf4j.Logger LOG=org.slf4j.LoggerFactory.getLogger(AdminCommandService.class);
   private final ScheduledExecutorService workers=Executors.newScheduledThreadPool(3, r -> {
@@ -51,6 +54,7 @@ public class AdminCommandService {
     this.validation=validation; this.validator=validator; this.tx=new TransactionTemplate(transactions);
   }
   @PostConstruct void start() {
+    if(!enabled) return;
     workers.scheduleWithFixedDelay(this::work,2,1,TimeUnit.SECONDS);
     workers.scheduleWithFixedDelay(this::work,3,1,TimeUnit.SECONDS);
     workers.scheduleWithFixedDelay(this::leases,2,10,TimeUnit.SECONDS);
@@ -60,6 +64,7 @@ public class AdminCommandService {
     return submit(request,null);
   }
   private Map<String,Object> submit(Request request,UUID parent) {
+    if(!enabled) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Command worker disabled on this instance; use the configured operational instance");
     if (request.idempotencyKey()==null || request.reason()==null || request.reason().isBlank()
         || request.reason().length()>2000 || request.input()==null || !request.input().isObject())
       throw new IllegalArgumentException("idempotencyKey, reason (1..2000), and input object are required");
@@ -185,6 +190,7 @@ public class AdminCommandService {
     db.update("insert into admin_operation_events(id,event_type,command_id,reason) values (?,?,?,?)",UUID.randomUUID(),type,id,reason);
   }
   private void work() {
+    if(!enabled) return;
     try {
       Map<String,Object> command=tx.execute(s -> {
         // A worker must leave actions introduced by a newer runtime for a compatible worker.
@@ -246,6 +252,7 @@ public class AdminCommandService {
     }return false;
   }
   private void leases() {
+    if(!enabled) return;
     try {
       for(UUID id:inFlight) db.update("update admin_commands set lease_until=now()+interval '90 seconds' where id=? and status='RUNNING' and owner_id=?",id,owner);
       db.update("update admin_commands set status='UNKNOWN',finished_at=now(),error_message='Worker lease expired. Check original native runs before retrying.' "

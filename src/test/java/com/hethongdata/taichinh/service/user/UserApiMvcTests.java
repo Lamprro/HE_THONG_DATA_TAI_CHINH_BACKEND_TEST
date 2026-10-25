@@ -24,6 +24,8 @@ class UserApiMvcTests {
     @Bean com.hethongdata.taichinh.controller.user.UserFinancialViewController financialViewController(UserFinancialViewService s) {return new com.hethongdata.taichinh.controller.user.UserFinancialViewController(s);}
     @Bean com.hethongdata.taichinh.controller.user.UserContractController contract(org.springframework.beans.factory.ObjectProvider<org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping> routes){return new com.hethongdata.taichinh.controller.user.UserContractController(routes);}
     @Bean UserLocalAiService localAi(){return mock(UserLocalAiService.class);}
+    @Bean UserProvenanceService provenance(){return mock(UserProvenanceService.class);}
+    @Bean com.hethongdata.taichinh.controller.user.UserProvenanceController provenanceController(UserProvenanceService service){return new com.hethongdata.taichinh.controller.user.UserProvenanceController(service);}
     @Bean com.hethongdata.taichinh.controller.user.UserLocalAiController localAiController(UserLocalAiService service){return new com.hethongdata.taichinh.controller.user.UserLocalAiController(service);}
     @Bean ForecastAdminAccessConfiguration access() {return new ForecastAdminAccessConfiguration("fixture-token-at-least-32-characters",new ObjectMapper().findAndRegisterModules());}
     @Bean Probe probe() {return new Probe();}
@@ -36,6 +38,9 @@ class UserApiMvcTests {
       mvc.perform(get("/api/v1/securities/FPT/prices").param("from","invalid")).andExpect(status().isBadRequest());
       mvc.perform(get("/api/v1/securities/FPT/financials")).andExpect(status().isBadRequest()).andExpect(jsonPath("message").value("Missing parameter 'codes'"));
       mvc.perform(get("/api/v1/local-ai/models").param("packageId","wrong")).andExpect(status().isBadRequest());
+      mvc.perform(get("/api/v1/securities/FPT/prices/9007199254740993/lineage")).andExpect(status().isOk());
+      verify(context.getBean(UserProvenanceService.class)).price("FPT",null,9007199254740993L);
+      mvc.perform(get("/api/v1/securities/FPT/prices/9223372036854775808/lineage")).andExpect(status().isBadRequest());
     }
   }
   @RestController static class Probe {@GetMapping("/api/admin/probe") String admin() {return "private";}}
@@ -46,6 +51,8 @@ class UserApiMvcTests {
       var json=new ObjectMapper().readTree(body);org.assertj.core.api.Assertions.assertThat(body).doesNotContain("/api/admin","fixture-token");
       org.assertj.core.api.Assertions.assertThat(json.path("paths").path("/api/v1/securities/{symbol}/financials").path("get").path("parameters").toString()).contains("codes","required\":true");
       org.assertj.core.api.Assertions.assertThat(json.path("paths").path("/api/v1/securities").has("post")).isFalse();
+      var params=json.path("paths").path("/api/v1/securities/{symbol}/prices/{id}/lineage").path("get").path("parameters");
+      org.assertj.core.api.Assertions.assertThat(params.toString()).contains("9223372036854775807","preserve as string");
     }
   }
   @Test void publicReadsDoNotRequireAdminTokenAndWritesAreNotAvailable() throws Exception {

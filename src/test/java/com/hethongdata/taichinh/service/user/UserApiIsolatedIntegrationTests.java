@@ -76,6 +76,33 @@ class UserApiIsolatedIntegrationTests {
     assertThat(next.items().getFirst().get("tradingDate")).isEqualTo("2026-10-02");assertThat(next.hasNext()).isFalse();
     var quote=service.latest("ZZTEST","HOSE").data();assertThat(quote.get("daily").toString()).contains("110");assertThat(quote.get("snapshot").toString()).contains("999");
   }
+  @Test void observationLineageUsesExactVisibleRowAndDoesNotExposeRawInputs() throws Exception {
+    var service=new UserProvenanceService(read,securities);
+    db.update("update market_prices set raw_payload_id=? where id=1",RAW);
+    db.update("update raw_payloads set source_url='https://example.org/path?token=hidden' where id=?",RAW);
+    try {
+      var price=service.price("ZZTEST","HOSE",1).data();
+      assertThat(price.get("id")).isEqualTo("1");assertThat(price.get("sourceUrl")).isNull();
+      assertThat(price.get("tradingDate")).isEqualTo("2026-10-01");
+      assertThatThrownBy(()->service.price("ZZTEST","HOSE",4)).hasMessageContaining("404");
+      assertThatThrownBy(()->service.price("ZZTEST","HOSE",-1)).isInstanceOf(IllegalArgumentException.class);
+      UUID provider=db.queryForObject("select id from financial_metrics where not is_derived and quality_status='VALID'",UUID.class);
+      UUID derived=db.queryForObject("select id from financial_metrics where is_derived",UUID.class);
+      UUID rejected=db.queryForObject("select id from financial_metrics where quality_status='REJECTED'",UUID.class);
+      assertThat(service.metric("ZZTEST","HOSE",provider).data().get("origin")).isEqualTo("PROVIDER");
+      assertThat(service.metric("ZZTEST","HOSE",derived).data()).containsEntry("origin","DERIVED").containsEntry("versionId",null);
+      assertThatThrownBy(()->service.metric("ZZTEST","HOSE",rejected)).hasMessageContaining("404");
+      assertThatThrownBy(()->service.metric("ZZTEST","HOSE",UUID.randomUUID())).hasMessageContaining("404");
+      assertThat(JSON.writeValueAsString(service.metric("ZZTEST","HOSE",provider))).doesNotContain("input_snapshot","raw_payload","request_headers","hidden");
+      UUID otherCompany=UUID.randomUUID(),otherSecurity=UUID.randomUUID();
+      db.update("insert into companies(id,legal_name,is_active) values (?,'Other',true)",otherCompany);
+      db.update("insert into securities(id,company_id,symbol,exchange,is_active) values (?,?,'ZZOTHER','HOSE',true)",otherSecurity,otherCompany);
+      try {
+        assertThatThrownBy(()->service.price("ZZOTHER","HOSE",1)).hasMessageContaining("404");
+        assertThatThrownBy(()->service.metric("ZZOTHER","HOSE",provider)).hasMessageContaining("404");
+      } finally {db.update("delete from securities where id=?",otherSecurity);db.update("delete from companies where id=?",otherCompany);}
+    } finally {db.update("update market_prices set raw_payload_id=null where id=1");db.update("update raw_payloads set source_url=null where id=?",RAW);}
+  }
   @Test void marketBreadthUsesOnlyDailyComparableTrackedPrices() {
     var result=new UserMarketService(read,securities).overview("HOSE",java.time.LocalDate.parse("2026-10-02")).data();
     assertThat(result.get("latestStoredTradingDate")).isEqualTo("2026-10-02");

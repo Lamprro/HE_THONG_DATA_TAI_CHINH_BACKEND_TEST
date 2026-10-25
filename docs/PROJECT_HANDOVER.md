@@ -1,3 +1,12 @@
+# Cập nhật 25/10/2026 — tra cứu Local AI và worker admin
+
+Sửa trực tiếp main; [bàn giao và nghiệm thu](ADMIN_RESEARCH_BROWSER_20261025.md).
+Thêm 5 dataset audit/tài liệu, exact filter, paging composite, search bỏ payload ẩn;
+cấu hình tắt riêng command/schedule worker trên instance. FE main nối catalog/filter.
+202 unit/contract + 13 PostgreSQL cô lập pass; FE build/11 unit/3 suite fixture và
+Chrome thật 17 request qua DB read-only pass. Không sửa train, không deploy.
+User API vẫn riêng feature/user-api, không merge vào main.
+
 # Cập nhật 20/10/2026 — luồng thao tác admin
 
 Java #12 và FE #2 đã merge, runtime 874bb24 đã deploy và nghiệm thu nguồn thật,

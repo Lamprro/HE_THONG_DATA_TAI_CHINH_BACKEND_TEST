@@ -32,6 +32,11 @@ try {
     const statement = await api.statement('FPT', reports.items[0].id, { exchange: 'HOSE' });
     const matrix = await api.financials('FPT', { exchange: 'HOSE', type: statement.data.statementType, period: statement.data.periodType, codes: [statement.data.items[0].code] });
     const lineage = await api.lineage('FPT', reports.items[0].id, { exchange: 'HOSE' });
+    const prices = await api.prices('FPT', { exchange: 'HOSE', size: 1 });
+    const priceSource = await api.priceLineage('FPT', prices.items[0].id, { exchange: 'HOSE' });
+    const metrics = await api.securityMetrics('FPT', { exchange: 'HOSE', size: 1 });
+    const metricSource = await api.metricLineage('FPT', metrics.items[0].id, { exchange: 'HOSE' });
+    if (priceSource.data.id !== prices.items[0].id || metricSource.data.id !== metrics.items[0].id) throw new Error('Source identity mismatch');
     const local = await api.securityLocalAi('FPT', { exchange: 'HOSE' });
     const models = await api.localAiModels({ size: 100 });
     const overview = await api.overview('FPT', { exchange: 'HOSE' });

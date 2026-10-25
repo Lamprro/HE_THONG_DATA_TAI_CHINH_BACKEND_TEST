@@ -13,6 +13,7 @@ export const userOperations = Object.freeze({
   newsAnalysis: '/news/{id}/analysis', forecasts: '/securities/{symbol}/forecasts', marketFilters: '/market/filters',
   dataStatus: '/securities/{symbol}/data-status', periods: '/securities/{symbol}/periods',
   lineage: '/securities/{symbol}/statements/{id}/lineage', statementItems: '/securities/{symbol}/statement-items',
+  priceLineage: '/securities/{symbol}/prices/{id}/lineage', metricLineage: '/securities/{symbol}/metrics/{id}/lineage',
   financials: '/securities/{symbol}/financials', screener: '/market/screener', compare: '/securities/compare',
   foreignTrades: '/securities/{symbol}/foreign-trades', referenceObservations: '/securities/{symbol}/reference-observations',
   analysisAvailability: '/analysis/availability', overview: '/securities/{symbol}/overview',

@@ -62,6 +62,8 @@ def main():
         prices = call(security + '/prices' + exchange + '&size=500')
         assert prices['items'] and all(row['interval'] == '1d' and row['volumeUnit'] == 'SHARES' for row in prices['items'])
         assert all(row['close'] is None or isinstance(row['close'], str) for row in prices['items'])
+        price_source = call(security + '/prices/' + prices['items'][0]['id'] + '/lineage' + exchange)['data']
+        assert price_source['id'] == prices['items'][0]['id'] and price_source['close'] == prices['items'][0]['close']
         if prices['hasNext']:
             call(security + '/prices' + exchange + '&size=500&page=1')
         indices = call('/api/v1/indices')['items']
@@ -83,6 +85,8 @@ def main():
         call('/api/v1/metrics')
         metrics = call(security + '/metrics' + exchange)['items']
         assert metrics
+        metric_source = call(security + '/metrics/' + metrics[0]['id'] + '/lineage' + exchange)['data']
+        assert metric_source['id'] == metrics[0]['id'] and metric_source['value'] == metrics[0]['value']
         items = call(security + '/statement-items' + exchange + '&type=' + report['statementType'])['items']
         assert items
         matrix = call(security + '/financials' + exchange + '&' + urlencode(dict(type=report['statementType'], period=report['periodType'], codes=report['items'][0]['code'], periodLimit=4)))['data']
@@ -111,6 +115,8 @@ def main():
         assert overview['profile']['data']['id'] == profile['id']
         assert overview['financialScenarioState'] in ('AVAILABLE', 'NO_ELIGIBLE_RESULT')
         for path, expected in [
+            (security + '/prices/0/lineage', 400), (security + '/prices/999999999999999999999/lineage', 400),
+            (security + '/metrics/' + str(uuid.uuid4()) + '/lineage', 404),
             ('/api/v1/securities/ZZUNKNOWN', 404), ('/api/v1/securities?size=101', 400),
             (security + '/prices?from=wrong', 400), (security + '/prices?interval=5m', 400),
             ('/api/v1/news/' + str(uuid.uuid4()), 404), (security + '/metrics?origin=BAD', 400),

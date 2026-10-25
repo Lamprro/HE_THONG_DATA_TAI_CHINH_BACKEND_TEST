@@ -1,7 +1,7 @@
 # Client cho FE user
 
 ES module không có dependency runtime: `user-api.mjs` và declaration `user-api.d.mts`.
-Copy cả hai file vào FE hoặc import từ package nội bộ. Client có đủ **35 GET**
+Copy cả hai file vào FE hoặc import từ package nội bộ. Client có đủ **37 GET**
 hiện tại, dùng UUID và envelope thực của Java. Không tự chuyển DTO sang kiểu ID số
 của FE demo `FINANCIAL_FRONTEND_TEST_V1` và không chứa API admin/train/execute.
 

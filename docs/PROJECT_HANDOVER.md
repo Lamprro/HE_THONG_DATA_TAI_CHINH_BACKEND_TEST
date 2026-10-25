@@ -1,3 +1,11 @@
+# Cập nhật 25/10/2026 — nguồn chi tiết cho user
+
+`feature/user-api` tiếp tục riêng, không merge/deploy. [Bàn giao 37 GET](USER_PROVENANCE_20261025.md)
+bổ sung lineage đúng ID giá và metric, client và OpenAPI giữ bigint string.
+209 unit/contract + 16 PostgreSQL schema tạm + 4 client pass; 59 HTTP và Chrome
+16 request trên DB thật read-only pass. Không sửa train Local AI. Admin được sửa
+riêng trên main/FE main; không đưa API user lên main.
+
 # Cập nhật 23/10/2026 — reader gói Local AI mới và client FE
 
 Tiếp tục `feature/user-api`, chỉ push, **chưa PR/merge/deploy**.

@@ -59,6 +59,8 @@ export interface UserApi {
   marketFilters(query?: Query, options?: RequestOptions): Promise<Data<Projection>>;
   dataStatus: DetailCall<DataStatus>; periods: DetailCall<Period[]>;
   lineage(symbol: string, id: UUID, query?: Query, options?: RequestOptions): Promise<Data<Projection>>;
+  priceLineage(symbol: string, id: string, query?: Query, options?: RequestOptions): Promise<Data<Projection>>;
+  metricLineage(symbol: string, id: UUID, query?: Query, options?: RequestOptions): Promise<Data<MetricObservation & { origin: 'PROVIDER' | 'DERIVED'; catalogFormula: string | null; pointInTimeCertified: false }>>;
   statementItems: SecurityList<Projection>;
   financials(symbol: string, query: FinancialQuery, options?: RequestOptions): Promise<Data<FinancialMatrix>>;
   screener: ListCall<Security & Projection>;

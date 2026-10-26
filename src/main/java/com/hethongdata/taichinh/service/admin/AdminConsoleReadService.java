@@ -17,9 +17,18 @@ public class AdminConsoleReadService {
       "security_index_memberships", "macro_series", "macro_observations", "news_articles", "llm_runs",
       "llm_run_attempts", "llm_validation_rounds", "llm_results", "llm_prompt_templates",
       "security_foreign_observations", "security_reference_observations", "predictions",
-      "prediction_outcomes", "admin_commands", "admin_operation_events");
+      "prediction_outcomes", "admin_commands", "admin_operation_events", "financial_disclosure_documents",
+      "local_ai_packages", "local_ai_package_inputs", "local_ai_package_runs", "local_ai_package_predictions");
   private static final Set<String> OMIT = Set.of("body", "payload", "raw_text", "payload_json", "request_headers", "response_headers",
       "response_snapshot", "response_text", "request_body");
+  private static final Set<String> EXACT = Set.of("id","raw_payload_id","data_version_id","validation_target","llm_run_id",
+      "is_canonical","is_current","action","ingestion_job_id","security_id","data_source_id","parent_command_id",
+      "package_id","model_id","ticker","role","run_id","request_id","readiness","symbol","source_raw_payload_id","report_scope","revision_status");
+  private Set<String> omitted(String table) {
+    var result=new HashSet<>(OMIT);
+    if(table.startsWith("local_ai_")) result.addAll(Set.of("manifest","input_payload","request_json","response_json"));
+    return result;
+  }
   private final NamedParameterJdbcTemplate db;
   private final ObjectMapper json;
   public AdminConsoleReadService(DataSource source, ObjectMapper json) {
@@ -31,7 +40,8 @@ public class AdminConsoleReadService {
   public List<Map<String, Object>> tables() {
     return TABLES.stream().map(name -> {
       var columns = columns(name);
-      return Map.<String,Object>of("name", name, "available", !columns.isEmpty(), "columns", columns);
+      return Map.<String,Object>of("name", name, "available", !columns.isEmpty(), "columns", columns,
+          "exactFilters",columns.stream().filter(EXACT::contains).toList(),"omittedColumns",omitted(name));
     }).toList();
   }
   private List<String> columns(String name) {
@@ -46,6 +56,12 @@ public class AdminConsoleReadService {
     if (page < 0 || size < 1 || size > 100 || page > 100000) throw new IllegalArgumentException("Invalid page or size (1..100)");
     var cols = columns(table);
     if (cols.isEmpty()) throw new IllegalArgumentException("Dataset is not installed on this deployment");
+    var omitted=omitted(table);
+    List<String> visible = cols.stream().filter(c -> !omitted.contains(c) && !sensitive(c)).toList();
+    // Search only visible scalar columns; large payloads and secrets cannot influence search results.
+    var searchable=db.queryForList("select column_name from information_schema.columns where table_schema=current_schema() "
+        +"and table_name=:table and data_type not in ('json','jsonb','bytea','ARRAY','USER-DEFINED') order by ordinal_position",
+        Map.of("table",table),String.class).stream().filter(visible::contains).toList();
     var labels = new LinkedHashMap<String,String>();
     if(cols.contains("security_id")) labels.put("symbol","(select s.symbol from securities s where s.id=t.security_id)");
     if(cols.contains("company_id")) labels.put("company_name","(select c.legal_name from companies c where c.id=t.company_id)");
@@ -61,17 +77,19 @@ public class AdminConsoleReadService {
     int index=0;
     for(var entry:exact.entrySet()) {
       if(entry.getValue()==null || entry.getValue().isBlank()) continue;
-      if(!Set.of("id","raw_payload_id","data_version_id","validation_target","llm_run_id","is_canonical","is_current","action","ingestion_job_id","security_id","data_source_id","parent_command_id").contains(entry.getKey()) || !cols.contains(entry.getKey()))
+      if(!EXACT.contains(entry.getKey()) || !cols.contains(entry.getKey()))
         throw new IllegalArgumentException("Unsupported dataset filter: "+entry.getKey());
+      if(entry.getValue().length()>200) throw new IllegalArgumentException("Exact filter is limited to 200 characters");
       String key="exact"+(index++);filters.add("cast(t."+entry.getKey()+" as text)=:"+key);params.put(key,entry.getValue());
     }
     if (search != null && !search.isBlank()) {
       if (search.length()>100) throw new IllegalArgumentException("Search is limited to 100 characters");
-      var searches=new ArrayList<String>(); searches.add("cast(to_jsonb(t) as text) ilike :q escape '\\'");
+      var searches=new ArrayList<String>();
+      searchable.forEach(c->searches.add("cast(t.\""+c+"\" as text) ilike :q escape '\\'"));
       if(cols.contains("security_id")) searches.add("t.security_id in (select s.id from securities s where s.symbol ilike :q escape '\\')");
       if(cols.contains("financial_statement_id")) searches.add("t.financial_statement_id in (select f.id from financial_statements f join securities s on s.id=f.security_id where s.symbol ilike :q escape '\\')");
       if(cols.contains("metric_definition_id")) searches.add("t.metric_definition_id in (select d.id from metric_definitions d where d.code ilike :q escape '\\')");
-      filters.add("("+String.join(" or ",searches)+")");
+      filters.add(searches.isEmpty()?"false":"("+String.join(" or ",searches)+")");
       params.put("q", "%" + search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%");
     }
     if (runId != null && !runId.isBlank()) {
@@ -86,18 +104,19 @@ public class AdminConsoleReadService {
     String where = filters.isEmpty() ? "" : " where " + String.join(" and ", filters);
     String source = " from " + table + " t" + where;
     long total = db.queryForObject("select count(*)"+source, params, Long.class);
-    List<String> visible = cols.stream().filter(c -> !OMIT.contains(c) && !sensitive(c)).toList();
     String projection = "jsonb_build_object(" + visible.stream()
         .map(c -> "'"+c+"',t.\""+c+"\"").collect(java.util.stream.Collectors.joining(",")) + ")";
     if(!labels.isEmpty()) projection += " || jsonb_build_object("+labels.entrySet().stream()
         .map(e -> "'"+e.getKey()+"',"+e.getValue()).collect(java.util.stream.Collectors.joining(","))+")";
-    String order = cols.contains("created_at") ? "t.created_at desc nulls last," : "";
-    order += cols.contains("id") ? "t.id desc" : "cast(to_jsonb(t) as text)";
+    String time=List.of("created_at","started_at","registered_at","observed_at").stream().filter(cols::contains).findFirst().orElse(null);
+    String order=time==null?"":"t."+time+" desc nulls last,";
+    order += cols.contains("id") ? "t.id desc" : table.equals("local_ai_package_inputs")
+        ? "t.package_id,t.model_id,t.ticker" : "cast("+projection+" as text)";
     params.put("limit", size); params.put("offset", (long)page*size);
     var rows = db.query("select cast("+projection+" as text)"+source+" order by "+order+" limit :limit offset :offset",
         params, (rs,n) -> decode(rs.getString(1)));
     return Map.of("rows", rows, "total", total, "page", page, "size", size,
-        "columns", visible, "numberEncoding", "decimal strings preserve precision", "omittedColumns", OMIT);
+        "columns", visible, "numberEncoding", "decimal strings preserve precision", "omittedColumns", omitted);
   }
   public JsonNode decode(String value) {
     try { return safe(json.readTree(value)); }

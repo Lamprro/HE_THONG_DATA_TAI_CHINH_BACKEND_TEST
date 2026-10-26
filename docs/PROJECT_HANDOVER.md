@@ -1,3 +1,20 @@
+# Cập nhật 26/10/2026 — tinh gọn main trước
+
+Gom 5 controller nhỏ thành MarketDataAdminController và FinancialDataAdminController;
+admin 12 → 9 class, giữ 10 URL và hành vi cũ. [Chi tiết](CONTROLLER_CLEANUP_20261026.md).
+203 unit/contract + clean build/package pass; 12 HTTP localhost thật, DB read-only,
+không gọi mutation/provider. Không đổi service transaction/worker hoặc folder train.
+Commit/push main trước khi chỉnh nhánh user; không deploy.
+
+# Cập nhật 25/10/2026 — tra cứu Local AI và worker admin
+
+Sửa trực tiếp main; [bàn giao và nghiệm thu](ADMIN_RESEARCH_BROWSER_20261025.md).
+Thêm 5 dataset audit/tài liệu, exact filter, paging composite, search bỏ payload ẩn;
+cấu hình tắt riêng command/schedule worker trên instance. FE main nối catalog/filter.
+202 unit/contract + 13 PostgreSQL cô lập pass; FE build/11 unit/3 suite fixture và
+Chrome thật 17 request qua DB read-only pass. Không sửa train, không deploy.
+User API vẫn riêng feature/user-api, không merge vào main.
+
 # Cập nhật 25/10/2026 — nguồn chi tiết cho user
 
 `feature/user-api` tiếp tục riêng, không merge/deploy. [Bàn giao 37 GET](USER_PROVENANCE_20261025.md)

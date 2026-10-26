@@ -37,6 +37,7 @@ public class AdminConsoleController {
           "evidence","configuration only; no heartbeat is inferred"));
     return Map.of("database",db.queryForObject("select 1",Integer.class)==1?"UP":"DOWN", "schedulers",schedulers,
         "timezone","Asia/Ho_Chi_Minh","nativeApiCount",catalog().size(),
+        "adminWorkers",Map.of("commandsEnabled",commands.workerEnabled(),"scheduleEnabled",schedule.workerEnabled(),"scope","this instance only; other instances may still process shared work"),
         "commandSemantics","SUCCEEDED means the native call returned; inspect result status and final data versions. UNKNOWN must be reviewed before retry.");
   }
   @GetMapping("/datasets") public List<Map<String,Object>> datasets() { return reads.tables(); }

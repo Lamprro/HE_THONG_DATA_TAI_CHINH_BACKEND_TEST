@@ -98,6 +98,24 @@ class AdminCommandIsolatedIntegrationTests {
     assertThat(first.get("rows").toString()).contains("12345678901234567890.125").doesNotContain("hidden","payload");
     assertThat(first.get("rows")).isNotEqualTo(second.get("rows"));
     assertThat(reads.browse("ingestion_runs",0,25,null,null,"SUCCESS").get("total")).isEqualTo(0L);
+    assertThat(reads.browse("ingestion_runs",0,25,"hidden",null,null).get("total")).isEqualTo(0L);
+    assertThat(reads.browse("ingestion_runs",0,25,"FAILED",null,null).get("total")).isEqualTo(7L);
+  }
+  @Test void researchBrowserUsesCompositePagingAndExactFiltersWithoutFeaturePayloads() {
+    db.execute("create table local_ai_package_inputs(package_id uuid,model_id text,ticker text,data_as_of text,input_payload text,primary key(package_id,model_id,ticker))");
+    try {
+      UUID pkg=UUID.randomUUID();
+      for(String ticker:List.of("ACB","FPT","HPG")) db.update("insert into local_ai_package_inputs values (?,'direction_h1',?,'2026-09-30','hidden-feature-secret')",pkg,ticker);
+      var reads=new AdminConsoleReadService(scoped,json);
+      assertThat(reads.tables().toString()).contains("local_ai_package_inputs","exactFilters","model_id");
+      var first=reads.browse("local_ai_package_inputs",0,1,null,null,null,Map.of("package_id",pkg.toString()));
+      var second=reads.browse("local_ai_package_inputs",1,1,null,null,null,Map.of("package_id",pkg.toString()));
+      assertThat(first.get("rows").toString()).contains("ACB").doesNotContain("hidden-feature-secret","input_payload");
+      assertThat(second.get("rows").toString()).contains("FPT");
+      assertThat(reads.browse("local_ai_package_inputs",0,25,"hidden-feature-secret",null,null).get("total")).isEqualTo(0L);
+      assertThat(reads.browse("local_ai_package_inputs",0,25,null,null,null,Map.of("ticker","FPT","model_id","direction_h1")).get("total")).isEqualTo(1L);
+      assertThatThrownBy(()->reads.browse("local_ai_package_inputs",0,25,null,null,null,Map.of("model_id","x".repeat(201)))).isInstanceOf(IllegalArgumentException.class);
+    } finally {db.execute("drop table local_ai_package_inputs");}
   }
   @Test void financialRowsHaveReadableSymbolMetricPeriodAndSearchBySymbolOrMetric() {
     UUID security=UUID.randomUUID(),period=UUID.randomUUID();

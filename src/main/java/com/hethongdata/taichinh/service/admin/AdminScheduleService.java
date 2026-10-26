@@ -22,15 +22,18 @@ public class AdminScheduleService {
   public AdminScheduleService(JdbcTemplate db,ObjectMapper json,IngestionJobService jobs,IngestionJobRepository definitions,Environment environment,NativeJobGuard guard) {
     this.db=db;this.json=json;this.jobs=jobs;this.definitions=definitions;this.environment=environment;this.guard=guard;
   }
-  @PostConstruct void start() {worker.scheduleWithFixedDelay(this::tick,10,30,TimeUnit.SECONDS);}
+  public boolean workerEnabled() {return environment.getProperty("financial.admin.schedule.enabled",Boolean.class,true);}
+  @PostConstruct void start() {if(workerEnabled()) worker.scheduleWithFixedDelay(this::tick,10,30,TimeUnit.SECONDS);}
   @PreDestroy void stop() {worker.shutdownNow();}
   public Map<String,Object> status() {
     var row=new LinkedHashMap<>(db.queryForMap("select * from admin_schedule_policy where id='INGESTION'"));
     row.put("job_codes",decode(row.get("job_codes").toString()));
+    row.put("workerEnabled",workerEnabled());
     row.put("legacySchedulerEnabled",legacyEnabled());row.put("timezone","UTC cron / Asia/Ho_Chi_Minh business dates");return row;
   }
   private boolean legacyEnabled() {return environment.getProperty("financial.ingestion.scheduler.enabled",Boolean.class,false)||environment.getProperty("financial.macro.scheduler.enabled",Boolean.class,false);}
   @Transactional public Map<String,Object> update(Request request) {
+    if(request.enabled()&&!workerEnabled()) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Schedule worker disabled on this instance");
     if(request.reason()==null||request.reason().isBlank()||request.reason().length()>2000) throw new IllegalArgumentException("A reason (1..2000) is required");
     Set<String> codes=request.jobCodes()==null?Set.of():new TreeSet<>(request.jobCodes());
     if(codes.size()>100 || request.enabled()&&codes.isEmpty()) throw new IllegalArgumentException("Choose 1..100 explicit jobs before enabling scheduling");
@@ -47,6 +50,7 @@ public class AdminScheduleService {
   }
   private Set<String> decode(String text) {try{return json.readValue(text,new com.fasterxml.jackson.core.type.TypeReference<Set<String>>(){});}catch(Exception e){throw new IllegalStateException("Invalid schedule scope");}}
   private void tick() {
+    if(!workerEnabled()) return;
     try {
       db.update("update admin_schedule_policy set heartbeat_at=now() where id='INGESTION'");
       var policy=status();if(!Boolean.TRUE.equals(policy.get("enabled"))||legacyEnabled()) return;

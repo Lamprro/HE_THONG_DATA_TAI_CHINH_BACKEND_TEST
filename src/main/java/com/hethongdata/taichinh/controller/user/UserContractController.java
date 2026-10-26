@@ -12,6 +12,10 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 /** The public contract follows registered user GET handlers, never the admin catalog. */
 @RestController
 public class UserContractController {
+  /** Keep public SDK operation IDs stable when moving a handler between domain controllers. */
+  @java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.RUNTIME)
+  @java.lang.annotation.Target(java.lang.annotation.ElementType.METHOD)
+  public @interface EndpointId { String value(); }
   private final ObjectProvider<RequestMappingHandlerMapping> routes;
   public UserContractController(@Qualifier("requestMappingHandlerMapping") ObjectProvider<RequestMappingHandlerMapping> routes){this.routes=routes;}
   @GetMapping("/api/v1/openapi.json") public Map<String,Object> contract(){
@@ -31,7 +35,9 @@ public class UserContractController {
         }
         var responses=new LinkedHashMap<String,Object>();responses.put("200",Map.of("description","Stored public projection; business decimals and long database IDs use strings; unknown values remain null.","content",Map.of("application/json",Map.of("schema",schema(handler.getMethod().getGenericReturnType())))));
         for(String status:List.of("400","404","409","422","500"))responses.put(status,Map.of("description",switch(status){case "400"->"Invalid or missing parameter";case "404"->"Unknown or unpublished resource";case "409"->"Ambiguous listing or canonical data";case "422"->"Result exceeds a documented display limit";default->"Internal error; source details are not exposed";},"content",Map.of("application/json",Map.of("schema",Map.of("$ref","#/components/schemas/ApiError")))));
-        paths.put(path,Map.of("get",Map.of("operationId",handler.getBeanType().getSimpleName()+"_"+handler.getMethod().getName(),"parameters",parameters,"responses",responses,"security",List.of())));
+        var stableId=handler.getMethodAnnotation(EndpointId.class);
+        String operationId=stableId==null?handler.getBeanType().getSimpleName()+"_"+handler.getMethod().getName():stableId.value();
+        paths.put(path,Map.of("get",Map.of("operationId",operationId,"parameters",parameters,"responses",responses,"security",List.of())));
       }
     });
     var meta=Map.of("type","object","properties",Map.of("timezone",Map.of("type","string","const","Asia/Ho_Chi_Minh"),"numberEncoding",Map.of("type","string","const","DECIMAL_STRING"),"generatedAt",Map.of("type","string","format","date-time"),"notes",Map.of("type","array","items",Map.of("type","string"))));

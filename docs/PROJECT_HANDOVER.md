@@ -1,3 +1,11 @@
+## Cập nhật 26/10/2026 — tinh gọn user sau main
+
+Main `046fdaf` đã push trước. Nhánh user nhận main một chiều (`17c12d4`), gom
+12 controller user thành 6, giữ nguyên toàn bộ hợp đồng 37 API và service nghiệp vụ.
+213 unit/contract tests, clean package, 59 HTTP requests DB thật chỉ đọc và 16
+requests Chrome đều đạt. Không train/model call, ghi DB hoặc deploy; không merge
+user về main. Xem [bản đồ lớp và giới hạn nghiệm thu](CONTROLLER_CLEANUP_20261026.md).
+
 # Cập nhật 26/10/2026 — tinh gọn main trước
 
 Gom 5 controller nhỏ thành MarketDataAdminController và FinancialDataAdminController;

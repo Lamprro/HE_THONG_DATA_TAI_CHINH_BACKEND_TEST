@@ -1,3 +1,11 @@
+# Cập nhật 26/10/2026 — tinh gọn main trước
+
+Gom 5 controller nhỏ thành MarketDataAdminController và FinancialDataAdminController;
+admin 12 → 9 class, giữ 10 URL và hành vi cũ. [Chi tiết](CONTROLLER_CLEANUP_20261026.md).
+203 unit/contract + clean build/package pass; 12 HTTP localhost thật, DB read-only,
+không gọi mutation/provider. Không đổi service transaction/worker hoặc folder train.
+Commit/push main trước khi chỉnh nhánh user; không deploy.
+
 # Cập nhật 25/10/2026 — tra cứu Local AI và worker admin
 
 Sửa trực tiếp main; [bàn giao và nghiệm thu](ADMIN_RESEARCH_BROWSER_20261025.md).

@@ -1,3 +1,11 @@
+## Cập nhật 26/10/2026 — tinh gọn user sau main
+
+Main `046fdaf` đã push trước. Nhánh user nhận main một chiều (`17c12d4`), gom
+12 controller user thành 6, giữ nguyên toàn bộ hợp đồng 37 API và service nghiệp vụ.
+213 unit/contract tests, clean package, 59 HTTP requests DB thật chỉ đọc và 16
+requests Chrome đều đạt. Không train/model call, ghi DB hoặc deploy; không merge
+user về main. Xem [bản đồ lớp và giới hạn nghiệm thu](CONTROLLER_CLEANUP_20261026.md).
+
 # Cập nhật 26/10/2026 — tinh gọn main trước
 
 Gom 5 controller nhỏ thành MarketDataAdminController và FinancialDataAdminController;
@@ -14,6 +22,48 @@ cấu hình tắt riêng command/schedule worker trên instance. FE main nối c
 202 unit/contract + 13 PostgreSQL cô lập pass; FE build/11 unit/3 suite fixture và
 Chrome thật 17 request qua DB read-only pass. Không sửa train, không deploy.
 User API vẫn riêng feature/user-api, không merge vào main.
+
+# Cập nhật 25/10/2026 — nguồn chi tiết cho user
+
+`feature/user-api` tiếp tục riêng, không merge/deploy. [Bàn giao 37 GET](USER_PROVENANCE_20261025.md)
+bổ sung lineage đúng ID giá và metric, client và OpenAPI giữ bigint string.
+209 unit/contract + 16 PostgreSQL schema tạm + 4 client pass; 59 HTTP và Chrome
+16 request trên DB thật read-only pass. Không sửa train Local AI. Admin được sửa
+riêng trên main/FE main; không đưa API user lên main.
+
+# Cập nhật 23/10/2026 — reader gói Local AI mới và client FE
+
+Tiếp tục `feature/user-api`, chỉ push, **chưa PR/merge/deploy**.
+Đọc [35 GET, registry Local AI thật và luồng browser](USER_LOCAL_AI_FE_20261023.md).
+Thêm model catalog/per-security progress từ suite registry, nối availability/overview;
+không xuất prediction nghiên cứu hoặc sửa thư mục train/checkout gốc.
+Client FE có UUID/envelope/decimal string, chỉ GET không credential, TypeScript và
+browser harness. 209 Java unit + 15 PostgreSQL cô lập + 4 client test pass;
+54 HTTP bao phủ 35 GET và Chrome thật 12 request qua DB read-only pass.
+Đối chiếu 11 model/218 input/218 result lưu trong DB; chưa gọi lại PKL hoặc nghiệm thu
+UI user hoàn chỉnh. FE demo vẫn cần chuyển ID số/POST cũ sang hợp đồng mới.
+
+# Cập nhật 23/10/2026 — ghép API user từ các dự án workspace
+
+Tiếp tục `feature/user-api`, chỉ push, **chưa PR/merge/deploy**.
+Đọc [33 API user, đối chiếu các dự án và giới hạn tích hợp](USER_API_INTEGRATION_20261023.md).
+Thêm coverage/lineage/periods, financial matrix, screener/compare, company directory,
+foreign/reference observations, security overview, AI availability và OpenAPI public.
+209 unit/contract + 12 PostgreSQL schema tạm pass; 48 HTTP trên DB read-only pass,
+bao phủ 33 GET và CORS. Chưa nghiệm thu UI user hoàn chỉnh hoặc production.
+Local AI đang do chat khác sửa: chỉ đọc registry, chưa có reader công bố dự đoán
+trong build này; không đưa output nghiên cứu/NPAT RESEARCH_ONLY ra user.
+Không sửa checkout gốc, FE hoặc Python; không gọi job/model và không sửa DB public.
+
+# Cập nhật 20/10/2026 — API đọc cho user, chỉ trên nhánh
+
+Nhánh `feature/user-api` từ main 8a65bc5; chỉ push, **chưa PR/merge/deploy**.
+Đọc [hợp đồng 19 API user và nghiệm thu](USER_API_20261020.md).
+Gồm danh mục/hồ sơ mã, tổng quan, quote/chart, chỉ số/rổ, macro, báo cáo, metrics,
+tin và kết quả phân tích đã được reader gốc chấp nhận. Không đưa code Local AI
+checkout gốc vào nhánh. 206 unit/contract + 8 PostgreSQL schema tạm pass;
+29 HTTP localhost dùng DB read-only pass, không token admin, không gọi model/job.
+Snapshot và giới hạn dữ liệu được ghi trong báo cáo; không coi là chứng nhận đủ data.
 
 # Cập nhật 20/10/2026 — luồng thao tác admin
 

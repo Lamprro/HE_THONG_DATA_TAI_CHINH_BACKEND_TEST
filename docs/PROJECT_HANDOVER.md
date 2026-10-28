@@ -1,3 +1,11 @@
+# Cập nhật 28/10/2026 — hợp nhất toàn bộ nhánh backend vào main
+
+Đã merge API user và các nhánh còn lại theo yêu cầu mới. Mọi ref nhánh local/origin
+đã nằm trong lịch sử main; các cảnh báo “chưa merge” bên dưới là snapshot cũ.
+259 unit/contract + 4 client tests đạt, package thành công. Kiểm thử DB/HTTP thật
+chưa nghiệm thu vì database cấu hình local timeout. Không deploy, không migration
+public, không lấy file Local AI chưa commit. Xem [chi tiết merge và giới hạn](MAIN_MERGE_20261028.md).
+
 ## Cập nhật 26/10/2026 — tinh gọn user sau main
 
 Main `046fdaf` đã push trước. Nhánh user nhận main một chiều (`17c12d4`), gom

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ## Cập nhật 26/10/2026 — tinh gọn user sau main
 
 Main `046fdaf` đã push trước. Nhánh user nhận main một chiều (`17c12d4`), gom
@@ -127,6 +128,48 @@ LLM và 5 recovery integration), 0 failures/errors/skipped; verify/package pass.
 Provider mock, schema DB cô lập; không gọi Gemini thật, sửa DB public hoặc deploy
 server. Fix riêng từ main 8babf09, không đưa P02/L05/P06/P08/L03 chưa merge vào
 main. Chi tiết: [FORECAST_VALIDATION_QUALITY_20261013.md](FORECAST_VALIDATION_QUALITY_20261013.md).
+=======
+# Cập nhật 12/10/2026 — P06, P08 và L03
+
+Java tiếp tục nhánh `feature/forecast-periods-and-health`; Python main đã push
+`b33dff1` và Vercel production READY đúng commit. P06 thêm contract metadata
+tài chính có evidence ở Python và provenance/period_basis ở Java; không đoán
+ngày công bố hoặc đơn vị khi nguồn không cung cấp. P08 tách validation URL_ONLY,
+lưu link khi fetch lỗi, cho phép nâng cấp nội dung cùng bài. L03 thêm coverage
+macro thiếu/cũ theo series trong input/hash, forecast prompt version 6.
+Không triển khai L01/L02/L04/L06; giữ P03 và chưa thêm khóa P05.
+
+Migration P06 áp public 00:13:01 giờ VN: 3.929 báo cáo, 281.097 items và 50 luật
+validation cũ giữ nguyên; thêm cột/constraints/luật mới, có backup private và
+đối chiếu idempotency. 250 test Java khác nhau đã pass qua regression và chạy
+bổ sung recovery, Python 16 pass. Adapter Java gọi Python Vercel thật và đi qua
+raw validation/build trong schema cô lập; NEWS failure/success và LLM dùng mock.
+Chưa deploy Java server hoặc kích hoạt prompt v6 ở DB thật; seed prompt sau
+deploy runtime mới. Không chứng nhận đầy đủ metadata lịch sử hay accuracy.
+Chi tiết: [FINANCIAL_METADATA_NEWS_MACRO_20261012.md](FINANCIAL_METADATA_NEWS_MACRO_20261012.md).
+
+# Cập nhật 11/10/2026 — health DB và kỳ dự báo
+
+Nhánh mới `feature/forecast-periods-and-health` xuất phát từ main `8babf09`;
+triển khai riêng P02/L05 theo yêu cầu. `/api/health` kiểm tra DB với deadline,
+`/api/health/live` kiểm tra liveness. Dự báo có kỳ cố định và target scope; bản
+mới đạt validation thay bản cùng kỳ/scope, giữ lịch sử và các quý khác. Request
+ngày chốt cũ hơn không thay bản mới. Các cải tiến P05/P06/P08/L01/L02/L03 vẫn là
+đề xuất, không tự triển khai. Giữ writer nguồn P03 và context L04 hiện tại.
+
+Migration `V20261011_01__forecast_result_periods.sql` đã áp DB thật 23:23:58 giờ VN:
+23 results/45 runs giữ nguyên, backfill 6 financial results, nội dung response và
+audit không đổi; có backup private và đối chiếu idempotency. Trigger tương thích
+INSERT từ runtime cũ. Runtime cũ vẫn có logic UPDATE theo as_of_date; chỉ runtime
+mới bảo đảm đầy đủ việc giữ các kỳ độc lập khi cùng ngày chốt.
+
+Kiểm thử 23:30: 176 unit/contract + 40 forecast PostgreSQL integration schema cô lập
+pass, không failed/errors/skipped; provider mock. Không deploy server hoặc đổi
+active prompt DB thật. Sau deploy nhánh mới mới seed forecast prompt v5 để dùng
+explicit forecastPeriodEnd; request mặc định vẫn dự báo cuối quý tương lai theo
+horizonQuarters. Chưa thêm scheduler theo quý hoặc kiểm chứng accuracy/backtest.
+Chi tiết: [FORECAST_PERIODS_AND_HEALTH_20261011.md](FORECAST_PERIODS_AND_HEALTH_20261011.md).
+>>>>>>> feature/forecast-periods-and-health
 
 # Bàn giao hiện hành — nhánh main, hợp nhất 10/10/2026
 

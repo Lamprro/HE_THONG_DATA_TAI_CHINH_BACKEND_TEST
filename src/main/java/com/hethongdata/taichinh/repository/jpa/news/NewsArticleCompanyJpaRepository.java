@@ -24,7 +24,8 @@ public interface NewsArticleCompanyJpaRepository extends JpaRepository<NewsArtic
                 SELECT 1 FROM news_articles article
                 JOIN news_article_companies link ON link.news_article_id = article.id
                 LEFT JOIN raw_payloads raw ON raw.id = article.raw_payload_id
-                WHERE (article.url_hash = :urlHash
+                WHERE length(article.content_text)>=200
+                  AND (article.url_hash = :urlHash
                        OR raw.payload->>'requested_url' = :requestedUrl
                        OR raw.payload->>'final_url' = :requestedUrl)
                   AND (

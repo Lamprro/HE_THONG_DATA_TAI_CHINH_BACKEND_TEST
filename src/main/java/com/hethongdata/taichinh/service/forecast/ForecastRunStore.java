@@ -48,7 +48,7 @@ public class ForecastRunStore {
     var cached =
         db.queryForList(
             "SELECT id,llm_run_id,validation_round_id FROM llm_results WHERE source_domain='FINANCIAL' AND"
-                + " security_id=? AND input_hash=? AND is_current",
+                + " security_id=? AND input_hash=? ORDER BY is_current DESC,created_at DESC LIMIT 1",
             ctx.request().securityId(),
             hash);
     if (!cached.isEmpty()) {
@@ -302,25 +302,33 @@ public class ForecastRunStore {
     if (!pending
         && db.queryForObject(
                 "SELECT count(*) FROM llm_results WHERE llm_run_id=? OR (security_id=? AND"
-                    + " as_of_date=? AND is_current)",
+                    + " task_code=? AND forecast_period_end=? AND target_scope=? AND is_current)",
                 Integer.class,
                 run,
                 security,
-                request.asOfDate())
+                ForecastPromptService.TASK,
+                ctx.targetDate(),
+                request.targetScope())
             > 0)
       return new Outcome(
           "SUCCESS", run, null, List.of("Audit only: never reactivate a superseded result"));
     var result = validations.projections(ctx, output);
     UUID id = UUID.randomUUID();
+    // A historical request must not displace a forecast built from a newer data cutoff.
+    boolean publish = db.queryForObject(
+        "SELECT count(*) FROM llm_results WHERE source_domain='FINANCIAL' AND security_id=?"
+            + " AND task_code=? AND forecast_period_end=? AND target_scope=? AND is_current AND as_of_date>?",
+        Integer.class, security, ForecastPromptService.TASK, ctx.targetDate(), request.targetScope(), request.asOfDate()) == 0;
+    if (publish)
     db.update(
         "UPDATE llm_results SET is_current=false WHERE source_domain='FINANCIAL' AND security_id=?"
-            + " AND as_of_date=? AND is_current",
+            + " AND task_code=? AND forecast_period_end=? AND target_scope=? AND is_current",
         security,
-        request.asOfDate());
+        ForecastPromptService.TASK, ctx.targetDate(), request.targetScope());
     db.update(
         "INSERT INTO"
-            + " llm_results(id,llm_run_id,prompt_template_id,task_code,source_domain,company_id,security_id,as_of_date,source_hash,input_hash,schema_version,overview,result_json,quality_status,validation_round_id,validation_policy_hash)"
-            + " VALUES (?,?,?,?,'FINANCIAL',?,?,?,?,?,?,?,?::jsonb,?,?,?)",
+            + " llm_results(id,llm_run_id,prompt_template_id,task_code,source_domain,company_id,security_id,as_of_date,source_hash,input_hash,schema_version,overview,result_json,quality_status,validation_round_id,validation_policy_hash,forecast_period_start,forecast_period_end,target_scope,is_current)"
+            + " VALUES (?,?,?,?,'FINANCIAL',?,?,?,?,?,?,?,?::jsonb,?,?,?,?,?,?,?)",
         id,
         run,
         template.id(),
@@ -335,7 +343,8 @@ public class ForecastRunStore {
         result.toString(),
         evaluation.qualityStatus(),
         evaluation.round(),
-        policy);
+        policy,
+        ForecastHorizon.periodStart(ctx.targetDate()), ctx.targetDate(), request.targetScope(), publish);
     db.update(
         "UPDATE llm_runs SET status='SUCCESS',validation_errors='[]'::jsonb,error_message=null"
             + " WHERE id=?",
@@ -381,6 +390,10 @@ public class ForecastRunStore {
   }
 
   public List<Result> results(UUID security, int limit) {
+    return results(security,limit,null);
+  }
+
+  public List<Result> results(UUID security, int limit, LocalDate periodEnd) {
     String policy;
     try {
       policy = validations.fingerprint();
@@ -393,9 +406,10 @@ public class ForecastRunStore {
             "SELECT r.* FROM llm_results r JOIN llm_prompt_templates t ON t.id=r.prompt_template_id"
                 + " AND t.enabled WHERE r.source_domain='FINANCIAL' AND r.security_id=? AND"
                 + " r.is_current AND r.validation_policy_hash=? AND r.validation_round_id IS NOT"
-                + " NULL ORDER BY r.created_at DESC LIMIT ?",
+                + " NULL AND (?::date IS NULL OR r.forecast_period_end=?::date) ORDER BY r.as_of_date DESC,r.created_at DESC LIMIT ?",
             security,
             policy,
+            periodEnd, periodEnd,
             Math.max(1, Math.min(50, limit)));
     for (var r : rows) {
       UUID run = (UUID) r.get("llm_run_id");
@@ -415,6 +429,9 @@ public class ForecastRunStore {
               (UUID) r.get("company_id"),
               security,
               ((java.sql.Date) r.get("as_of_date")).toLocalDate(),
+              ((java.sql.Date) r.get("forecast_period_start")).toLocalDate(),
+              ((java.sql.Date) r.get("forecast_period_end")).toLocalDate(),
+              r.get("target_scope").toString(),
               r.get("quality_status").toString(),
               json.read(r.get("result_json").toString())));
     }

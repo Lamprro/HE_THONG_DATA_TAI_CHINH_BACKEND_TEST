@@ -54,6 +54,14 @@ public class ValidationRuleExecutionService {
     }
 
     public Outcome execute(ValidationRuleEntity rule, RawPayloadEntity raw) {
+        if ("NEWS_DATA".equals(raw.getEntityType())
+                && com.hethongdata.taichinh.service.news.NewsContentClassification.urlOnly(raw.getPayload())
+                && java.util.Set.of("NEWS_DATA_HTTP_SUCCESS", "NEWS_DATA_CONTENT_TYPE_VALID",
+                    "NEWS_DATA_RAW_TEXT_REQUIRED", "NEWS_DATA_HTML_STRUCTURE", "NEWS_DATA_ARTICLE_EXTRACTED",
+                    "NEWS_DATA_BLOCK_PAGE_DETECTED", "RAW_ERROR_MESSAGE").contains(rule.getExecutorKey())) {
+            return new Outcome("SKIP", "URL_ONLY", "link without article evidence",
+                    "URL_ONLY: content rules do not apply; fetch/extraction diagnostics remain in raw metadata");
+        }
         return switch (rule.getExecutorKey()) {
             case "PRICE_NON_NEGATIVE" -> nonNegative(raw.getPayload());
             case "PRICE_OHLC_VALID" -> ohlc(raw.getPayload());
@@ -357,9 +365,22 @@ public class ValidationRuleExecutionService {
     private Outcome newsMetadata(JsonNode payload) {
         if (payload == null || !payload.isObject())
             return fail("payload", "object", "NEWS_DATA metadata must be an object");
+        if (!com.hethongdata.taichinh.service.news.NewsContentClassification.validStatus(payload))
+            return fail("payload.extraction_status", "SUCCESS/FAILED/SKIPPED or absent", "Unknown extraction status");
+        boolean urlOnly = com.hethongdata.taichinh.service.news.NewsContentClassification.urlOnly(payload);
         for (String field : List.of("requested_url", "final_url"))
+            if (!(urlOnly && "final_url".equals(field) && !payload.hasNonNull(field)))
             if (!payload.path(field).isTextual() || payload.path(field).asText().isBlank())
                 return fail("payload." + field, "non-empty string", "Missing page URL metadata");
+        if (urlOnly) {
+            if (payload.hasNonNull("http_status") && (!payload.path("http_status").isIntegralNumber()
+                    || !payload.path("http_status").canConvertToInt()
+                    || payload.path("http_status").asInt()<100 || payload.path("http_status").asInt()>599))
+                return fail("payload.http_status", "HTTP status 100..599 or absent", "Invalid URL_ONLY HTTP status");
+            if (payload.hasNonNull("textual") && !payload.path("textual").isBoolean())
+                return fail("payload.textual", "boolean or absent", "Invalid URL_ONLY textual flag");
+            return new Outcome("PASS", "URL_ONLY", null, "Link metadata valid; no article content is asserted");
+        }
         if (!payload.path("http_status").isIntegralNumber() || !payload.path("http_status").canConvertToInt())
             return fail("payload.http_status", "integer", "Invalid source HTTP status type");
         if (!payload.path("textual").isBoolean())
@@ -369,6 +390,8 @@ public class ValidationRuleExecutionService {
 
     private Outcome newsDataUrls(JsonNode payload, JsonNode config) {
         for (String field : configStrings(config, "fields"))
+            if (!("final_url".equals(field) && payload!=null && !payload.hasNonNull(field)
+                    && com.hethongdata.taichinh.service.news.NewsContentClassification.urlOnly(payload)))
             if (payload == null || !isHttpUrl(text(payload, field), config))
                 return fail("payload." + field, "absolute HTTP(S) URL with host", "Invalid source page URL");
         return new Outcome("PASS", null, null, "Requested and final page URLs are valid");

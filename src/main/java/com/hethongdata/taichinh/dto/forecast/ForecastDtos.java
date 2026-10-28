@@ -19,17 +19,30 @@ public final class ForecastDtos {
       LocalDate periodEnd,
       String periodType,
       String scope,
-      String availableAt) {}
+      String availableAt,
+      String periodBasis,
+      JsonNode metadataProvenance) {
+    public SourcePoint(String id, String domain, String code, BigDecimal value, String unit,
+        LocalDate periodStart, LocalDate periodEnd, String periodType, String scope, String availableAt) {
+      this(id,domain,code,value,unit,periodStart,periodEnd,periodType,scope,availableAt,"UNKNOWN",null);
+    }
+  }
 
   public record DerivedMetric(
       String code, BigDecimal value, String unit, String formula, List<String> sourcePointIds) {}
 
+  @com.fasterxml.jackson.databind.annotation.JsonNaming(com.fasterxml.jackson.databind.PropertyNamingStrategies.SnakeCaseStrategy.class)
+  public record MacroSeriesCoverage(String code, String frequency, LocalDate latestDate,
+      long observationCount, long sentObservationCount, String status, boolean missing, boolean stale) {}
+
   public record Coverage(
-      int financialPeriods, int marketSessions, int macroObservations, List<String> limitations) {}
+      int financialPeriods, int marketSessions, int macroObservations, List<String> limitations,
+      List<MacroSeriesCoverage> macroSeries) {}
 
   public record Preview(
       boolean eligible,
       String snapshotHash,
+      LocalDate forecastPeriodStart,
       LocalDate forecastPeriodEnd,
       Coverage coverage,
       List<String> issues,
@@ -42,6 +55,9 @@ public final class ForecastDtos {
       UUID companyId,
       UUID securityId,
       LocalDate asOfDate,
+      LocalDate forecastPeriodStart,
+      LocalDate forecastPeriodEnd,
+      String targetScope,
       String qualityStatus,
       JsonNode data) {}
 

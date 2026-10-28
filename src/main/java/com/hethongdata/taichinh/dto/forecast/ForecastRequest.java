@@ -9,7 +9,16 @@ public record ForecastRequest(
     @NotNull LocalDate asOfDate,
     @Min(1) @Max(8) int horizonQuarters,
     @NotEmpty @Size(max = 6) Set<Target> targets,
-    boolean requireMacro) {
+    boolean requireMacro,
+    LocalDate forecastPeriodEnd) {
+  public ForecastRequest(UUID securityId, LocalDate asOfDate, int horizonQuarters,
+      Set<Target> targets, boolean requireMacro) {
+    this(securityId, asOfDate, horizonQuarters, targets, requireMacro, null);
+  }
+
+  public String targetScope() {
+    return targets.stream().map(Enum::name).sorted().collect(java.util.stream.Collectors.joining(","));
+  }
   public enum Target {
     NET_PROFIT_AFTER_TAX,
     PRETAX_PROFIT,

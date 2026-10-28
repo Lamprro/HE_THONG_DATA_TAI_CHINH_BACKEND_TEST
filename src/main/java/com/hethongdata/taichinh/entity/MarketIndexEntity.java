@@ -34,7 +34,8 @@ public class MarketIndexEntity {
     @Column(name = "exchange")
     private String exchange;
 
-    @Column(name = "currency")
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.CHAR)
+    @Column(name = "currency", columnDefinition = "char(3)")
     private String currency;
 
     @Column(name = "description")

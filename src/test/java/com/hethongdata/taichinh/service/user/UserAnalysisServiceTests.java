@@ -16,9 +16,10 @@ class UserAnalysisServiceTests {
   @Test void publicForecastDelegatesPublicationChecksAndOmitsRunInternals() throws Exception {
     UUID id=UUID.randomUUID(),run=UUID.randomUUID();when(securities.resolve("FPT",null)).thenReturn(Map.of("id",id.toString(),"symbol","FPT","exchange","HOSE"));
     var payload=json.readTree("{\"status\":\"PARTIAL\",\"forecasts\":[],\"limitations\":[\"fixture only\"]}");
-    when(forecasts.results(id,5)).thenReturn(List.of(new Result(UUID.randomUUID(),run,UUID.randomUUID(),id,java.time.LocalDate.parse("2026-10-01"),"WARNING",payload)));
+    when(forecasts.results(id,5)).thenReturn(List.of(new Result(UUID.randomUUID(),run,UUID.randomUUID(),id,java.time.LocalDate.parse("2026-10-01"),java.time.LocalDate.parse("2027-01-01"),java.time.LocalDate.parse("2027-03-31"),"REVENUE","WARNING",payload)));
     var value=service.forecasts("FPT",null,5);assertThat(value.data()).hasSize(1);
     assertThat(json.writeValueAsString(value)).contains("PARTIAL","fixture only").doesNotContain(run.toString(),"request_payload","prompt_template","attempts");
+    assertThat(value.data().getFirst()).containsEntry("forecastPeriodStart",java.time.LocalDate.parse("2027-01-01")).containsEntry("forecastPeriodEnd",java.time.LocalDate.parse("2027-03-31")).containsEntry("targetScope","REVENUE");
     verify(forecasts).results(id,5);verifyNoMoreInteractions(forecasts);verifyNoInteractions(news,results);
   }
   @Test void newsUsesNativeCurrentSourceAndPolicyReaderAndDoesNotExposeOperationalFields() throws Exception {

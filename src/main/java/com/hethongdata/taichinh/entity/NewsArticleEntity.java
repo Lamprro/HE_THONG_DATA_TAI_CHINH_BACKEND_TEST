@@ -41,7 +41,8 @@ public class NewsArticleEntity {
     @Column(name = "canonical_url")
     private String canonicalUrl;
 
-    @Column(name = "url_hash")
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.CHAR)
+    @Column(name = "url_hash", columnDefinition = "char(64)")
     private String urlHash;
 
     @Column(name = "title")
@@ -65,7 +66,8 @@ public class NewsArticleEntity {
     @Column(name = "crawled_at")
     private Instant crawledAt;
 
-    @Column(name = "content_hash")
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.CHAR)
+    @Column(name = "content_hash", columnDefinition = "char(64)")
     private String contentHash;
 
     @Column(name = "duplicate_of_news_article_id")

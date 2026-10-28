@@ -26,6 +26,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {
       "financial.admin.api-token=isolated-test-admin-credential-not-production",
+      "financial.admin.commands.enabled=false",
+      "financial.admin.schedule.enabled=false",
       "financial.llm.catalog.seed-enabled=false",
       "financial.llm.scheduler.enabled=false",
       "financial.ingestion.scheduler.enabled=false",
@@ -84,7 +86,6 @@ class ForecastPipelineIntegrationTests {
               "validation_rules",
               "validation_results"))
         s.execute("CREATE TABLE " + t + " (LIKE public." + t + " INCLUDING ALL)");
-<<<<<<< HEAD
       // LIKE omits triggers. Preserve the real DB's legacy-writer period compatibility, if present.
       var compatibilityTriggers = new ArrayList<String>();
       try (var query = s.executeQuery("SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgrelid='public.llm_results'::regclass AND tgname='trg_forecast_result_period' AND NOT tgisinternal")) {
@@ -92,11 +93,9 @@ class ForecastPipelineIntegrationTests {
             .replace(" ON public.llm_results "," ON " + SCHEMA + ".llm_results "));
       }
       for (String trigger : compatibilityTriggers) s.execute(trigger);
-=======
       // LIKE renames copied indexes. Let migrations create their own indexes before testing legacy fixtures.
       s.execute("DROP INDEX IF EXISTS llm_results_security_id_task_code_as_of_date_idx");
       s.execute("DROP INDEX IF EXISTS llm_results_security_id_task_code_forecast_period_start_for_idx");
->>>>>>> feature/forecast-periods-and-health
       for (String t :
           List.of(
               "data_sources",
@@ -139,6 +138,10 @@ class ForecastPipelineIntegrationTests {
         var in =
             new ClassPathResource("db/manual/V20261008_01__merge_llm_attempts_into_runs.sql")
                 .getInputStream()) {
+      s.execute("SET search_path TO " + SCHEMA);
+      s.execute(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+    }
+    try (var c = connection(); var s = c.createStatement(); var in = new ClassPathResource("db/manual/V20261024_04__forecast_result_period.sql").getInputStream()) {
       s.execute("SET search_path TO " + SCHEMA);
       s.execute(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
     }
@@ -278,6 +281,36 @@ class ForecastPipelineIntegrationTests {
   }
 
   @Test
+  void olderSnapshotCannotReplaceNewerCurrentResult() {
+    var newer = new ForecastRequest(request.securityId(), request.asOfDate().plusDays(1), 1, request.targets(), false);
+    assertThat(service.execute(newer).status()).isEqualTo("SUCCESS");
+    assertThat(service.execute(request).status()).isEqualTo("SUCCESS");
+    assertThat(db.queryForObject("SELECT as_of_date FROM llm_results WHERE is_current", LocalDate.class))
+        .isEqualTo(newer.asOfDate());
+  }
+
+  @Test
+  void differentTargetSetsKeepSeparateCurrentResults() {
+    assertThat(service.execute(request).status()).isEqualTo("SUCCESS");
+    var single = new ForecastRequest(request.securityId(), request.asOfDate(), 1,
+        EnumSet.of(ForecastRequest.Target.TOTAL_ASSETS), false);
+    assertThat(service.execute(single).status()).isEqualTo("SUCCESS");
+    assertThat(db.queryForObject("SELECT count(*) FROM llm_results WHERE is_current", Integer.class)).isEqualTo(2);
+  }
+
+  @Test
+  void differentHorizonsKeepSeparateCurrentResults() {
+    assertThat(service.execute(request).status()).isEqualTo("SUCCESS");
+    var farther = new ForecastRequest(request.securityId(), request.asOfDate(), 2, request.targets(), false);
+    assertThat(service.execute(farther).status()).isEqualTo("SUCCESS");
+    assertThat(db.queryForObject("SELECT count(*) FROM llm_results WHERE is_current", Integer.class)).isEqualTo(2);
+    assertThat(db.queryForList("SELECT forecast_period_end::text FROM llm_results ORDER BY forecast_period_end", String.class))
+        .containsExactly("2026-12-31", "2027-03-31");
+    assertThat(service.execute(request).status()).isEqualTo("CACHED");
+    assertThat(service.execute(farther).status()).isEqualTo("CACHED");
+  }
+
+  @Test
   void fullFlowPublishesSevenAuditRulesCalculatesValuesAndCaches() throws Exception {
     var preview = service.preview(request);
     assertThat(preview.eligible()).isTrue();
@@ -296,7 +329,6 @@ class ForecastPipelineIntegrationTests {
     verify(gateway, times(1)).call(any(), any());
   }
 
-<<<<<<< HEAD
   private void limitationRule(String severity, String prefix) {
     db.update("""
         INSERT INTO validation_rules(code,name,data_domain,severity,rule_type,executor_key,rule_config,description,is_active,created_at,updated_at)
@@ -374,7 +406,8 @@ class ForecastPipelineIntegrationTests {
     assertThat(store.results(request.securityId(),10)).isEmpty();
     assertThat(service.execute(request).status()).isEqualTo("REVALIDATION_REQUIRED");
     verify(gateway,times(1)).call(any(),any());
-=======
+  }
+
   @Test void readinessEndpointUsesTheIsolatedDatabase() {
     var response = http.getForEntity("/api/health", JsonNode.class);
     assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -567,7 +600,6 @@ class ForecastPipelineIntegrationTests {
       assertThat(missing.snapshotHash()).isNotEqualTo(hash);
       assertThat(missing.coverage().macroSeries().stream().filter(s->s.code().equals("VN_LENDING_RATE_YEAR")).findFirst().orElseThrow().status()).isEqualTo("MISSING");
     } finally {db.update("DELETE FROM macro_observations");db.update("DELETE FROM macro_series");}
->>>>>>> feature/forecast-periods-and-health
   }
 
   @Test

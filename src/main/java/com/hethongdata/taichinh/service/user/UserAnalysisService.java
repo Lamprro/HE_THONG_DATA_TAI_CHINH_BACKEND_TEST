@@ -30,7 +30,7 @@ public class UserAnalysisService {
     for(var result:forecasts.results(id,limit)) {
       if(!Set.of("VALID","WARNING").contains(result.qualityStatus())) continue;
       var row=new LinkedHashMap<String,Object>();row.put("id",result.id());row.put("symbol",security.get("symbol"));row.put("exchange",security.get("exchange"));row.put("securityId",id);
-      row.put("asOfDate",result.asOfDate());row.put("qualityStatus",result.qualityStatus());row.put("data",read.publicJson(result.data()));results.add(row);
+      row.put("asOfDate",result.asOfDate());row.put("forecastPeriodStart",result.forecastPeriodStart());row.put("forecastPeriodEnd",result.forecastPeriodEnd());row.put("targetScope",result.targetScope());row.put("qualityStatus",result.qualityStatus());row.put("data",read.publicJson(result.data()));results.add(row);
     }
     return data(List.copyOf(results),"Existing publication reader checks current source snapshot, validation policy and the complete blocking-validation round. At most limit current candidates are examined; this is not a paginated history.","These are AI scenarios with evidence and limitations, not certified forecasts, calibrated probabilities, target prices or local-AI deployment results. Reads never execute a model.");
   }

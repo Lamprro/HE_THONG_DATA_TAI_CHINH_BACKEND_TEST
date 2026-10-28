@@ -12,7 +12,7 @@ import com.hethongdata.taichinh.service.DatabaseHealthService;
 @RequestMapping("/api")
 public class HealthController {
     @org.springframework.beans.factory.annotation.Value("${APP_BUILD_COMMIT:unknown}")
-    private String buildCommit;
+    private String buildCommit = "unknown";
     private final DatabaseHealthService database;
 
     public HealthController(DatabaseHealthService database) { this.database = database; }

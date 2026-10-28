@@ -80,7 +80,8 @@ public class LlmRunEntity {
     @Column(name = "status")
     private String status;
 
-    @Column(name = "input_hash")
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.CHAR)
+    @Column(name = "input_hash", columnDefinition = "char(64)")
     private String inputHash;
 
     @JdbcTypeCode(SqlTypes.JSON)

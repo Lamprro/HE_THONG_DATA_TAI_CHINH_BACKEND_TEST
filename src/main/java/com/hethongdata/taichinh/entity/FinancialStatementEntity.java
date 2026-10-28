@@ -43,7 +43,8 @@ public class FinancialStatementEntity {
     @Column(name = "accounting_standard")
     private String accountingStandard;
 
-    @Column(name = "currency")
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.CHAR)
+    @Column(name = "currency", columnDefinition = "char(3)")
     private String currency;
 
     @Column(name = "unit_scale")
@@ -123,13 +124,13 @@ public class FinancialStatementEntity {
         entity.financialPeriodId = financialPeriodId;
         entity.statementType = statementType;
         entity.reportScope = reportScope;
-        entity.currency = "VND";
-        entity.unitScale = 1L;
+        entity.currency = null;
+        entity.unitScale = null;
         entity.periodBasis = "UNKNOWN";
         entity.metadataProvenance = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
         entity.audited = false;
         entity.revisionNo = revisionNo;
-        entity.isRestated = false;
+        entity.isRestated = null;
         entity.dataSourceId = dataSourceId;
         entity.rawPayloadId = rawPayloadId;
         entity.dataVersionId = dataVersionId;

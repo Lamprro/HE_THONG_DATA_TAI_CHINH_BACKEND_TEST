@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 ## Cập nhật 26/10/2026 — tinh gọn user sau main
 
 Main `046fdaf` đã push trước. Nhánh user nhận main một chiều (`17c12d4`), gom
@@ -128,7 +127,6 @@ LLM và 5 recovery integration), 0 failures/errors/skipped; verify/package pass.
 Provider mock, schema DB cô lập; không gọi Gemini thật, sửa DB public hoặc deploy
 server. Fix riêng từ main 8babf09, không đưa P02/L05/P06/P08/L03 chưa merge vào
 main. Chi tiết: [FORECAST_VALIDATION_QUALITY_20261013.md](FORECAST_VALIDATION_QUALITY_20261013.md).
-=======
 # Cập nhật 12/10/2026 — P06, P08 và L03
 
 Java tiếp tục nhánh `feature/forecast-periods-and-health`; Python main đã push
@@ -169,7 +167,6 @@ active prompt DB thật. Sau deploy nhánh mới mới seed forecast prompt v5 �
 explicit forecastPeriodEnd; request mặc định vẫn dự báo cuối quý tương lai theo
 horizonQuarters. Chưa thêm scheduler theo quý hoặc kiểm chứng accuracy/backtest.
 Chi tiết: [FORECAST_PERIODS_AND_HEALTH_20261011.md](FORECAST_PERIODS_AND_HEALTH_20261011.md).
->>>>>>> feature/forecast-periods-and-health
 
 # Bàn giao hiện hành — nhánh main, hợp nhất 10/10/2026
 
@@ -402,3 +399,91 @@ bỏ bảng legacy yêu cầu bảng rỗng. Không chạy SQL cleanup tùy ti�
 Các tài liệu chi tiết giữ lịch sử để truy vết. Khi mâu thuẫn, dùng code hiện hành
 để xác định implementation và bằng chứng đúng môi trường/ngày để xác định đã chạy
 thành công hay chưa; ghi lại chênh lệch thay vì chọn kết luận thuận lợi hơn.
+
+### 24/10/2026 — sửa CafeF, VNStock và metadata FPT
+
+Đọc [FINANCIAL_DATA_REPAIR_20261024.md](FINANCIAL_DATA_REPAIR_20261024.md) để nối FE.
+Python main đã lên Vercel 0.7.1, build 25fdde9. Đã sửa parser CafeF, cài đúng
+VNStock/vnai và khóa dependencies, bổ sung nguồn tài liệu công bố FPT.
+Java giữ metadata có bằng chứng, bỏ qua dòng VNStock toàn ô trống, lưu PDF/SHA
+và lỗi upstream, thêm ba API admin để xem chất lượng, danh sách và refresh tài liệu.
+
+Migration đã qua kiểm tra schema riêng, rollback và bốn constraint âm rồi mới áp
+DB thật. Đã thêm 88 tài liệu; refresh lặp không thêm bản ghi trùng. Chín request
+Spring -> Vercel -> provider -> DB đều HTTP 200, ACCEPTED và parse thành công.
+HTTP Java thật: thiếu quyền trả 403; đọc và refresh có quyền trả 200.
+32 Java tests và 36 Python tests PASS; Python được kiểm trên 3.12 với lockfile và
+3.13. Unit tests dùng fixture/mock; các lần nghiệm thu nguồn và DB là dữ liệu thật.
+
+Đã tải lại tám PDF, SHA không đổi; tám giá trị VNDirect vẫn khác tài liệu của chính
+kỳ đó. Đọc PDF xác nhận số vendor của 2022Q2, 2024Q2, 2024Q4 và 2025Q2 khớp cột so sánh
+ở báo cáo năm sau. Chi tiết đối chiếu tiếp theo xem báo cáo ở trên. Không gán ngày
+bản cũ cho giá trị cập nhật sau, không chạy build canonical hoặc train/promote model.
+FPT còn 156 báo cáo canonical thiếu ngày/scope/revision được xác minh; 88 tài liệu
+mới không tự chứng nhận phiên bản số liệu vendor. Bằng chứng nằm trong
+`artifacts/financial-provider-repair-20261024`.
+
+### 24/10/2026 — liên kết phiên bản và nghiệm thu production cục bộ
+
+Đợt mới thay thế kết luận snapshot FPT ở mục trên. Đọc
+[FINANCIAL_PRODUCTION_REVIEW_20261024.md](FINANCIAL_PRODUCTION_REVIEW_20261024.md)
+để xem API, migration, cấu hình và giới hạn còn lại.
+
+Đã mở registry chính thức FPT/HPG/VNM/ACB; DB có 392 tài liệu duy nhất
+(121/173/78/20), 37 liên kết giá trị và sáu bằng chứng đối chiếu bổ sung.
+FPT có 5/8 giải thích khớp số, ba trường hợp còn dư 11/1/1 đồng. Không sửa số vendor
+hoặc backdate bản cập nhật. ACB 2020–2023 chưa lấy được ngày công bố xác minh;
+21 mã khác chưa có adapter nguồn công bố chính thức. 3.900 canonical statements
+vẫn thiếu ngày/scope gắn đúng giá trị; chưa chứng nhận dataset point-in-time.
+
+Đã sửa thiếu kỳ khi lưu forecast, phân biệt kỳ và nhóm target, chặn bản as-of cũ
+thay kết quả mới, sửa biên cuối quý. Profile production bảo vệ mọi API trừ health,
+kiểm token/CORS/schema; đồng bộ mapping CHAR theo DB. Thêm CI và Docker non-root.
+
+Bằng chứng mới: 45 Python tests; 221 Java tests đạt gồm 44 tích hợp schema cô lập
+(LLM mock). 18 request CafeF/VNStock/VNDirect cho ba mã đều ACCEPTED và parse được.
+Production profile cục bộ validate schema đạt, HTTP 403/200 đúng quyền, bốn nguồn
+Spring -> Vercel -> DB thành công. HPG trang 1–24 và VNM 2020–2026 đã gọi;
+bốn request ACB lịch sử bị chặn, không ghi thành metadata đủ chuẩn. Migration
+02/03/04 và import evidence đã rehearsal riêng trước khi áp DB thật.
+
+Python main/Vercel 0.7.2 a5bb3c4. Java commit 0013434/d47606b/9be189a trên
+fix/financial-metadata-flow, PR #14 vào feature/llm-processing. Chưa merge master,
+chưa deploy Java production, chưa bật shared token Vercel, chưa test Docker/load/
+backup restore, chưa có auth người dùng cho FE. Các phần local AI/KBS/FE dở ở
+checkout gốc không được gom vào release này. Không train/promote model trong đợt này.
+
+### 24/10/2026 lúc 12 giờ 30 — EIB HSG và kiểm tra nội dung nguồn
+
+Đọc bản cập nhật FINANCIAL_PRODUCTION_REVIEW_20261024.md. Python main/Vercel
+0.7.4, SHA 8259a5d. Java vẫn ở fix/financial-metadata-flow, PR #14 vào
+feature/llm-processing. Các commit b1c9bd4, d472ead và e9fe76c bổ sung nguồn
+EIB/HSG, kiểm tra CafeF/niên độ và sửa lưu PDF lớn. Chưa merge master.
+
+DB hiện có 613 tài liệu duy nhất: FPT121, HPG173, VNM78, ACB20, EIB111, HSG110.
+HSG đã gọi trang 1–20; các trang sau chưa nghiệm thu. HSG dùng niên độ tháng10–9;
+không tự dịch chuyển quý vendor khi chưa biết cách đánh số của nguồn. EIB dùng
+published_start; ngày đăng lại trên các trang lưu trữ cũ không chứng nhận vintage
+gốc. Còn19/25 mã chưa có adapter công bố. Canonical vẫn3900 báo cáo thiếu metadata
+đúng phiên bản; không promote canonical hoặc train model trong đợt này.
+
+Phát hiện CafeF EIB/ACB trả số ngân hàng dưới tên chỉ tiêu doanh nghiệp thường.
+Kết luận18 request trước đạt cấu trúc không đồng nghĩa đúng ngữ nghĩa. Python chặn
+mẫu sai; Spring kiểm công thức trên raw cũ trước build, có replay dữ liệu thật.
+Lượt mới18 request:13 parse ngay,4 bị chặn đúng,1 lỗi HSG tạm thời đã gọi lại đạt.
+VNStock HSG ban đầu502 nhưng lần gọi lại qua pipeline thật thành công.
+
+PDF EIB thiếu intermediate TLS, đã bổ sung CA công khai được kiểm chain; không
+tắt verify. Tệp15.427.322 byte vượt giới hạn chuỗi JSON mặc định sau base64;
+đã tách mapper tài liệu nội bộ và cấu hình Hibernate đọc35MiB, PDF vẫn giới hạn25MiB.
+Spring -> Vercel -> nguồn -> DB -> đọc lại đạt với PDF EIB và HSG, SHA khớp.
+
+53 Python tests và230 Java tests đạt;44 integration tests ở schema cô lập dùng
+LLM mock. Migration05/06 có rehearsal rollback trước apply. Đã sao lưu và dọn
+đúng3 metadata HSG trùng do URL encode dấu ngoặc; raw giữ nguyên. Sáu refresh
+cuối0.7.4 đều200/inserted0; HTTP production403/200 đúng quyền. Bằng chứng tại
+artifacts/financial-production-followup-20261024. FPT vẫn5/8 khớp bằng chứng,
+ba số dư11/1/1 đồng chưa xác minh; không tuyên bố đã xử lý hết chênh lệch.
+
+Chưa bật shared token trên Vercel, chưa deploy Java production, chưa kiểm tải/
+backup restore hoặc auth người dùng FE. Không gọi code hiện tại là production-ready.

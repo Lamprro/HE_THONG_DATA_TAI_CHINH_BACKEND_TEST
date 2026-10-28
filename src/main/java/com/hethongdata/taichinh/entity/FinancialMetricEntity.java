@@ -25,7 +25,8 @@ public class FinancialMetricEntity {
     @Column(name="input_snapshot")
     private com.fasterxml.jackson.databind.JsonNode inputSnapshot;
 
-    @Column(name="calculation_key")
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.CHAR)
+    @Column(name="calculation_key", columnDefinition="char(64)")
     private String calculationKey;
 
     @Id

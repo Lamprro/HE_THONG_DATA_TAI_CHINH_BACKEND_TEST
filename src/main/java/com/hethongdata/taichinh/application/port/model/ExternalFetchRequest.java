@@ -57,6 +57,7 @@ public record ExternalFetchRequest(
                             INDEX_MEMBERS,
                             COMPANY,
                             FINANCIAL_STATEMENT,
+                            FINANCIAL_DISCLOSURES,
                             RATIO,
                             FOREIGN_TRADES,
                             MANAGEMENT,

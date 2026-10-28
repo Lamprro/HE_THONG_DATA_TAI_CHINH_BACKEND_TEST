@@ -17,6 +17,8 @@ import org.springframework.web.servlet.config.annotation.*;
 public class ForecastAdminAccessConfiguration implements WebMvcConfigurer {
   private final String token;
   private final ObjectMapper json;
+  @Value("${financial.admin.protect-all-api:false}")
+  private boolean protectAllApi;
 
   public ForecastAdminAccessConfiguration(
       @Value("${financial.admin.api-token:}") String token, ObjectMapper json) {
@@ -59,7 +61,9 @@ public class ForecastAdminAccessConfiguration implements WebMvcConfigurer {
                 return false;
               }
             })
-        .addPathPatterns("/api/admin/**", "/api/ingestion-jobs/**", "/api/ingestions/**",
-            "/api/raw-payloads/**", "/api/data-sources/**", "/api/companies/**", "/api/securities/**");
+        .addPathPatterns(protectAllApi ? new String[]{"/api/**"} : new String[]{
+            "/api/admin/**", "/api/ingestion-jobs/**", "/api/ingestions/**", "/api/raw-payloads/**",
+            "/api/data-sources/**", "/api/companies/**", "/api/securities/**", "/api/validation/**"})
+        .excludePathPatterns("/api/health", "/api/health/live", "/api/v1/**");
   }
 }

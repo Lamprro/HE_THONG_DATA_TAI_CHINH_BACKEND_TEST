@@ -64,7 +64,8 @@ public class ModelVersionEntity {
     @Column(name = "artifact_uri")
     private String artifactUri;
 
-    @Column(name = "artifact_hash")
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.CHAR)
+    @Column(name = "artifact_hash", columnDefinition = "char(64)")
     private String artifactHash;
 
     @Column(name = "status")

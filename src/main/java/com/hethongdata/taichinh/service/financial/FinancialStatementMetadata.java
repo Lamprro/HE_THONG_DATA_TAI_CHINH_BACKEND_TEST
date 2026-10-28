@@ -14,7 +14,12 @@ public record FinancialStatementMetadata(String reportScope, String periodBasis,
         if (contract) {
             require(metadata.isObject() && "financial.metadata.v1".equals(metadata.path("schema_version").asText()),
                     "Unsupported financial metadata contract");
-            require(root.path("provider").asText().equals(metadata.path("provider").asText()), "Metadata provider mismatch");
+            require(!root.path("provider").asText().isBlank()
+                    && root.path("provider").asText().equals(metadata.path("provider").asText()), "Metadata provider mismatch");
+            if (metadata.path("periods").isObject() && !metadata.path("periods").isEmpty()) {
+                require(metadata.path("periods").path(periodEnd.toString()).isObject(),
+                        "Missing per-period metadata; aggregate publication must not be reused");
+            }
             JsonNode perPeriod = metadata.path("periods").path(periodEnd.toString());
             if (perPeriod.isObject()) {
                 require("financial.metadata.v1".equals(perPeriod.path("schema_version").asText())
@@ -66,6 +71,17 @@ public record FinancialStatementMetadata(String reportScope, String periodBasis,
         provenance.put("contract", contract ? "financial.metadata.v1" : "LEGACY_UNVERIFIED");
         if (contract) provenance.set("source", metadata.deepCopy());
         else provenance.put("limitation", "Legacy metadata has no explicit evidence; created/fiscal dates ignored");
+        var missing = provenance.putArray("missing_training_metadata");
+        if (!contract) missing.add("evidence_contract");
+        if ("UNKNOWN".equals(scope)) missing.add("report_scope");
+        if ("UNKNOWN".equals(basis)) missing.add("period_basis");
+        if (currency == null) missing.add("currency");
+        if (scale == null) missing.add("unit_scale");
+        if (published == null) missing.add("published_at");
+        if (!contract || !"ORIGINAL".equals(metadata.path("revision_status").asText())) missing.add("original_release_proof");
+        provenance.put("metadata_completeness", missing.isEmpty() ? "COMPLETE_REQUIRES_SOURCE_REVIEW" : "INCOMPLETE");
+        // Completeness is not proof that a current vendor value existed at publication.
+        provenance.put("automatically_certifies_historical_vintage", false);
         return new FinancialStatementMetadata(scope, basis, currency, scale, published, provenance);
     }
 

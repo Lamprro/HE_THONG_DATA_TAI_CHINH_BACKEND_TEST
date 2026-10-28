@@ -299,6 +299,9 @@ public class ForecastRunStore {
           run);
       return new Outcome("SUCCESS", run, current.getFirst(), List.of());
     }
+    LocalDate periodEnd = ctx.targetDate();
+    LocalDate periodStart = ForecastHorizon.periodStart(periodEnd);
+    String targetScope = request.targetScope();
     if (!pending
         && db.queryForObject(
                 "SELECT count(*) FROM llm_results WHERE llm_run_id=? OR (security_id=? AND"
@@ -344,7 +347,7 @@ public class ForecastRunStore {
         evaluation.qualityStatus(),
         evaluation.round(),
         policy,
-        ForecastHorizon.periodStart(ctx.targetDate()), ctx.targetDate(), request.targetScope(), publish);
+        periodStart, periodEnd, targetScope, publish);
     db.update(
         "UPDATE llm_runs SET status='SUCCESS',validation_errors='[]'::jsonb,error_message=null"
             + " WHERE id=?",

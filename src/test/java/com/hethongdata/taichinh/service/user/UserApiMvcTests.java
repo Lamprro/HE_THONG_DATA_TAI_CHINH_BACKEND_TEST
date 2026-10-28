@@ -60,7 +60,19 @@ class UserApiMvcTests {
       org.assertj.core.api.Assertions.assertThat(mapper.readTree(body)).isEqualTo(mapper.readTree(snapshot));
     }
   }
-  @RestController static class Probe {@GetMapping("/api/admin/probe") String admin() {return "private";}}
+  @Test void productionProtectionKeepsPublicUserReadsAndSecuresLegacyRoutes() throws Exception {
+    try(var context=new AnnotationConfigWebApplicationContext()) {
+      context.setServletContext(new MockServletContext());context.register(Config.class);
+      context.getEnvironment().getPropertySources().addFirst(new org.springframework.core.env.MapPropertySource("production-access",java.util.Map.of("financial.admin.protect-all-api","true")));
+      context.refresh();var mvc=MockMvcBuilders.webAppContextSetup(context).build();
+      mvc.perform(get("/api/v1/securities")).andExpect(status().isOk());
+      mvc.perform(get("/api/v1/openapi.json")).andExpect(status().isOk());
+      mvc.perform(post("/api/v1/securities")).andExpect(status().isMethodNotAllowed());
+      for(String path:java.util.List.of("/api/admin/probe","/api/ingestion-jobs","/api/raw-payloads","/api/validation","/api/securities"))
+        mvc.perform(get(path)).andExpect(status().isForbidden());
+    }
+  }
+  @RestController static class Probe {@GetMapping({"/api/admin/probe","/api/ingestion-jobs","/api/raw-payloads","/api/validation","/api/securities"}) String admin() {return "private";}}
   @Test void contractDescribesOnlyPublicGetRoutesAndRequiredParameters() throws Exception {
     try(var context=new AnnotationConfigWebApplicationContext()){
       context.setServletContext(new MockServletContext());context.register(Config.class);context.refresh();var mvc=MockMvcBuilders.webAppContextSetup(context).build();

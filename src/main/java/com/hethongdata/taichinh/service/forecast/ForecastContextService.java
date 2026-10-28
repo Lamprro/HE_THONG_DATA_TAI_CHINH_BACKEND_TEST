@@ -15,6 +15,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class ForecastContextService {
+  static LocalDate targetDate(LocalDate asOf, int horizon) {
+    YearMonth first = YearMonth.of(asOf.getYear(), ((asOf.getMonthValue() - 1) / 3 + 1) * 3);
+    if (!first.atEndOfMonth().isAfter(asOf)) first = first.plusMonths(3);
+    return first.plusMonths((horizon - 1L) * 3).atEndOfMonth();
+  }
+
   public record Context(
       UUID company,
       ForecastRequest request,

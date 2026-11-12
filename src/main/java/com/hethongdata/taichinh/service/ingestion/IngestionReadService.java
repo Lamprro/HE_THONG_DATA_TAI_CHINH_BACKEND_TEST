@@ -32,9 +32,7 @@ public class IngestionReadService {
     @Transactional(readOnly = true)
     /** Bounds list requests to prevent an accidental unbounded database read. */
     public List<IngestionRunResponse> latestRuns(int limit) {
-        return ingestionRuns.findLatest(AppParams.pageLimit(limit)).stream()
-                .map(IngestionRunResponse::from)
-                .toList();
+        return ingestionRuns.findLatestSummaries(AppParams.pageLimit(limit));
     }
 
     @Transactional(readOnly = true)

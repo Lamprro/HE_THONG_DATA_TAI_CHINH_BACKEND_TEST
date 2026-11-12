@@ -18,7 +18,6 @@ import java.util.UUID;
 
 @Repository
 public interface IngestionRunJpaRepository extends JpaRepository<IngestionRunEntity, UUID> {
-    List<IngestionRunEntity> findAllByOrderByStartedAtDesc(Pageable pageable);
 
     Optional<IngestionRunEntity> findTopByIngestionJobIdOrderByStartedAtDesc(UUID ingestionJobId);
 

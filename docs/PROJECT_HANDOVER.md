@@ -14,6 +14,9 @@
   URL_ONLY → SKIP theo P08; test chưa cập nhật, không đổi logic). Localhost 8094 + DB thật: 28 GET admin 200,
   route bảo vệ trả 403 khi thiếu token; lệnh `INGEST_VALIDATE_BUILD` FPT OHLCV 02–12/11 → ACTIVATED;
   `FORECAST_PREVIEW` SUCCEEDED (không gọi model). Chưa deploy.
+- Hiệu năng: `GET /api/ingestions` (lượt chạy gần nhất) tải cả response_snapshot/response_text — 20 run ≈ 27 MB nén,
+  mất 26–61 s nên FE timeout 8 s. Nay select đúng cột DTO: 0,09–0,5 s, nội dung khớp từng trường với bản dựng từ entity.
+  Walk Chrome thật 9 mục/18 màn hình FE qua DB thật: 0 lỗi, 0 request ghi.
 
 # Cập nhật 28/10/2026 — hợp nhất toàn bộ nhánh backend vào main
 

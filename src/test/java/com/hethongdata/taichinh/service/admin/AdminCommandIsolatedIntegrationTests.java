@@ -45,7 +45,7 @@ class AdminCommandIsolatedIntegrationTests {
   @BeforeEach void setup() {
     db.execute("truncate admin_operation_events,admin_commands,ingestion_runs,securities,metric_definitions,financial_periods,financial_metrics,llm_prompt_templates");
     service=new AdminCommandService(db,json,jobs,mock(IngestionService.class),mock(ValidationJobService.class),
-        Validation.buildDefaultValidatorFactory().getValidator(),new DataSourceTransactionManager(scoped));
+        Validation.buildDefaultValidatorFactory().getValidator(),new DataSourceTransactionManager(scoped),mock(AdminPipelineService.class),mock(AdminAiActionService.class));
   }
   @AfterEach void stop() { service.stop(); }
   AdminCommandService.Request request(UUID key,UUID job,String reason) {

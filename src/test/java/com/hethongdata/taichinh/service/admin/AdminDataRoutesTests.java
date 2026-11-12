@@ -4,7 +4,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hethongdata.taichinh.config.ForecastAdminAccessConfiguration;
+import com.hethongdata.taichinh.config.AdminAccessConfiguration;
 import com.hethongdata.taichinh.controller.admin.*;
 import com.hethongdata.taichinh.service.market.*;
 import com.hethongdata.taichinh.service.financial.HistoricalFinancialMetricService;
@@ -31,8 +31,12 @@ class AdminDataRoutesTests {
         @Bean HistoricalFinancialMetricService metrics(){return mock(HistoricalFinancialMetricService.class);}
         @Bean TrainingDataQualityService quality(){return mock(TrainingDataQualityService.class);}
         @Bean MarketDataAdminController market(MarketPriceReadService p,MarketIndexReadService i,IndexJobProvisioningService j,MacroJobCatalogService m,JdbcTemplate db){return new MarketDataAdminController(p,i,j,m,db);}
-        @Bean FinancialDataAdminController financial(HistoricalFinancialMetricService m,TrainingDataQualityService q){return new FinancialDataAdminController(m,q,TOKEN);}
-        @Bean ForecastAdminAccessConfiguration access(){return new ForecastAdminAccessConfiguration(TOKEN,new ObjectMapper().findAndRegisterModules());}
+        @Bean FinancialDataAdminController financial(HistoricalFinancialMetricService m,TrainingDataQualityService q){
+            return new FinancialDataAdminController(m,q,mock(com.hethongdata.taichinh.service.financial.FinancialDataQualityService.class),
+                mock(com.hethongdata.taichinh.service.financial.FinancialDisclosureDocumentStore.class),
+                mock(com.hethongdata.taichinh.service.financial.FinancialValueBindingService.class),
+                mock(com.hethongdata.taichinh.service.financial.FinancialReconciliationEvidenceService.class));}
+        @Bean AdminAccessConfiguration access(){return new AdminAccessConfiguration(TOKEN,new ObjectMapper().findAndRegisterModules());}
     }
     @Test void originalRoutesKeepAuthPagingStatusAndNativeDispatch() throws Exception {
         try(var context=new AnnotationConfigWebApplicationContext()) {

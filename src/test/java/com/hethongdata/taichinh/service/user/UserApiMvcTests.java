@@ -3,7 +3,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hethongdata.taichinh.config.ForecastAdminAccessConfiguration;
+import com.hethongdata.taichinh.config.AdminAccessConfiguration;
 import com.hethongdata.taichinh.controller.exception.ApiExceptionHandler;
 import com.hethongdata.taichinh.controller.user.*;
 import org.junit.jupiter.api.Test;
@@ -34,7 +34,7 @@ class UserApiMvcTests {
     @Bean UserLocalAiService localAi(){return mock(UserLocalAiService.class);}
     @Bean UserProvenanceService provenance(){return mock(UserProvenanceService.class);}
     @Bean com.hethongdata.taichinh.controller.user.UserLocalAiController localAiController(UserLocalAiService service){return new com.hethongdata.taichinh.controller.user.UserLocalAiController(service);}
-    @Bean ForecastAdminAccessConfiguration access() {return new ForecastAdminAccessConfiguration("fixture-token-at-least-32-characters",new ObjectMapper().findAndRegisterModules());}
+    @Bean AdminAccessConfiguration access() {return new AdminAccessConfiguration("fixture-token-at-least-32-characters",new ObjectMapper().findAndRegisterModules());}
     @Bean Probe probe() {return new Probe();}
   }
   @Test void chartDateParametersBindAsIsoDatesAndBadRangesAreNotSilentlyCoerced() throws Exception {
@@ -63,7 +63,7 @@ class UserApiMvcTests {
   @Test void productionProtectionKeepsPublicUserReadsAndSecuresLegacyRoutes() throws Exception {
     try(var context=new AnnotationConfigWebApplicationContext()) {
       context.setServletContext(new MockServletContext());context.register(Config.class);
-      context.getEnvironment().getPropertySources().addFirst(new org.springframework.core.env.MapPropertySource("production-access",java.util.Map.of("financial.admin.protect-all-api","true")));
+      
       context.refresh();var mvc=MockMvcBuilders.webAppContextSetup(context).build();
       mvc.perform(get("/api/v1/securities")).andExpect(status().isOk());
       mvc.perform(get("/api/v1/openapi.json")).andExpect(status().isOk());

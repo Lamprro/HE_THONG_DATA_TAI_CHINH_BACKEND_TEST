@@ -7,13 +7,20 @@ import java.util.*;
 
 @RestController
 @RequestMapping("/api/admin/llm")
-public class NewsLlmAdminController {
+/** NEWS LLM tasks, run audit and Gemini routing diagnostics. */
+public class LlmAdminController {
     private final LlmPromptCatalog catalog;
     private final NewsLlmService service;
     private final LlmRunStore store;
-    public NewsLlmAdminController(LlmPromptCatalog catalog,NewsLlmService service,LlmRunStore store) {
-        this.catalog=catalog;this.service=service;this.store=store;
+    private final org.springframework.beans.factory.ObjectProvider<GeminiLlmGateway> gemini;
+    public LlmAdminController(LlmPromptCatalog catalog,NewsLlmService service,LlmRunStore store,
+            org.springframework.beans.factory.ObjectProvider<GeminiLlmGateway> gemini) {
+        this.catalog=catalog;this.service=service;this.store=store;this.gemini=gemini;
     }
+    @GetMapping("/gemini/configuration")
+    public Map<String,Object> geminiConfiguration() {return gemini.getObject().configuration();}
+    @GetMapping("/gemini/models")
+    public JsonNode geminiModels() throws Exception {return gemini.getObject().availableModels();}
     @GetMapping("/templates")
     public List<LlmPromptCatalog.Template> templates() {return catalog.activeTemplates();}
     @GetMapping("/news/candidates")

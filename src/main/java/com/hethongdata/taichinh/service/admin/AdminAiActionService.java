@@ -1,27 +1,31 @@
 package com.hethongdata.taichinh.service.admin;
 
 import com.fasterxml.jackson.databind.*;
-import com.hethongdata.taichinh.controller.admin.*;
 import com.hethongdata.taichinh.dto.forecast.ForecastRequest;
 import com.hethongdata.taichinh.dto.news.NewsRecoveryDtos.*;
 import com.hethongdata.taichinh.service.financial.HistoricalFinancialMetricService;
-import com.hethongdata.taichinh.service.llm.LlmPromptCatalog;
+import com.hethongdata.taichinh.service.forecast.*;
+import com.hethongdata.taichinh.service.llm.*;
+import com.hethongdata.taichinh.service.news.recovery.*;
 import jakarta.validation.Validator;
 import java.util.*;
 import org.springframework.stereotype.Service;
 
-/** Typed allowlist invoking existing controllers/services; never arbitrary HTTP, SQL or reflection dispatch. */
+/** Typed allowlist invoking the same domain services as the admin REST routes; never arbitrary HTTP, SQL or reflection dispatch. */
 @Service
 public class AdminAiActionService {
   public static final Set<String> ACTIONS=Set.of("NEWS_EXECUTE","NEWS_REVALIDATE","NEWS_VALIDATE_PENDING",
       "FORECAST_PREVIEW","FORECAST_EXECUTE","FORECAST_METRICS","FORECAST_REVALIDATE","FORECAST_VALIDATE_PENDING",
       "RECOVERY_EXECUTE","RECOVERY_APPROVE","RECOVERY_REJECT","RECOVERY_ANALYZE","HISTORICAL_METRICS");
-  private final NewsLlmAdminController news; private final FinancialForecastAdminController forecast;
-  private final NewsRecoveryAdminController recovery; private final HistoricalFinancialMetricService metrics;
-  private final ObjectMapper json; private final Validator validator;
-  public AdminAiActionService(NewsLlmAdminController news,FinancialForecastAdminController forecast,
-      NewsRecoveryAdminController recovery,HistoricalFinancialMetricService metrics,ObjectMapper json,Validator validator) {
-    this.news=news;this.forecast=forecast;this.recovery=recovery;this.metrics=metrics;this.json=json;this.validator=validator;
+  private final NewsLlmService news; private final LlmRunStore newsRuns;
+  private final FinancialForecastService forecast; private final ForecastContextService forecastContexts; private final ForecastRunStore forecastRuns;
+  private final NewsRecoveryService recovery; private final NewsRecoveryStore recoveryRuns;
+  private final HistoricalFinancialMetricService metrics; private final ObjectMapper json; private final Validator validator;
+  public AdminAiActionService(NewsLlmService news,LlmRunStore newsRuns,FinancialForecastService forecast,
+      ForecastContextService forecastContexts,ForecastRunStore forecastRuns,NewsRecoveryService recovery,
+      NewsRecoveryStore recoveryRuns,HistoricalFinancialMetricService metrics,ObjectMapper json,Validator validator) {
+    this.news=news;this.newsRuns=newsRuns;this.forecast=forecast;this.forecastContexts=forecastContexts;this.forecastRuns=forecastRuns;
+    this.recovery=recovery;this.recoveryRuns=recoveryRuns;this.metrics=metrics;this.json=json;this.validator=validator;
   }
   private UUID id(JsonNode input,String key) { return UUID.fromString(input.path(key).asText()); }
   private <T> T body(JsonNode input,Class<T> type) {
@@ -48,18 +52,18 @@ public class AdminAiActionService {
   }
   public Object execute(String action,JsonNode in) {
     return switch(action) {
-      case "NEWS_EXECUTE" -> "ALL".equals(in.path("task").asText("ALL"))?news.execute(id(in,"articleId")):news.executeTask(id(in,"articleId"),in.path("task").asText());
-      case "NEWS_REVALIDATE" -> news.revalidate(id(in,"runId"));
+      case "NEWS_EXECUTE" -> "ALL".equals(in.path("task").asText("ALL"))?news.executeAll(id(in,"articleId")):news.execute(id(in,"articleId"),in.path("task").asText());
+      case "NEWS_REVALIDATE" -> newsRuns.revalidate(id(in,"runId"));
       case "NEWS_VALIDATE_PENDING" -> news.validatePending(in.path("limit").asInt(5));
       case "FORECAST_PREVIEW" -> forecast.preview(body(in,ForecastRequest.class));
       case "FORECAST_EXECUTE" -> forecast.execute(body(in,ForecastRequest.class));
-      case "FORECAST_METRICS" -> forecast.metrics(body(in,ForecastRequest.class));
-      case "FORECAST_REVALIDATE" -> forecast.revalidate(id(in,"runId"));
+      case "FORECAST_METRICS" -> forecastContexts.recalculate(body(in,ForecastRequest.class));
+      case "FORECAST_REVALIDATE" -> forecastRuns.validate(id(in,"runId"));
       case "FORECAST_VALIDATE_PENDING" -> forecast.pending(in.path("limit").asInt(5));
       case "RECOVERY_EXECUTE" -> recovery.execute(id(in,"articleId"),body(in.path("request"),ExecuteRequest.class));
-      case "RECOVERY_APPROVE" -> recovery.approve(id(in,"runId"),body(in.path("request"),ReviewRequest.class));
-      case "RECOVERY_REJECT" -> recovery.reject(id(in,"runId"),body(in.path("request"),ReviewRequest.class));
-      case "RECOVERY_ANALYZE" -> recovery.analyze(id(in,"runId"));
+      case "RECOVERY_APPROVE" -> recoveryRuns.approve(id(in,"runId"),body(in.path("request"),ReviewRequest.class));
+      case "RECOVERY_REJECT" -> recoveryRuns.reject(id(in,"runId"),body(in.path("request"),ReviewRequest.class));
+      case "RECOVERY_ANALYZE" -> recovery.analyzeApproved(id(in,"runId"));
       case "HISTORICAL_METRICS" -> metrics.calculate(body(in,HistoricalFinancialMetricService.Request.class));
       default -> throw new IllegalArgumentException("Unsupported AI/admin action");
     };

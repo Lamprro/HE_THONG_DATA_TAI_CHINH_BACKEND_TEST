@@ -1,3 +1,20 @@
+# Cập nhật 12/11/2026 — dọn lớp admin (nhánh `refactor/admin-cleanup`)
+
+- Xóa 20 entity + 20 JPA repository không dùng (account/user/watchlist/prediction/dataset…),
+  `FinancialMetricBuildService` (wrapper rỗng), `JsonDatabaseSupport`, `LegacyQuoteIntervalRepairRunner` (sửa dữ liệu một lần, đã xong).
+- Truy cập: `AdminAccessConfiguration` (đổi tên từ ForecastAdminAccessConfiguration) bảo vệ toàn bộ `/api/**`
+  trừ `/api/health*` và `/api/v1/**` ở mọi profile; bỏ cờ `protect-all-api`. Trước đó profile mặc định để hở
+  `POST /api/security-job-reconciliation/run` và `/api/external-financial-data/**` (gồm `/fetch`).
+- Service không còn gọi ngược controller: `AdminAiActionService` gọi thẳng service domain; logic
+  analyze recovery chuyển vào `NewsRecoveryService.analyzeApproved`. SQL trong `AdminConsoleController`
+  chuyển vào `AdminConsoleReadService`/`AdminCommandService`; bỏ field injection.
+- Gộp controller: `FinancialDataQualityAdminController` → `FinancialDataAdminController` (bỏ kiểm token trùng),
+  `GeminiAdminController` + `NewsLlmAdminController` → `LlmAdminController`. URL giữ nguyên.
+- Kiểm thử: 395 test, 2 lỗi có sẵn từ trước ở `NewsPipelineIntegrationFlowTests` (fixture HTTP 403 nay được phân loại
+  URL_ONLY → SKIP theo P08; test chưa cập nhật, không đổi logic). Localhost 8094 + DB thật: 28 GET admin 200,
+  route bảo vệ trả 403 khi thiếu token; lệnh `INGEST_VALIDATE_BUILD` FPT OHLCV 02–12/11 → ACTIVATED;
+  `FORECAST_PREVIEW` SUCCEEDED (không gọi model). Chưa deploy.
+
 # Cập nhật 28/10/2026 — hợp nhất toàn bộ nhánh backend vào main
 
 Đã merge API user và các nhánh còn lại theo yêu cầu mới. Mọi ref nhánh local/origin

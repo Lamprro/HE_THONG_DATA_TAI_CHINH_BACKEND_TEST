@@ -23,6 +23,7 @@ public class NewsRecoveryService {
   private final LlmJson json;
   private final SafeDocumentDownloader downloads;
   private final CloudinaryDocumentStorage storage;
+  private final NewsLlmService analysis;
   private final Semaphore capacity = new Semaphore(1);
 
   public NewsRecoveryService(
@@ -32,7 +33,8 @@ public class NewsRecoveryService {
       LlmRunStore runs,
       LlmJson json,
       SafeDocumentDownloader downloads,
-      CloudinaryDocumentStorage storage) {
+      CloudinaryDocumentStorage storage,
+      NewsLlmService analysis) {
     this.store = store;
     this.catalog = catalog;
     this.gateway = gateway;
@@ -40,6 +42,20 @@ public class NewsRecoveryService {
     this.json = json;
     this.downloads = downloads;
     this.storage = storage;
+    this.analysis = analysis;
+  }
+
+  /** Runs NEWS analysis only for an approved recovery whose article is unchanged since approval. */
+  public Map<String, LlmRunStore.Outcome> analyzeApproved(UUID runId) {
+    var run = store.run(runId);
+    if (!"SUCCESS".equals(run.status())
+        || !"APPROVED".equals(run.responseMetadata().path("review_state").asText()))
+      throw new IllegalArgumentException("RECOVERY_NOT_APPROVED");
+    if (!store.hash(store.article(run.articleId()))
+        .equals(run.responseMetadata().path("approved_source_hash").asText()))
+      throw new org.springframework.web.server.ResponseStatusException(
+          org.springframework.http.HttpStatus.CONFLICT, "ARTICLE_CHANGED_AFTER_APPROVAL");
+    return analysis.executeAll(run.articleId());
   }
 
   public Configuration configuration() {

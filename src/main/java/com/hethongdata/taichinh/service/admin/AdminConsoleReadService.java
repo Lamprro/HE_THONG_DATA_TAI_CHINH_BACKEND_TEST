@@ -37,6 +37,32 @@ public class AdminConsoleReadService {
     this.json = json.copy().enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
         .enable(DeserializationFeature.USE_BIG_INTEGER_FOR_INTS);
   }
+  /** Whole-database counts for the overview; never a sample of recent rows. */
+  public Map<String, Object> summary() {
+    var jdbc = db.getJdbcTemplate();
+    return Map.of(
+        "jobs", jdbc.queryForList("select is_active,count(*) as count from ingestion_jobs group by is_active"),
+        "commands", jdbc.queryForList("select status,count(*) as count from admin_commands group by status"),
+        "runs", jdbc.queryForList("select status,count(*) as count from ingestion_runs group by status"),
+        "versions", jdbc.queryForList("select data_domain,status,count(*) as count from data_versions group by data_domain,status"),
+        "validation", jdbc.queryForList("select validation_target,result_status,count(*) as count from validation_results group by validation_target,result_status"));
+  }
+  /** Titles for article ids, preserving the caller's order. */
+  public List<Map<String, Object>> articleTitles(List<UUID> ids) {
+    if (ids.isEmpty()) return List.of();
+    var rows = new ArrayList<>(db.queryForList(
+        "select id as \"articleId\",title,published_at from news_articles where id in (:ids)", Map.of("ids", ids)));
+    rows.sort(Comparator.comparingInt(row -> ids.indexOf(row.get("articleId"))));
+    return rows;
+  }
+  public List<Map<String, Object>> issueReviews(UUID validationResultId) {
+    return db.getJdbcTemplate().queryForList("select id,event_type,reason,principal,created_at from admin_operation_events "
+        + "where target_id=? order by created_at desc,id desc", validationResultId);
+  }
+  public boolean databaseUp() {
+    Integer one = db.getJdbcTemplate().queryForObject("select 1", Integer.class);
+    return one != null && one == 1;
+  }
   public List<Map<String, Object>> tables() {
     return TABLES.stream().map(name -> {
       var columns = columns(name);

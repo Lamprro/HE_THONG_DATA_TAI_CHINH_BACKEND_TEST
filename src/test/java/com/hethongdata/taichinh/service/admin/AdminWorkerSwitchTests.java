@@ -15,7 +15,7 @@ class AdminWorkerSwitchTests {
   @Test void disabledCommandWorkerCannotClaimExpireOrQueueWork() {
     var db=mock(JdbcTemplate.class);var jobs=mock(IngestionJobService.class);
     var service=new AdminCommandService(db,new ObjectMapper(),jobs,mock(IngestionService.class),mock(ValidationJobService.class),
-        mock(jakarta.validation.Validator.class),mock(org.springframework.transaction.PlatformTransactionManager.class));
+        mock(jakarta.validation.Validator.class),mock(org.springframework.transaction.PlatformTransactionManager.class),mock(AdminPipelineService.class),mock(AdminAiActionService.class));
     ReflectionTestUtils.setField(service,"enabled",false);
     try {
       service.start();ReflectionTestUtils.invokeMethod(service,"work");ReflectionTestUtils.invokeMethod(service,"leases");

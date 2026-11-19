@@ -119,7 +119,7 @@ public class ForecastValidationService {
     boolean valid =
         output != null
             && readiness.isEmpty()
-            && LlmSchemaValidator.validate(template.responseSchema(), output).isEmpty();
+            && LlmJson.validateSchema(template.responseSchema(), output).isEmpty();
     var points = new HashMap<String, SourcePoint>();
     for (var p : ctx.points()) points.put(p.id(), p);
     for (var rule : rules) {
@@ -131,7 +131,7 @@ public class ForecastValidationService {
         case "FORECAST_SCHEMA" -> {
           issues.addAll(readiness);
           if (output == null) issues.add("OUTPUT_MISSING");
-          else issues.addAll(LlmSchemaValidator.validate(template.responseSchema(), output));
+          else issues.addAll(LlmJson.validateSchema(template.responseSchema(), output));
         }
         case "FORECAST_SNAPSHOT" -> {
           if (!sourceCurrent) issues.add("FORECAST_SOURCE_CHANGED");

@@ -3,7 +3,9 @@ package com.hethongdata.taichinh.service.master;
 import com.hethongdata.taichinh.entity.master.CompanyAliasEntity;
 import com.hethongdata.taichinh.entity.master.CompanyEntity;
 import com.hethongdata.taichinh.entity.master.SecurityEntity;
-import com.hethongdata.taichinh.repository.master.MasterDataRepository;
+import com.hethongdata.taichinh.repository.jpa.master.CompanyAliasJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.master.CompanyJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.master.SecurityJpaRepository;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,12 +18,19 @@ import java.util.List;
 @Service
 public class MasterDataCatalogService {
     private static final BigDecimal COMMON_SHARE_PAR_VALUE = new BigDecimal("10000");
-    private final MasterDataRepository masterData;
+    private final CompanyJpaRepository companies;
+    private final CompanyAliasJpaRepository aliases;
+    private final SecurityJpaRepository securities;
     private final SecurityJobProvisioningService jobProvisioning;
 
     public MasterDataCatalogService(
-            MasterDataRepository masterData, SecurityJobProvisioningService jobProvisioning) {
-        this.masterData = masterData;
+            CompanyJpaRepository companies,
+            CompanyAliasJpaRepository aliases,
+            SecurityJpaRepository securities,
+            SecurityJobProvisioningService jobProvisioning) {
+        this.companies = companies;
+        this.aliases = aliases;
+        this.securities = securities;
         this.jobProvisioning = jobProvisioning;
     }
 
@@ -33,11 +42,11 @@ public class MasterDataCatalogService {
 
     private void upsert(Definition value) {
         CompanyEntity company =
-                masterData
-                        .findCompanyByCode(value.symbol())
+                companies
+                        .findByCompanyCodeIgnoreCase(value.symbol())
                         .orElseGet(
                                 () ->
-                                        masterData.saveCompany(
+                                        companies.save(
                                                 CompanyEntity.create(
                                                         value.taxCode(),
                                                         value.symbol(),
@@ -54,8 +63,8 @@ public class MasterDataCatalogService {
                                                         value.description(),
                                                         true)));
         for (String alias : value.aliases()) {
-            if (!masterData.aliasExists(company.getId(), alias)) {
-                masterData.saveAlias(
+            if (!aliases.existsByCompanyIdAndAliasIgnoreCase(company.getId(), alias)) {
+                aliases.save(
                         CompanyAliasEntity.create(
                                 company.getId(),
                                 alias,
@@ -63,11 +72,11 @@ public class MasterDataCatalogService {
             }
         }
         SecurityEntity security =
-                masterData
-                        .findSecurityBySymbol(value.symbol())
+                securities
+                        .findBySymbolIgnoreCase(value.symbol())
                         .orElseGet(
                                 () ->
-                                        masterData.saveSecurity(
+                                        securities.save(
                                                 SecurityEntity.create(
                                                         company.getId(),
                                                         value.symbol(),

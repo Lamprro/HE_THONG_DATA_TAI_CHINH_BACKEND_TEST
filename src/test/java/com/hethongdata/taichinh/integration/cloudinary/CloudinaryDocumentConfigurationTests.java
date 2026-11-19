@@ -7,7 +7,9 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 class CloudinaryDocumentConfigurationTests {
   private final ApplicationContextRunner runner =
-      new ApplicationContextRunner().withUserConfiguration(CloudinaryDocumentConfiguration.class);
+      new ApplicationContextRunner()
+          .withBean(com.fasterxml.jackson.databind.ObjectMapper.class)
+          .withUserConfiguration(CloudinaryDocumentStorage.class);
 
   @Test
   void disabledByDefaultWithoutCredentials() {

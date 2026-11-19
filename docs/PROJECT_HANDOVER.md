@@ -1,3 +1,36 @@
+# Cập nhật 19/11/2026 — tinh gọn lớp backend (nhánh `refactor/backend-consolidation`, chưa push)
+
+- `src/main/java` 234 → 177 file: gộp seeder/config/scheduler, controller ingestion/master/prompt, DTO master/source thành record,
+  API user 7 → 5 controller và 14 → 6 service, read service market, wrapper repository thừa, helper financial/forecast/LLM/news.
+  Không đổi URL, JSON, schema, SQL, cờ cấu hình hay thuộc tính transaction. Bảng tên cũ → mới, các cặp cố ý giữ (ranh giới
+  transaction) và phát hiện cần quyết: [BACKEND_CONSOLIDATION_20261119](BACKEND_CONSOLIDATION_20261119.md).
+- Sửa thêm: catalog `/api/admin/console/catalog` trả đúng tên tham số path/query (trước là `"body"`, làm hỏng 47/90 form API
+  nâng cao của FE Admin); route không tồn tại trả 404 `NOT_FOUND` thay vì 500.
+- Kiểm thử: `mvn -o test` + `DATA_ENRICHMENT_TEST_DB=1 LLM_TEST_DB=1` (schema cô lập): 401 test, chỉ còn 2 lỗi cũ
+  `NewsPipelineIntegrationFlowTests` và 6 lỗi cũ `ForecastPipelineIntegrationTests` (chạy trên commit gốc 6147774 cũng hỏng
+  đúng 6 test này; cần `LLM_TEST_CONFIG=application-local.properties`). Jar mới trên localhost 8080 + DB thật:
+  `scripts/user_api_smoke.py` PASS 38 route/60 request; admin GET 200, thiếu token 403. Chưa deploy.
+
+# Cập nhật 12/11/2026 — dọn lớp admin (nhánh `refactor/admin-cleanup`)
+
+- Xóa 20 entity + 20 JPA repository không dùng (account/user/watchlist/prediction/dataset…),
+  `FinancialMetricBuildService` (wrapper rỗng), `JsonDatabaseSupport`, `LegacyQuoteIntervalRepairRunner` (sửa dữ liệu một lần, đã xong).
+- Truy cập: `AdminAccessConfiguration` (đổi tên từ ForecastAdminAccessConfiguration) bảo vệ toàn bộ `/api/**`
+  trừ `/api/health*` và `/api/v1/**` ở mọi profile; bỏ cờ `protect-all-api`. Trước đó profile mặc định để hở
+  `POST /api/security-job-reconciliation/run` và `/api/external-financial-data/**` (gồm `/fetch`).
+- Service không còn gọi ngược controller: `AdminAiActionService` gọi thẳng service domain; logic
+  analyze recovery chuyển vào `NewsRecoveryService.analyzeApproved`. SQL trong `AdminConsoleController`
+  chuyển vào `AdminConsoleReadService`/`AdminCommandService`; bỏ field injection.
+- Gộp controller: `FinancialDataQualityAdminController` → `FinancialDataAdminController` (bỏ kiểm token trùng),
+  `GeminiAdminController` + `NewsLlmAdminController` → `LlmAdminController`. URL giữ nguyên.
+- Kiểm thử: 395 test, 2 lỗi có sẵn từ trước ở `NewsPipelineIntegrationFlowTests` (fixture HTTP 403 nay được phân loại
+  URL_ONLY → SKIP theo P08; test chưa cập nhật, không đổi logic). Localhost 8094 + DB thật: 28 GET admin 200,
+  route bảo vệ trả 403 khi thiếu token; lệnh `INGEST_VALIDATE_BUILD` FPT OHLCV 02–12/11 → ACTIVATED;
+  `FORECAST_PREVIEW` SUCCEEDED (không gọi model). Chưa deploy.
+- Hiệu năng: `GET /api/ingestions` (lượt chạy gần nhất) tải cả response_snapshot/response_text — 20 run ≈ 27 MB nén,
+  mất 26–61 s nên FE timeout 8 s. Nay select đúng cột DTO: 0,09–0,5 s, nội dung khớp từng trường với bản dựng từ entity.
+  Walk Chrome thật 9 mục/18 màn hình FE qua DB thật: 0 lỗi, 0 request ghi.
+
 # Cập nhật 28/10/2026 — hợp nhất toàn bộ nhánh backend vào main
 
 Đã merge API user và các nhánh còn lại theo yêu cầu mới. Mọi ref nhánh local/origin
@@ -495,3 +528,39 @@ ba số dư11/1/1 đồng chưa xác minh; không tuyên bố đã xử lý hế
 
 Chưa bật shared token trên Vercel, chưa deploy Java production, chưa kiểm tải/
 backup restore hoặc auth người dùng FE. Không gọi code hiện tại là production-ready.
+
+
+### 19/11/2026 — Thu thập dữ liệu Local AI qua pipeline thật
+
+- `MarketPriceWorkflowPersistenceService` dùng JDBC batch 100 hàng chỉ khi toàn bộ khoảng daily chưa có dữ liệu. Giữ khóa security, transaction chung, factory metadata/provenance, quy tắc sửa giá/chọn canonical cũ cho khoảng đã có dữ liệu.
+- Đã chạy 12 test: `MarketBackfillIsolatedJpaIntegrationTests`, `MarketPriceDailyBackfillTests`, `MarketPricePayloadParserTests`, `MarketPriceWorkflowServiceTests`: 12 pass/0 fail. Integration dùng PostgreSQL schema tạm riêng và provider mock, có lỗi CHECK hàng cuối để chứng minh rollback toàn bộ rồi retry. Không chèn mock vào public.
+- Nghiệm thu thật qua Spring manual ingestion → app Python chính → VNDirect → raw validation → exact-version builder: DCM 2021–2026 build 1,69 giây; DGC 1,25 giây. Receipt nằm repo HE_THONG_DATA_TAI_CHINH_TEST/output/local-ai-review/data-20261119. BCTC quý gần nhất AAA/AAM/AAT income/balance đã build, nhưng metadata công bố/scope/vintage vẫn thiếu; không chứng nhận PIT.
+- Vercel VNDirect có connection reset; app Python nguyên bản chạy local làm upstream của Spring hoạt động. Các raw OHLC sai vẫn REJECTED, không ép canonical. KBS VNINDEX/VN30 block dài bị Invalid index OHLC range.
+- Chưa mở rộng đủ 100 mã. Theo yêu cầu tránh tạo danh mục dư, dừng tạo master mới; helper mặc định không cho tạo master, chỉ thử cửa sổ theo năm trên hai mã đã có master. Xem final coverage/resume report bên thư mục trên; không xóa raw audit hay master hiện hữu.
+- Không commit/push/deploy. JAR target đã được dựng runnable lại; bản classifier ingestion dùng cho chạy thử. Các service tạm được runner quản lý và dừng sau mỗi lượt.
+
+
+### 19/11/2026 — Native CafeF index contract
+
+Java adapter now allows CafeF only for INDEX_OHLCV, routed to `/api/v1/cafef/indices/{symbol}/ohlcv`.
+Other CafeF index operations remain rejected. `MarketIndexPayloadParserTests` and
+`MarketIndexWorkflowPersistenceTests`: 10 tests passed. A separate classifier `index` JAR
+was built to keep the active ingestion JAR unchanged during data acceptance.
+
+Live ingestion uses a separate staging schema first, validates and builds exact versions,
+compares source seams, then refetches through a public Spring instance and checks source
+content fingerprints before build. Only empty historical/recent ranges are eligible;
+known HOSE closures 23–24 January 2018 are excluded even if KBS provides an OHLC-valid bar.
+No index rows are copied directly with SQL. Existing public rows are fingerprinted for an
+append-only audit. Results/remaining gaps are recorded in the final index collection report
+under `HE_THONG_DATA_TAI_CHINH_TEST/output/local-ai-review/index-staging-20261119`.
+
+
+Index acceptance completed 19/11/2026 22:59:43 ICT: VNINDEX and VN30 each have 2,716
+canonical sessions from 2016-01-04 through 2026-11-19. Published 2,910 new rows through 33
+staging-matched refetch receipts; all 2,522 prior index rows stayed unchanged. Final checks:
+zero duplicate dates, invalid OHLC, missing raw/version, non-ACTIVATED versions, or bars on
+the two verified HOSE closure dates. Existing gaps 2021-12-10 and 2023-05-15 in VNINDEX were
+filled by validated CafeF single-day requests. Preserve source distinctions: close seams
+match, historical VN30 volume across CafeF/KBS does not. Services 8237/8239/8240/8242 stopped.
+See `INDEX_COLLECTION_REPORT.md` and `public-index-final-quality.json` in the evidence folder.

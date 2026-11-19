@@ -1,6 +1,7 @@
 package com.hethongdata.taichinh.service.news;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.never;
@@ -341,5 +342,16 @@ class NewsWorkflowServiceTests {
         assertThat(result.getStatus()).isEqualTo("SUCCESS");
         verify(writes).persistBuiltArticlesNoop(run, NewsWorkflowService.NEWS_DATA_FETCH);
         verifyNoInteractions(rawPayloads, external);
+    }
+
+    @Test void stripsTrackingButKeepsArticleIdentifiersAndEncoding() {
+        assertThat(NewsWorkflowService.normalizeUrl("HTTPS://CAFEF.VN:443/a%20b.chn?id=12&utm_source=list&fbclid=x#top"))
+                .isEqualTo("https://cafef.vn/a%20b.chn?id=12");
+        assertThat(NewsWorkflowService.normalizeUrl("https://cafef.vn/a.chn?utm_source=list"))
+                .isEqualTo(NewsWorkflowService.normalizeUrl("https://cafef.vn/a.chn"));
+    }
+    @Test void rejectsNonHttpAndEmbeddedCredentials() {
+        assertThatThrownBy(()->NewsWorkflowService.normalizeUrl("javascript:alert(1)")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(()->NewsWorkflowService.normalizeUrl("https://user:secret@cafef.vn/a")).isInstanceOf(IllegalArgumentException.class);
     }
 }

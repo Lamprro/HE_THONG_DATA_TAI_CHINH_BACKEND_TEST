@@ -40,7 +40,7 @@ class UserLocalAiIsolatedIntegrationTests {
       UUID run=UUID.randomUUID();db.update("insert into local_ai_package_runs values (?,?,'npat_h2','ZZAI','selected',?,'{\"passed\":true}',200,now())",run,PACKAGE,status);
       db.update("insert into local_ai_package_predictions values (?,?,'npat_h2','ZZAI','selected','RESEARCH_ONLY','{\"prediction_vnd\":999999}')",run,PACKAGE);
     }
-    var read=new UserReadSupport(db,JSON);service=new UserLocalAiService(read,new UserSecurityService(read));
+    var read=new UserReadSupport(db,JSON);service=new UserLocalAiService(false,read,JSON);
   }
   @AfterAll static void cleanup(){if(admin!=null&&SCHEMA.matches("user_ai_test_[a-f0-9]{32}"))admin.execute("drop schema "+SCHEMA+" cascade");}
   @Test void catalogUsesRealPackageAndKeepsDevelopmentSelectionSeparateFromPublication() throws Exception {

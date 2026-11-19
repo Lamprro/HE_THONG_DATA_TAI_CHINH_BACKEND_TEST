@@ -9,7 +9,6 @@ import static org.assertj.core.api.Assertions.*;
 
 class NewsLlmContractTests {
     final LlmJson json=new LlmJson(new ObjectMapper());
-    final NewsLlmValidator validator=new NewsLlmValidator();
     LlmPromptCatalog.Template template(String task) throws Exception {
         try(var stream=new ClassPathResource("llm/"+task.toLowerCase()+".json").getInputStream()) {
             var r=json.mapper().readTree(stream);
@@ -48,16 +47,16 @@ class NewsLlmContractTests {
     @Test void validatesAllThreeContractsAndRejectsUnexpectedFields() throws Exception {
         for(String task:LlmPromptCatalog.TASKS) {
             var out=output(json,input(),task);
-            assertThat(validator.response(template(task),input(),out)).isEmpty();
+            assertThat(LlmValidationService.newsResponseErrors(template(task),input(),out)).isEmpty();
             out.put("invented_field",true);
-            assertThat(validator.response(template(task),input(),out)).isNotEmpty();
+            assertThat(LlmValidationService.newsResponseErrors(template(task),input(),out)).isNotEmpty();
         }
     }
     @Test void rejectsForgedEvidenceAndWrongArticle() throws Exception {
         var out=output(json,input(),"NEWS_SUMMARY");
         ((ObjectNode)out.path("overview_evidence").path(0)).put("quote","Trích dẫn này hoàn toàn không có trong bài");
         out.put("source_article_id",UUID.randomUUID().toString());
-        assertThat(validator.response(template("NEWS_SUMMARY"),input(),out)).contains("EVIDENCE_QUOTE_MISMATCH","SOURCE_ARTICLE_MISMATCH");
+        assertThat(LlmValidationService.newsResponseErrors(template("NEWS_SUMMARY"),input(),out)).contains("EVIDENCE_QUOTE_MISMATCH","SOURCE_ARTICLE_MISMATCH");
     }
     @Test void rejectsUnknownCompanyAndUnsupportedFinancialValue() throws Exception {
         var out=output(json,input(),"NEWS_FINANCIAL_FACTS");
@@ -65,12 +64,12 @@ class NewsLlmContractTests {
         var fact=out.withArray("facts").addObject().put("metric_name","Doanh thu").put("company_id",UUID.randomUUID().toString())
                 .put("value_text","9999").putNull("unit").putNull("period").putNull("attributed_to").put("fact_kind","ACTUAL");
         fact.set("evidence",out.path("overview_evidence").deepCopy());
-        assertThat(validator.response(template("NEWS_FINANCIAL_FACTS"),input(),out)).contains("UNKNOWN_COMPANY","FINANCIAL_VALUE_NOT_IN_EVIDENCE");
+        assertThat(LlmValidationService.newsResponseErrors(template("NEWS_FINANCIAL_FACTS"),input(),out)).contains("UNKNOWN_COMPANY","FINANCIAL_VALUE_NOT_IN_EVIDENCE");
     }
     @Test void strictJsonAndIncompleteResponsesAreRejected() throws Exception {
         assertThatThrownBy(()->json.read("{\"x\":1,\"x\":2}")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(()->json.read("{} {} ")).isInstanceOf(IllegalArgumentException.class);
         var out=output(json,input(),"NEWS_SUMMARY");out.remove("overview");
-        assertThat(validator.response(template("NEWS_SUMMARY"),input(),out)).isNotEmpty();
+        assertThat(LlmValidationService.newsResponseErrors(template("NEWS_SUMMARY"),input(),out)).isNotEmpty();
     }
 }

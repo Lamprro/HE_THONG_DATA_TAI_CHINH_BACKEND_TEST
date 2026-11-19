@@ -10,16 +10,15 @@ import java.util.*;
 public class NewsLlmService {
     private final LlmPromptCatalog catalog;
     private final NewsLlmContext contexts;
-    private final NewsLlmValidator validator;
     private final LlmGateway gateway;
     private final LlmRunStore store;
     private final LlmJson json;
     private final ChecksumService hashes;
     private final JdbcTemplate db;
     private final LlmValidationService validations;
-    public NewsLlmService(LlmPromptCatalog catalog,NewsLlmContext contexts,NewsLlmValidator validator,LlmGateway gateway,
+    public NewsLlmService(LlmPromptCatalog catalog,NewsLlmContext contexts,LlmGateway gateway,
             LlmRunStore store,LlmJson json,ChecksumService hashes,JdbcTemplate db,LlmValidationService validations) {
-        this.catalog=catalog;this.contexts=contexts;this.validator=validator;this.gateway=gateway;
+        this.catalog=catalog;this.contexts=contexts;this.gateway=gateway;
         this.store=store;this.json=json;this.hashes=hashes;this.db=db;
         this.validations=validations;
     }
@@ -27,7 +26,7 @@ public class NewsLlmService {
         var template=catalog.active(task);
         var context=contexts.build(article,task);
         var issues=new ArrayList<>(context.issues());
-        if(context.eligible()) issues.addAll(validator.schema(template.requestSchema(),context.input()));
+        if(context.eligible()) issues.addAll(LlmJson.validateSchema(template.requestSchema(),context.input()));
         var result=json.mapper().createObjectNode();
         result.put("eligible",issues.isEmpty()).put("provider_configured",gateway.configured())
                 .put("template_id",template.id().toString()).put("source_hash",context.sourceHash()).put("model",gateway.model());
@@ -47,7 +46,7 @@ public class NewsLlmService {
         var template=catalog.active(task);
         var context=contexts.build(article,task);
         if(!context.eligible()) return new LlmRunStore.Outcome("SKIPPED",null,null,context.issues());
-        var requestErrors=validator.schema(template.requestSchema(),context.input());
+        var requestErrors=LlmJson.validateSchema(template.requestSchema(),context.input());
         if(!requestErrors.isEmpty()) return new LlmRunStore.Outcome("SKIPPED",null,null,requestErrors);
         if("NEWS_FINANCIAL_FACTS".equals(task)) {
             var detail=store.results(article).stream().filter(r->"NEWS_DETAIL".equals(r.path("task_code").asText())).findFirst();

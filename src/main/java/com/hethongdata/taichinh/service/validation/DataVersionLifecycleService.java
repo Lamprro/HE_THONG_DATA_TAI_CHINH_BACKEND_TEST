@@ -9,13 +9,24 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
-/** Persists a terminal data-version transition independently from a failed build transaction. */
+/**
+ * Persists a terminal data-version transition independently from a failed build transaction, and
+ * selects a reviewed batch for a manual rebuild.
+ */
 @Service
 public class DataVersionLifecycleService {
     private final DataVersionJpaRepository versions;
 
     public DataVersionLifecycleService(DataVersionJpaRepository versions) {
         this.versions = versions;
+    }
+
+    /** Select a reviewed batch; the native writer still performs its locked, atomic validation. */
+    public static DataVersionEntity requireActive(DataVersionJpaRepository versions, UUID id, String domain) {
+        var v = versions.findById(id).orElseThrow(() -> new IllegalArgumentException("Data version not found"));
+        if (!domain.equals(v.getDataDomain()) || !"ACTIVE".equals(v.getStatus()))
+            throw new IllegalArgumentException("Requires an ACTIVE " + domain + " data version");
+        return v;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)

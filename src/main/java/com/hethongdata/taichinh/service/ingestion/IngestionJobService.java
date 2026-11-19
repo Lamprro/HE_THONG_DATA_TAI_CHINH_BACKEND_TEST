@@ -13,7 +13,6 @@ import com.hethongdata.taichinh.service.news.NewsWorkflowService;
 import com.hethongdata.taichinh.service.financial.FinancialStatementBuildService;
 import com.hethongdata.taichinh.service.macro.MacroWorkflowService;
 import com.hethongdata.taichinh.service.financial.FinancialMetricWorkflowService;
-import com.hethongdata.taichinh.service.financial.FinancialMetricCalculateService;
 import com.hethongdata.taichinh.service.market.MarketIndexWorkflowService;
 import com.hethongdata.taichinh.service.market.MarketPriceWorkflowService;
 
@@ -46,7 +45,6 @@ public class IngestionJobService {
     private final FinancialStatementBuildService financialStatementBuildService;
     private final MacroWorkflowService macroWorkflowService;
     private final FinancialMetricWorkflowService financialMetricWorkflowService;
-    private final FinancialMetricCalculateService financialMetricCalculateService;
     private final MarketPriceWorkflowService marketPriceWorkflowService;
     private final MarketIndexWorkflowService marketIndexWorkflowService;
     private final com.hethongdata.taichinh.service.market.SupplementaryDataWorkflowService supplementaryWorkflow;
@@ -63,7 +61,6 @@ public class IngestionJobService {
             FinancialStatementBuildService financialStatementBuildService,
             MacroWorkflowService macroWorkflowService,
             FinancialMetricWorkflowService financialMetricWorkflowService,
-            FinancialMetricCalculateService financialMetricCalculateService,
             MarketPriceWorkflowService marketPriceWorkflowService,
             MarketIndexWorkflowService marketIndexWorkflowService,
             com.hethongdata.taichinh.service.market.SupplementaryDataWorkflowService supplementaryWorkflow) {
@@ -75,7 +72,6 @@ public class IngestionJobService {
         this.financialStatementBuildService = financialStatementBuildService;
         this.macroWorkflowService = macroWorkflowService;
         this.financialMetricWorkflowService = financialMetricWorkflowService;
-        this.financialMetricCalculateService = financialMetricCalculateService;
         this.marketPriceWorkflowService = marketPriceWorkflowService;
         this.marketIndexWorkflowService = marketIndexWorkflowService;
         this.supplementaryWorkflow = supplementaryWorkflow;
@@ -288,7 +284,7 @@ public class IngestionJobService {
         if (marketIndexWorkflowService.supports(code)) return marketIndexWorkflowService.execute(job, trigger);
         if (financialStatementBuildService.supports(code)) return financialStatementBuildService.execute(job, trigger);
         if (financialMetricWorkflowService.supports(code)) return financialMetricWorkflowService.execute(job, trigger);
-        if (financialMetricCalculateService.supports(code)) return financialMetricCalculateService.execute(job, trigger);
+        if (financialMetricWorkflowService.supportsCalculate(code)) return financialMetricWorkflowService.executeCalculate(job, trigger);
         return ingestionService.ingestJob(job, trigger);
     }
 

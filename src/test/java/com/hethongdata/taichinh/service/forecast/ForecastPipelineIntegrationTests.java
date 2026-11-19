@@ -1073,7 +1073,7 @@ class ForecastPipelineIntegrationTests {
           new ForecastRequest(
               price.securityId(), price.asOfDate(), horizon, price.targets(), false);
       assertThat(service.preview(next).forecastPeriodEnd())
-          .isEqualTo(ForecastHorizon.endOfFutureQuarter(price.asOfDate(), horizon));
+          .isEqualTo(ForecastContextService.endOfFutureQuarter(price.asOfDate(), horizon));
     }
     var first = service.execute(price);
     var secondRequest =

@@ -1,10 +1,7 @@
 package com.hethongdata.taichinh.controller.user;
 
 import com.hethongdata.taichinh.service.user.UserMarketService;
-import com.hethongdata.taichinh.service.user.UserComparisonService;
-import com.hethongdata.taichinh.service.user.UserDataStatusService;
-import com.hethongdata.taichinh.service.user.UserProvenanceService;
-import com.hethongdata.taichinh.service.user.UserSupplementaryService;
+import com.hethongdata.taichinh.service.user.UserFinancialService;
 import com.hethongdata.taichinh.service.user.UserReadSupport.Data;
 import com.hethongdata.taichinh.service.user.UserReadSupport.Page;
 import com.hethongdata.taichinh.controller.user.UserContractController.EndpointId;
@@ -17,21 +14,11 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1")
 public class UserMarketController {
     private final UserMarketService service;
-    private final UserComparisonService comparison;
-    private final UserDataStatusService coverage;
-    private final UserProvenanceService provenance;
-    private final UserSupplementaryService supplementary;
+    private final UserFinancialService financial;
 
-    public UserMarketController(UserMarketService service,
-            UserComparisonService comparison,
-            UserDataStatusService coverage,
-            UserProvenanceService provenance,
-            UserSupplementaryService supplementary) {
+    public UserMarketController(UserMarketService service, UserFinancialService financial) {
         this.service = service;
-        this.comparison = comparison;
-        this.coverage = coverage;
-        this.provenance = provenance;
-        this.supplementary = supplementary;
+        this.financial = financial;
     }
 
     @GetMapping("/market/overview")
@@ -108,13 +95,13 @@ public class UserMarketController {
             @RequestParam(defaultValue="SYMBOL") String sort,
             @RequestParam(defaultValue="0") int page,
             @RequestParam(defaultValue="25") int size) {
-        return comparison.screen(search,exchange,industry,metric,origin,asOf,min,max,sort,page,size);
+        return financial.screen(search,exchange,industry,metric,origin,asOf,min,max,sort,page,size);
     }
 
     @EndpointId("UserDataStatusController_filters")
     @GetMapping("/market/filters")
     public Data<Map<String,Object>> filters() {
-        return coverage.filters();
+        return service.filters();
     }
 
     @EndpointId("UserProvenanceController_price")
@@ -122,7 +109,7 @@ public class UserMarketController {
     public Data<Map<String,Object>> priceLineage(@PathVariable String symbol,
             @PathVariable long id,
             @RequestParam(required=false) String exchange) {
-        return provenance.price(symbol,exchange,id);
+        return service.priceLineage(symbol,exchange,id);
     }
 
     @EndpointId("UserSupplementaryController_foreign")
@@ -133,7 +120,7 @@ public class UserMarketController {
             @RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(defaultValue="0") int page,
             @RequestParam(defaultValue="50") int size) {
-        return supplementary.foreign(symbol,exchange,from,to,page,size);
+        return service.foreign(symbol,exchange,from,to,page,size);
     }
 
     @EndpointId("UserSupplementaryController_reference")
@@ -144,6 +131,6 @@ public class UserMarketController {
             @RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(defaultValue="0") int page,
             @RequestParam(defaultValue="25") int size) {
-        return supplementary.reference(symbol,exchange,from,to,page,size);
+        return service.reference(symbol,exchange,from,to,page,size);
     }
 }

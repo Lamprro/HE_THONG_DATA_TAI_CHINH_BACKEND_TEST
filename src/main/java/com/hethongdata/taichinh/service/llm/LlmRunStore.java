@@ -220,7 +220,7 @@ public class LlmRunStore {
         var result=db.query("SELECT row_to_json(r)::text FROM llm_runs r WHERE id=?",(rs,n)->json.read(rs.getString(1)),run)
                 .stream().findFirst().orElseThrow(()->new IllegalArgumentException("Run not found"));
         ((com.fasterxml.jackson.databind.node.ObjectNode)result).set("attempts",json.mapper().valueToTree(
-                LlmAttemptAudit.read(db,json,run)));
+                readAttempts(db,json,run)));
         ((com.fasterxml.jackson.databind.node.ObjectNode)result).set("validations",json.mapper().valueToTree(
                 db.query("SELECT row_to_json(v)::text FROM validation_results v WHERE llm_run_id=? ORDER BY checked_at,rule_code",
                         (rs,n)->json.read(rs.getString(1)),run)));
@@ -228,6 +228,35 @@ public class LlmRunStore {
     }
     @Transactional
     public void recordAttempt(UUID run,JsonNode request,LlmGateway.Attempt attempt) {
-        LlmAttemptAudit.append(db,json,run,request,attempt);
+        appendAttempt(db,json,run,request,attempt);
+    }
+
+    // ---- Attempt audit: one run owns all provider-call logs. Append atomically; never replace previous attempts. ----
+    public static void appendAttempt(JdbcTemplate db, LlmJson json, UUID run, JsonNode request,
+                              LlmGateway.Attempt attempt) {
+        if (request == null || attempt.number() < 1 || attempt.latencyMs() < 0
+                || attempt.model() == null) throw new IllegalArgumentException("Invalid attempt audit");
+        var entry = json.mapper().createObjectNode();
+        entry.put("id", UUID.randomUUID().toString()).put("llm_run_id", run.toString())
+            .put("attempt_no", attempt.number()).put("model_name", attempt.model())
+            .put("http_status", attempt.httpStatus()).put("error_category", attempt.error())
+            .put("response_body", attempt.rawBody()).put("response_text", attempt.outputText())
+            .put("input_tokens", attempt.inputTokens()).put("output_tokens", attempt.outputTokens())
+            .put("latency_ms", attempt.latencyMs()).put("created_at", java.time.Instant.now().toString());
+        entry.set("request_payload", request);
+        // PostgreSQL row locking serializes appenders and rechecks the predicate after a wait.
+        int updated = db.update("""
+            UPDATE llm_runs SET attempts=attempts || jsonb_build_array(?::jsonb)
+            WHERE id=? AND NOT EXISTS (
+                SELECT 1 FROM jsonb_array_elements(attempts) a WHERE (a->>'attempt_no')::integer=?)
+            """, entry.toString(), run, attempt.number());
+        if (updated != 1) throw new IllegalStateException("Run missing or duplicate attempt number: " + run);
+    }
+
+    public static List<JsonNode> readAttempts(JdbcTemplate db, LlmJson json, UUID run) {
+        return db.query("""
+            SELECT a::text FROM llm_runs r CROSS JOIN LATERAL jsonb_array_elements(r.attempts) a
+            WHERE r.id=? ORDER BY (a->>'attempt_no')::integer
+            """, (rs,n) -> json.read(rs.getString(1)), run);
     }
 }

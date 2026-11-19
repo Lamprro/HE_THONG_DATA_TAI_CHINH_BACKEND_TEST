@@ -45,7 +45,7 @@ class AdminCommandIsolatedIntegrationTests {
   @BeforeEach void setup() {
     db.execute("truncate admin_operation_events,admin_commands,ingestion_runs,securities,metric_definitions,financial_periods,financial_metrics,llm_prompt_templates");
     service=new AdminCommandService(db,json,jobs,mock(IngestionService.class),mock(ValidationJobService.class),
-        Validation.buildDefaultValidatorFactory().getValidator(),new DataSourceTransactionManager(scoped));
+        Validation.buildDefaultValidatorFactory().getValidator(),new DataSourceTransactionManager(scoped),mock(AdminPipelineService.class),mock(AdminAiActionService.class));
   }
   @AfterEach void stop() { service.stop(); }
   AdminCommandService.Request request(UUID key,UUID job,String reason) {
@@ -184,17 +184,17 @@ class AdminCommandIsolatedIntegrationTests {
   @Test void promptVersionsRetainSchemasAndPromotionIsAtomicAndAudited() {
     UUID original=UUID.randomUUID();
     db.update("insert into llm_prompt_templates(id,task_code,version,input_domain,description,system_prompt,request_schema,response_schema,checksum,enabled) values (?,'NEWS_SUMMARY','fixture-v1','NEWS','Isolated fixture','Original fixture prompt','{\"type\":\"object\"}','{\"required\":[\"evidence\"]}',?,true)",original,"a".repeat(64));
-    var controller=new com.hethongdata.taichinh.controller.admin.AdminPromptController(db,json,new com.hethongdata.taichinh.service.ingestion.ChecksumService());
+    var controller=new com.hethongdata.taichinh.controller.admin.LlmAdminController(null,null,null,null,db,json,new com.hethongdata.taichinh.service.ingestion.ChecksumService());
     var tx=new org.springframework.transaction.support.TransactionTemplate(new DataSourceTransactionManager(scoped));
-    var request=new com.hethongdata.taichinh.controller.admin.AdminPromptController.VersionRequest(original,"fixture-v2","Updated fixture prompt","Test version lifecycle in isolated schema");
-    var created=tx.execute(s->controller.create(request));UUID id=(UUID)created.get("id");
+    var request=new com.hethongdata.taichinh.controller.admin.LlmAdminController.PromptVersionRequest(original,"fixture-v2","Updated fixture prompt","Test version lifecycle in isolated schema");
+    var created=tx.execute(s->controller.createPrompt(request));UUID id=(UUID)created.get("id");
     assertThat(created.get("enabled")).isEqualTo(false);
-    assertThat(controller.detail(original).path("system_prompt").asText()).isEqualTo("Original fixture prompt");
-    assertThat(controller.detail(id).path("response_schema").toString()).contains("evidence");
-    tx.execute(s->controller.enabled(id,new com.hethongdata.taichinh.controller.admin.AdminPromptController.EnableRequest(true,"Reviewed isolated version")));
+    assertThat(controller.prompt(original).path("system_prompt").asText()).isEqualTo("Original fixture prompt");
+    assertThat(controller.prompt(id).path("response_schema").toString()).contains("evidence");
+    tx.execute(s->controller.setPromptEnabled(id,new com.hethongdata.taichinh.controller.admin.LlmAdminController.PromptEnableRequest(true,"Reviewed isolated version")));
     assertThat(db.queryForObject("select count(*) from llm_prompt_templates where enabled",Integer.class)).isEqualTo(1);
-    assertThat(controller.detail(id).path("enabled").asBoolean()).isTrue();
-    assertThatThrownBy(()->tx.execute(s->controller.create(request))).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+    assertThat(controller.prompt(id).path("enabled").asBoolean()).isTrue();
+    assertThatThrownBy(()->tx.execute(s->controller.createPrompt(request))).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
     assertThat(db.queryForObject("select count(*) from admin_operation_events where event_type like 'PROMPT_%'",Integer.class)).isEqualTo(2);
   }
 }

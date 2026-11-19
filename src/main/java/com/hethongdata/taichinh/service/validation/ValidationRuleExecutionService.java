@@ -55,7 +55,7 @@ public class ValidationRuleExecutionService {
 
     public Outcome execute(ValidationRuleEntity rule, RawPayloadEntity raw) {
         if ("NEWS_DATA".equals(raw.getEntityType())
-                && com.hethongdata.taichinh.service.news.NewsContentClassification.urlOnly(raw.getPayload())
+                && com.hethongdata.taichinh.service.news.NewsWorkflowService.urlOnly(raw.getPayload())
                 && java.util.Set.of("NEWS_DATA_HTTP_SUCCESS", "NEWS_DATA_CONTENT_TYPE_VALID",
                     "NEWS_DATA_RAW_TEXT_REQUIRED", "NEWS_DATA_HTML_STRUCTURE", "NEWS_DATA_ARTICLE_EXTRACTED",
                     "NEWS_DATA_BLOCK_PAGE_DETECTED", "RAW_ERROR_MESSAGE").contains(rule.getExecutorKey())) {
@@ -365,9 +365,9 @@ public class ValidationRuleExecutionService {
     private Outcome newsMetadata(JsonNode payload) {
         if (payload == null || !payload.isObject())
             return fail("payload", "object", "NEWS_DATA metadata must be an object");
-        if (!com.hethongdata.taichinh.service.news.NewsContentClassification.validStatus(payload))
+        if (!com.hethongdata.taichinh.service.news.NewsWorkflowService.validExtractionStatus(payload))
             return fail("payload.extraction_status", "SUCCESS/FAILED/SKIPPED or absent", "Unknown extraction status");
-        boolean urlOnly = com.hethongdata.taichinh.service.news.NewsContentClassification.urlOnly(payload);
+        boolean urlOnly = com.hethongdata.taichinh.service.news.NewsWorkflowService.urlOnly(payload);
         for (String field : List.of("requested_url", "final_url"))
             if (!(urlOnly && "final_url".equals(field) && !payload.hasNonNull(field)))
             if (!payload.path(field).isTextual() || payload.path(field).asText().isBlank())
@@ -391,7 +391,7 @@ public class ValidationRuleExecutionService {
     private Outcome newsDataUrls(JsonNode payload, JsonNode config) {
         for (String field : configStrings(config, "fields"))
             if (!("final_url".equals(field) && payload!=null && !payload.hasNonNull(field)
-                    && com.hethongdata.taichinh.service.news.NewsContentClassification.urlOnly(payload)))
+                    && com.hethongdata.taichinh.service.news.NewsWorkflowService.urlOnly(payload)))
             if (payload == null || !isHttpUrl(text(payload, field), config))
                 return fail("payload." + field, "absolute HTTP(S) URL with host", "Invalid source page URL");
         return new Outcome("PASS", null, null, "Requested and final page URLs are valid");

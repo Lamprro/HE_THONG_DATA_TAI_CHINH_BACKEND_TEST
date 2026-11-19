@@ -55,6 +55,11 @@ public class ApiExceptionHandler {
         return new ResponseEntity<>(response.getBody(),headers,HttpStatus.METHOD_NOT_ALLOWED);
     }
 
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    ResponseEntity<ApiErrorResponse> unknownRoute(org.springframework.web.servlet.resource.NoResourceFoundException exception) {
+        return error(HttpStatus.NOT_FOUND,"NOT_FOUND",null,null,"No endpoint matches this path");
+    }
+
     @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
     ResponseEntity<ApiErrorResponse> invalidParameter(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException exception) {
         String type=exception.getRequiredType()==null?"supported value":exception.getRequiredType().getSimpleName();

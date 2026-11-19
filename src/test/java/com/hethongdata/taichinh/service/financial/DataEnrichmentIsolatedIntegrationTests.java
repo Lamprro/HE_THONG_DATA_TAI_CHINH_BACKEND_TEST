@@ -55,7 +55,7 @@ class DataEnrichmentIsolatedIntegrationTests {
     }
     @BeforeEach void empty() {db.execute("TRUNCATE financial_metrics,financial_statement_items,financial_statements,raw_payloads,data_versions");}
     FinancialMetricBuildPersistenceService writer() {
-        return new FinancialMetricBuildPersistenceService(db,versions,raws,runs,new ProviderRatioParser(),json,new ChecksumService());
+        return new FinancialMetricBuildPersistenceService(db,versions,raws,runs,json,new ChecksumService());
     }
     DataVersionEntity batch(List<RawPayloadEntity> payloads) {
         var version=DataVersionEntity.acceptedForRun("FINANCIAL_METRIC",UUID.randomUUID(),payloads.size(),"fixture-hash");
@@ -144,9 +144,9 @@ class DataEnrichmentIsolatedIntegrationTests {
         when(job.getParameters()).thenReturn(json.createObjectNode().put("symbol","FPT")
                 .put("startDate","2016-01-01").put("endDate","2016-12-31"));
         when(audit.startInternalBatch(any(),eq(job),eq("MANUAL"),eq("FINANCIAL_METRIC_CALCULATE"))).thenReturn(run);
-        var workflow=new FinancialMetricCalculateService(db,actual,audit,runs,json);
-        assertThat(tx.execute(s->workflow.execute(job,"MANUAL")).getStatus()).isEqualTo("SUCCESS");
-        assertThat(tx.execute(s->workflow.execute(job,"MANUAL")).getRunId()).isEqualTo(id);
+        var workflow=new FinancialMetricWorkflowService(null,audit,null,null,db,actual,runs,json,null);
+        assertThat(tx.execute(s->workflow.executeCalculate(job,"MANUAL")).getStatus()).isEqualTo("SUCCESS");
+        assertThat(tx.execute(s->workflow.executeCalculate(job,"MANUAL")).getRunId()).isEqualTo(id);
         assertThat(db.queryForObject("SELECT count(*) FROM financial_metrics WHERE is_canonical "
                 + "AND input_snapshot->'inputs' IS NOT NULL AND raw_payload_id IS NOT NULL "
                 + "AND data_version_id IS NOT NULL",Integer.class)).isEqualTo(3);

@@ -6,7 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hethongdata.taichinh.application.port.ExternalFinancialDataPort;
 import com.hethongdata.taichinh.application.port.model.*;
 import com.hethongdata.taichinh.dto.ingestion.ManualIngestionRequest;
-import com.hethongdata.taichinh.dto.master.*;
+import com.hethongdata.taichinh.dto.master.MasterDataDtos.*;
 import com.hethongdata.taichinh.repository.ingestion.*;
 import com.hethongdata.taichinh.service.ingestion.IngestionService;
 import com.hethongdata.taichinh.service.master.MasterDataService;
@@ -25,8 +25,8 @@ import org.springframework.test.context.*;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /** Real ingestion/validation/JPA with provider mock confined to a separate schema. */
-@SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.NONE,properties={
-    "financial.llm.enabled=false","financial.llm.catalog.seed-enabled=false","financial.llm.scheduler.enabled=false",
+@SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.MOCK,properties={
+    "financial.admin.commands.enabled=false","financial.admin.schedule.enabled=false","financial.llm.enabled=false","financial.llm.catalog.seed-enabled=false","financial.llm.scheduler.enabled=false",
     "financial.news-recovery.scheduler.enabled=false","financial.ingestion.scheduler.enabled=false",
     "financial.validation.scheduler.enabled=false","financial.validation.catalog.seed-enabled=false",
     "financial.ingestion.catalog.seed-enabled=false","financial.master-data.catalog.seed-enabled=false",
@@ -77,11 +77,10 @@ class MarketBackfillIsolatedJpaIntegrationTests {
 
     @Test void actualPipelineEnforcesCanonicalUniqueAndStaleReplayForLargeBatches() throws Exception {
         assertThat(db.queryForObject("SELECT current_schema()",String.class)).isEqualTo(SCHEMA);
-        var company=new CompanyRequest();company.setCompanyCode("FPT");company.setLegalName("Isolated synthetic fixture");company.setListingStatus("LISTED");
-        UUID companyId=master.createCompany(company).getId();
-        var security=new SecurityRequest();security.setCompanyId(companyId);security.setSymbol("FPT");
-        security.setExchange("HOSE");security.setSecurityType("STOCK");security.setCurrency("VND");security.setActive(true);
-        UUID securityId=master.createSecurity(security).getId();
+        var company=new CompanyRequest(null,"FPT","Isolated synthetic fixture",null,null,null,null,null,null,null,null,"LISTED",null,null);
+        UUID companyId=master.createCompany(company).id();
+        var security=new SecurityRequest(companyId,"FPT","HOSE","STOCK",null,"VND",null,null,null,null,null,true);
+        UUID securityId=master.createSecurity(security).id();
         db.update("UPDATE data_sources SET priority=20 WHERE code='VNSTOCK'");
         sources.upsert("PYTHON_GATEWAY","Fixture gateway","API",null,"gateway",false,"UNKNOWN",true);
         var job=jobs.create("PYTHON_GATEWAY","MARKET_PRICE_BUILD","Fixture workflow","MARKET_PRICE",null,
@@ -102,6 +101,15 @@ class MarketBackfillIsolatedJpaIntegrationTests {
             request.setSymbol("FPT");request.setDataSourceCode(source.toUpperCase(Locale.ROOT));
             var raw=ingestion.ingest(request);var accepted=validation.validate(raw.getRawPayloadId());
             assertThat(accepted.getStatus()).isEqualTo("ACCEPTED");
+            if (batch == 0) {
+                // Fail the last row after earlier rows have reached the DB: all must roll back.
+                db.execute("ALTER TABLE market_prices ADD CONSTRAINT fixture_reject_last CHECK (price_timestamp < TIMESTAMPTZ '2016-04-09 00:00:00+07')");
+                assertThat(workflow.execute(job,"MANUAL").getStatus()).isEqualTo("COMPLETED_WITH_REJECTIONS");
+                assertThat(db.queryForObject("SELECT count(*) FROM market_prices", Integer.class)).isZero();
+                assertThat(db.queryForObject("SELECT count(*) FROM data_versions WHERE status='ACTIVATED'", Integer.class)).isZero();
+                db.execute("ALTER TABLE market_prices DROP CONSTRAINT fixture_reject_last");
+                db.update("UPDATE data_versions SET status='ACTIVE' WHERE status='REJECTED'");
+            }
             assertThat(workflow.execute(job,"MANUAL").getStatus()).isEqualTo("SUCCESS");
         }
         assertThat(db.queryForObject("SELECT count(*) FROM market_prices WHERE security_id=?",Integer.class,securityId)).isEqualTo(200);

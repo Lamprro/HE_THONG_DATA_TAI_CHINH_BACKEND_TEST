@@ -26,12 +26,11 @@ class IntegratedJobDispatchTests {
     final FinancialStatementBuildService statements=mock(FinancialStatementBuildService.class);
     final MacroWorkflowService macro=mock(MacroWorkflowService.class);
     final FinancialMetricWorkflowService metrics=mock(FinancialMetricWorkflowService.class);
-    final FinancialMetricCalculateService calculate=mock(FinancialMetricCalculateService.class);
     final MarketPriceWorkflowService prices=mock(MarketPriceWorkflowService.class);
     final MarketIndexWorkflowService indexes=mock(MarketIndexWorkflowService.class);
     final SupplementaryDataWorkflowService supplementary=mock(SupplementaryDataWorkflowService.class);
     final IngestionJobService service=new IngestionJobService(jobs,runs,provider,budget,news,
-            statements,macro,metrics,calculate,prices,indexes,supplementary);
+            statements,macro,metrics,prices,indexes,supplementary);
     final IngestionExecutionResponse response=new IngestionExecutionResponse(UUID.randomUUID(),null,
             "SUCCESS",200,"application/json",null,false);
 
@@ -52,7 +51,7 @@ class IntegratedJobDispatchTests {
             case "NEWS" -> {when(news.supports(code)).thenReturn(true);when(news.execute(job,"MANUAL")).thenReturn(response);}
             case "STATEMENTS" -> {when(statements.supports(code)).thenReturn(true);when(statements.execute(job,"MANUAL")).thenReturn(response);}
             case "METRICS" -> {when(metrics.supports(code)).thenReturn(true);when(metrics.execute(job,"MANUAL")).thenReturn(response);}
-            case "CALCULATE" -> {when(calculate.supports(code)).thenReturn(true);when(calculate.execute(job,"MANUAL")).thenReturn(response);}
+            case "CALCULATE" -> {when(metrics.supportsCalculate(code)).thenReturn(true);when(metrics.executeCalculate(job,"MANUAL")).thenReturn(response);}
             case "PRICES" -> {when(prices.supports(code)).thenReturn(true);when(prices.execute(job,"MANUAL")).thenReturn(response);}
             case "INDEXES" -> {when(indexes.supports(code)).thenReturn(true);when(indexes.execute(job,"MANUAL")).thenReturn(response);}
         }

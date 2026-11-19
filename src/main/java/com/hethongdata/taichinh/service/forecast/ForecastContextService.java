@@ -6,9 +6,11 @@ import com.hethongdata.taichinh.dto.forecast.ForecastDtos.*;
 import com.hethongdata.taichinh.service.financial.FinancialRatioCalculator;
 import com.hethongdata.taichinh.service.ingestion.ChecksumService;
 import com.hethongdata.taichinh.service.llm.LlmJson;
+import com.hethongdata.taichinh.service.market.MarketPricePayloadParser;
 import java.math.*;
 import java.time.*;
 import java.util.*;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,25 +42,30 @@ public class ForecastContextService {
   private final LlmJson json;
   private final ChecksumService hashes;
   private final FinancialRatioCalculator calculator;
-  private final ForecastMarketEvidence marketEvidence;
-  private final MarketScenarioCalculator marketCalculator;
-  private final ForecastMacroCoverageService macroCoverageService;
+  private final MarketPricePayloadParser priceParser;
+  private final int yearlyMonths, quarterlyMonths, monthlyMonths, dailyDays;
 
   public ForecastContextService(
       JdbcTemplate db,
       LlmJson json,
       ChecksumService hashes,
       FinancialRatioCalculator calculator,
-      ForecastMarketEvidence marketEvidence,
-      MarketScenarioCalculator marketCalculator,
-      ForecastMacroCoverageService macroCoverageService) {
+      MarketPricePayloadParser priceParser,
+      @Value("${financial.forecast.macro.max-age.yearly-months:24}") int yearlyMonths,
+      @Value("${financial.forecast.macro.max-age.quarterly-months:9}") int quarterlyMonths,
+      @Value("${financial.forecast.macro.max-age.monthly-months:4}") int monthlyMonths,
+      @Value("${financial.forecast.macro.max-age.daily-days:15}") int dailyDays) {
+    if (yearlyMonths < 1 || quarterlyMonths < 1 || monthlyMonths < 1 || dailyDays < 1)
+      throw new IllegalArgumentException("Macro freshness thresholds must be positive");
     this.db = db;
     this.json = json;
     this.hashes = hashes;
     this.calculator = calculator;
-    this.marketEvidence = marketEvidence;
-    this.marketCalculator = marketCalculator;
-    this.macroCoverageService = macroCoverageService;
+    this.priceParser = priceParser;
+    this.yearlyMonths = yearlyMonths;
+    this.quarterlyMonths = quarterlyMonths;
+    this.monthlyMonths = monthlyMonths;
+    this.dailyDays = dailyDays;
   }
 
   @Transactional(
@@ -84,7 +91,7 @@ public class ForecastContextService {
         java.sql.Timestamp.from(
             request.asOfDate().plusDays(1).atStartOfDay(ZoneId.of("Asia/Ho_Chi_Minh")).toInstant());
     LocalDate start = request.asOfDate().minusYears(5);
-    LocalDate targetDate = ForecastHorizon.resolve(request.asOfDate(), request.horizonQuarters(), request.forecastPeriodEnd());
+    LocalDate targetDate = resolveTargetDate(request.asOfDate(), request.horizonQuarters(), request.forecastPeriodEnd());
     var points =
         new ArrayList<SourcePoint>(
             db.query(
@@ -148,7 +155,7 @@ ORDER BY p.end_date,s.statement_type,i.item_code,i.id
     }
     int financialPeriods = (int) points.stream().map(SourcePoint::periodEnd).distinct().count();
     boolean priceRequested = request.targets().contains(ForecastRequest.Target.STOCK_PRICE);
-    var rawPrices = new HashMap<UUID, ForecastMarketEvidence.RawPrices>();
+    var rawPrices = new HashMap<UUID, RawPrices>();
     var market =
         db.query(
 """
@@ -164,7 +171,7 @@ ORDER BY price_timestamp DESC,id DESC LIMIT 60
                     "CLOSE",
                     r.getBigDecimal(2),
                     priceRequested
-                            && marketEvidence.verified(
+                            && verifiedMarketClose(
                                 security.getFirst().get("symbol").toString(),
                                 r.getObject(5, UUID.class),
                                 r.getObject(6, UUID.class),
@@ -260,7 +267,7 @@ ORDER BY o.observation_date DESC,s.code,o.id DESC LIMIT 120
           "Macro release/vintage timestamps are not modeled; ingestion time is only an availability"
               + " proxy.");
     points.addAll(macro);
-    var macroCoverage = macroCoverageService.build(request.asOfDate(),cutoff,macro);
+    var macroCoverage = macroCoverage(request.asOfDate(),cutoff,macro);
     if (macroCoverage.isEmpty()) limitations.add("MACRO_CATALOG_MISSING: no active Vietnam series configured.");
     for (var series : macroCoverage) {
       if (!"AVAILABLE".equals(series.status())) limitations.add("MACRO_"+series.status()+":"+series.code()
@@ -269,7 +276,7 @@ ORDER BY o.observation_date DESC,s.code,o.id DESC LIMIT 120
     var metrics = new ArrayList<>(calculator.calculate(points));
     if (priceRequested
         && issues.stream().noneMatch(i -> i.contains("PRICE") || i.contains("PRICES")))
-      metrics.addAll(marketCalculator.calculate(market));
+      metrics.addAll(marketScenarioMetrics(market));
     var root = json.mapper().createObjectNode();
     LocalDate date = targetDate;
     root.put("schema_version", "financial.forecast.input.v2")
@@ -279,7 +286,7 @@ ORDER BY o.observation_date DESC,s.code,o.id DESC LIMIT 120
         .put("company_name", security.getFirst().get("legal_name").toString())
         .put("industry", Objects.toString(security.getFirst().get("industry_name"), "UNKNOWN"))
         .put("as_of_date", request.asOfDate().toString())
-        .put("forecast_period_start", ForecastHorizon.periodStart(date).toString())
+        .put("forecast_period_start", periodStart(date).toString())
         .put("forecast_period_end", date.toString())
         .put("horizon_quarters", request.horizonQuarters())
         .put("horizon_basis", request.forecastPeriodEnd() == null
@@ -406,5 +413,157 @@ ON CONFLICT (calculation_key) WHERE calculation_key IS NOT NULL DO NOTHING
     }
     return new MetricCalculation(
         request, context.metrics(), context.coverage().limitations(), inserted);
+  }
+
+  // ---- Forecast horizon: one always means the end of the next calendar quarter, including on quarter-end. ----
+  public static LocalDate periodStart(LocalDate end) {
+    return LocalDate.of(end.getYear(), ((end.getMonthValue() - 1) / 3) * 3 + 1, 1);
+  }
+
+  public static LocalDate resolveTargetDate(LocalDate asOf, int quarters, LocalDate explicitEnd) {
+    LocalDate maximum = endOfFutureQuarter(asOf, 8);
+    if (explicitEnd == null) return endOfFutureQuarter(asOf, quarters);
+    if (explicitEnd.isBefore(asOf) || explicitEnd.isAfter(maximum)
+        || explicitEnd.getMonthValue() % 3 != 0
+        || !explicitEnd.equals(YearMonth.from(explicitEnd).atEndOfMonth()))
+      throw new IllegalArgumentException("forecastPeriodEnd must be a current/future calendar quarter end within eight quarters");
+    return explicitEnd;
+  }
+
+  public static LocalDate endOfFutureQuarter(LocalDate asOf, int quarters) {
+    if (asOf == null || quarters < 1 || quarters > 8)
+      throw new IllegalArgumentException("Choose a date and 1-8 future quarters");
+    int quarterEndMonth = ((asOf.getMonthValue() - 1) / 3 + 1) * 3;
+    return YearMonth.of(asOf.getYear(), quarterEndMonth).plusMonths(quarters * 3L).atEndOfMonth();
+  }
+
+  // ---- Macro coverage describes source availability; it does not manufacture observations or release dates. ----
+  List<MacroSeriesCoverage> macroCoverage(LocalDate asOf, java.sql.Timestamp cutoff, List<SourcePoint> points) {
+      return db.query("""
+          SELECT s.code,s.frequency,max(o.observation_date) latest_date,
+              count(o.id) FILTER (WHERE o.observation_date>=?) window_count
+          FROM macro_series s LEFT JOIN macro_observations o ON o.macro_series_id=s.id
+              AND o.value IS NOT NULL AND o.observation_date<=? AND o.created_at<?
+          WHERE s.is_active AND s.country_code='VNM'
+          GROUP BY s.id,s.code,s.frequency ORDER BY s.code
+          """, (r,n)-> {
+              LocalDate latest=r.getDate("latest_date")==null?null:r.getDate("latest_date").toLocalDate();
+              String frequency=r.getString("frequency"), code=r.getString("code");
+              long count=r.getLong("window_count");
+              long sent=points.stream().filter(p->p.code().equals(code)).count();
+              LocalDate oldest= switch(frequency) {
+                  case "YEARLY" -> asOf.minusMonths(yearlyMonths);
+                  case "QUARTERLY" -> asOf.minusMonths(quarterlyMonths);
+                  case "MONTHLY" -> asOf.minusMonths(monthlyMonths);
+                  case "DAILY" -> asOf.minusDays(dailyDays);
+                  default -> null;
+              };
+              String status=latest==null?"MISSING":oldest==null?"UNSUPPORTED_FREQUENCY":
+                  latest.isBefore(oldest)?"STALE":count==0?"OUTSIDE_WINDOW":sent<count?"TRUNCATED_CONTEXT":"AVAILABLE";
+              return new MacroSeriesCoverage(code,frequency,latest,count,sent,status,
+                      latest==null,latest!=null && oldest!=null && latest.isBefore(oldest));
+          },asOf.minusMonths(12),asOf,cutoff);
+  }
+
+  // ---- Descriptive trailing market indicators only: never substitutes a statistical price forecast. ----
+  static List<DerivedMetric> marketScenarioMetrics(List<SourcePoint> market) {
+    var history =
+        market.stream()
+            .filter(p -> "VND_PER_SHARE".equals(p.unit()))
+            .sorted(Comparator.comparing(SourcePoint::periodEnd).reversed())
+            .toList();
+    var result = new ArrayList<DerivedMetric>();
+    for (int sessions : List.of(20, 60)) {
+      if (history.size() < sessions) continue;
+      var trailing = history.subList(0, sessions);
+      BigDecimal mean =
+          trailing.stream()
+              .map(SourcePoint::value)
+              .reduce(BigDecimal.ZERO, BigDecimal::add)
+              .divide(BigDecimal.valueOf(sessions), 8, RoundingMode.HALF_UP);
+      result.add(
+          new DerivedMetric(
+              "SMA_" + sessions,
+              mean,
+              "VND_PER_SHARE",
+              "sum(close of last " + sessions + " sessions) / " + sessions,
+              trailing.stream().map(SourcePoint::id).toList()));
+    }
+    if (history.size() > 20) {
+      var latest = history.getFirst();
+      var previous = history.get(20);
+      if (previous.value().signum() > 0)
+        result.add(
+            new DerivedMetric(
+                "PRICE_RETURN_20_SESSIONS",
+                latest
+                    .value()
+                    .divide(previous.value(), 12, RoundingMode.HALF_UP)
+                    .subtract(BigDecimal.ONE)
+                    .multiply(BigDecimal.valueOf(100)),
+                "%",
+                "(latest close / close 20 sessions earlier - 1) * 100",
+                List.of(latest.id(), previous.id())));
+    }
+    return List.copyOf(result);
+  }
+
+  // ---- Reuses the production price parser to prove each stored close against its activated raw batch. ----
+  record RawPrices(UUID ingestionRun, Map<LocalDate, BigDecimal> closes) {}
+
+  private boolean verifiedMarketClose(
+      String symbol,
+      UUID rawId,
+      UUID versionId,
+      LocalDate date,
+      BigDecimal close,
+      Map<UUID, RawPrices> cache) {
+    if (rawId == null || versionId == null) return false;
+    try {
+      if (!cache.containsKey(rawId)) cache.put(rawId, loadRawPrices(symbol, rawId));
+      var raw = cache.get(rawId);
+      if (raw == null) return false;
+      var version =
+          db.queryForList(
+              "SELECT ingestion_run_id FROM data_versions WHERE id=? AND status='ACTIVATED' AND"
+                  + " data_domain='MARKET_PRICE'",
+              versionId);
+      return !version.isEmpty()
+          && raw.ingestionRun().equals(version.getFirst().get("ingestion_run_id"))
+          && raw.closes().containsKey(date)
+          && raw.closes().get(date).compareTo(close) == 0;
+    } catch (IllegalArgumentException ex) {
+      return false;
+    }
+  }
+
+  private RawPrices loadRawPrices(String symbol, UUID rawId) {
+    var rows =
+        db.queryForList(
+            "SELECT r.payload::text AS"
+                + " body,r.entity_type,r.source_symbol,r.fetched_at,r.ingestion_run_id,d.provider"
+                + " FROM raw_payloads r JOIN data_sources d ON d.id=r.data_source_id WHERE r.id=?",
+            rawId);
+    if (rows.isEmpty()) return null;
+    var row = rows.getFirst();
+    String provider = Objects.toString(row.get("provider"), "");
+    JsonNode body = json.read(row.get("body").toString());
+    if (!Set.of("vnstock", "vndirect", "cafef").contains(provider)
+        || !provider.equals(body.path("provider").asText())
+        || !"OHLCV".equals(row.get("entity_type"))) return null;
+    // A normalized contract must explicitly assert its unit; legacy providers use the existing
+    // production parser's reviewed VND multiplier, verified by matching the stored value below.
+    if ("market_price.v1".equals(body.path("schema_version").asText())
+        && !"VND".equals(body.path("price_unit").asText())) return null;
+    Instant fetched = ((java.sql.Timestamp) row.get("fetched_at")).toInstant();
+    var batch =
+        priceParser.parse(body, "OHLCV", Objects.toString(row.get("source_symbol"), symbol), fetched);
+    if (!symbol.equals(batch.symbol())) return null;
+    var closes = new HashMap<LocalDate, BigDecimal>();
+    for (var bar : batch.rows()) {
+      LocalDate day = bar.timestamp().atZone(MarketPricePayloadParser.VIETNAM_ZONE).toLocalDate();
+      if (closes.putIfAbsent(day, bar.close()) != null) return null;
+    }
+    return new RawPrices((UUID) row.get("ingestion_run_id"), Map.copyOf(closes));
   }
 }

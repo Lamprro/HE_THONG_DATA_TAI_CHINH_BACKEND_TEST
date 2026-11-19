@@ -1,10 +1,6 @@
 package com.hethongdata.taichinh.controller.user;
 
 import com.hethongdata.taichinh.service.user.UserFinancialService;
-import com.hethongdata.taichinh.service.user.UserFinancialViewService;
-import com.hethongdata.taichinh.service.user.UserComparisonService;
-import com.hethongdata.taichinh.service.user.UserDataStatusService;
-import com.hethongdata.taichinh.service.user.UserProvenanceService;
 import com.hethongdata.taichinh.service.user.UserReadSupport.Data;
 import com.hethongdata.taichinh.service.user.UserReadSupport.Page;
 import com.hethongdata.taichinh.controller.user.UserContractController.EndpointId;
@@ -17,21 +13,9 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1")
 public class UserFinancialController {
     private final UserFinancialService service;
-    private final UserFinancialViewService views;
-    private final UserComparisonService comparison;
-    private final UserDataStatusService coverage;
-    private final UserProvenanceService provenance;
 
-    public UserFinancialController(UserFinancialService service,
-            UserFinancialViewService views,
-            UserComparisonService comparison,
-            UserDataStatusService coverage,
-            UserProvenanceService provenance) {
+    public UserFinancialController(UserFinancialService service) {
         this.service = service;
-        this.views = views;
-        this.comparison = comparison;
-        this.coverage = coverage;
-        this.provenance = provenance;
     }
 
     @GetMapping("/securities/{symbol}/statements")
@@ -79,7 +63,7 @@ public class UserFinancialController {
             @RequestParam(defaultValue="INCOME_STATEMENT") String type,
             @RequestParam(defaultValue="0") int page,
             @RequestParam(defaultValue="50") int size) {
-        return views.items(symbol,exchange,type,page,size);
+        return service.items(symbol,exchange,type,page,size);
     }
 
     @EndpointId("UserFinancialViewController_matrix")
@@ -93,7 +77,7 @@ public class UserFinancialController {
             @RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(defaultValue="12") int periodLimit) {
-        return views.matrix(symbol,exchange,type,period,scope,codes,from,to,periodLimit);
+        return service.matrix(symbol,exchange,type,period,scope,codes,from,to,periodLimit);
     }
 
     @EndpointId("UserComparisonController_compare")
@@ -103,14 +87,14 @@ public class UserFinancialController {
             @RequestParam String codes,
             @RequestParam(defaultValue="PROVIDER") String origin,
             @RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate asOf) {
-        return comparison.compare(symbols,exchange,codes,origin,asOf);
+        return service.compare(symbols,exchange,codes,origin,asOf);
     }
 
     @EndpointId("UserDataStatusController_periods")
     @GetMapping("/securities/{symbol}/periods")
     public Data<List<Map<String,Object>>> periods(@PathVariable String symbol,
             @RequestParam(required=false) String exchange) {
-        return coverage.periods(symbol,exchange);
+        return service.periods(symbol,exchange);
     }
 
     @EndpointId("UserDataStatusController_lineage")
@@ -118,7 +102,7 @@ public class UserFinancialController {
     public Data<Map<String,Object>> lineage(@PathVariable String symbol,
             @PathVariable UUID id,
             @RequestParam(required=false) String exchange) {
-        return coverage.lineage(symbol,exchange,id);
+        return service.lineage(symbol,exchange,id);
     }
 
     @EndpointId("UserProvenanceController_metric")
@@ -126,6 +110,6 @@ public class UserFinancialController {
     public Data<Map<String,Object>> metricLineage(@PathVariable String symbol,
             @PathVariable UUID id,
             @RequestParam(required=false) String exchange) {
-        return provenance.metric(symbol,exchange,id);
+        return service.metricLineage(symbol,exchange,id);
     }
 }

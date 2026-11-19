@@ -24,7 +24,7 @@ public class SupplementaryDataWorkflowService {
     public IngestionExecutionResponse executeVersion(IngestionJobEntity job,UUID id,String trigger) {
         if(!supports(job.getCode())) throw new IllegalArgumentException("Unsupported supplementary builder");
         String domain="FOREIGN_TRADE_BUILD".equals(job.getCode())?"MARKET_FOREIGN":"SECURITY_REFERENCE";
-        return executeCandidates(job,trigger,domain,List.of(com.hethongdata.taichinh.service.validation.SelectedDataVersion.active(versions,id,domain)));
+        return executeCandidates(job,trigger,domain,List.of(DataVersionLifecycleService.requireActive(versions,id,domain)));
     }
     private IngestionExecutionResponse executeCandidates(IngestionJobEntity job,String trigger,String domain,List<com.hethongdata.taichinh.entity.validation.DataVersionEntity> candidates) {
         UUID last=null;int rejected=0;

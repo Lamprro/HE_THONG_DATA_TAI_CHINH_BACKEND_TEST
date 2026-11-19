@@ -1,5 +1,7 @@
 package com.hethongdata.taichinh.service.financial;
 
+import com.fasterxml.jackson.core.StreamReadConstraints;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.util.Map;
 import java.util.Set;
@@ -44,6 +46,17 @@ public final class OfficialFinancialSources {
     public static Set<String> symbols() { return SOURCES.keySet(); }
     public static boolean isProvider(String provider) {
         return SOURCES.values().stream().anyMatch(s -> s.provider().equals(provider));
+    }
+
+    /** A 25 MiB PDF needs up to 33.34 MiB in the internal base64 envelope. */
+    public static final int MAX_ENCODED_STRING = 35 * 1024 * 1024;
+
+    /** Storage/JPA mapper for official document envelopes; the HTTP mapper keeps Jackson defaults. */
+    public static ObjectMapper copyForStorage(ObjectMapper source) {
+        ObjectMapper copy = source.copy();
+        copy.getFactory().setStreamReadConstraints(StreamReadConstraints.builder()
+                .maxStringLength(MAX_ENCODED_STRING).build());
+        return copy;
     }
     private OfficialFinancialSources() {}
 }

@@ -1,18 +1,32 @@
 package com.hethongdata.taichinh.service.user;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.*;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 import static com.hethongdata.taichinh.service.user.UserReadSupport.*;
 
-/** Reads the registered suite's progress, never its private inputs, artifacts or predictions. */
+/**
+ * Reads the registered suite's progress, never its private inputs, artifacts or raw predictions.
+ * The opt-in research preview (financial.local-ai.research-preview.enabled, default false, 404 when disabled)
+ * projects only whitelisted output-contract fields of stored selected outputs; the package is RESEARCH_ONLY
+ * and has no publication policy yet. Inputs, features, artifacts and run payloads never leave the DB.
+ */
 @Service
-@Transactional(readOnly=true,timeout=15,isolation=org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
+@Transactional(readOnly=true,timeout=15,isolation=Isolation.REPEATABLE_READ)
 public class UserLocalAiService {
-  private final UserReadSupport read;private final UserSecurityService securities;
-  public UserLocalAiService(UserReadSupport read,UserSecurityService securities){this.read=read;this.securities=securities;}
+  private final boolean previewEnabled;private final UserReadSupport read;private final ObjectMapper json;
+  public UserLocalAiService(@Value("${financial.local-ai.research-preview.enabled:false}") boolean previewEnabled,UserReadSupport read,ObjectMapper json){
+    this.previewEnabled=previewEnabled;this.read=read;this.json=json;
+  }
   static final String NOTE="Registered research progress only. Counts are stored records, not accuracy, live provider availability or public prediction approval. No model execution, feature submission or training occurs on reads.";
-  private boolean installed(){
+  boolean installed(){
     return read.hasColumns("local_ai_packages",Set.of("id","manifest","status","registered_at"))
       &&read.hasColumns("local_ai_package_inputs",Set.of("package_id","model_id","ticker","data_as_of"))
       &&read.hasColumns("local_ai_package_runs",Set.of("id","package_id","model_id","ticker","role","status","checks","http_status","completed_at"))
@@ -24,7 +38,7 @@ public class UserLocalAiService {
     and p.manifest->'production_eligible'='false'::jsonb and p.manifest->'replace_llm'='false'::jsonb
     and jsonb_typeof(p.manifest->'models')='array'
     """;
-  private Map<String,Object> packageRow(UUID id){
+  Map<String,Object> packageRow(UUID id){
     var args=new HashMap<String,Object>();String query="select p.id,p.status,p.registered_at as \"registeredAt\" "+PACKAGES;
     if(id!=null){args.put("id",id);query+=" and p.id=:id";}
     var rows=read.rows(query+" order by p.registered_at desc,p.id desc limit 1",args);
@@ -88,7 +102,7 @@ public class UserLocalAiService {
     return new Page<>(rows.items().stream().map(this::project).toList(),rows.total(),page,size,rows.hasNext(),rows.meta());
   }
   public Data<Map<String,Object>> security(String symbol,String exchange,UUID packageId){
-    var security=securities.resolve(symbol,exchange);var result=new LinkedHashMap<String,Object>();result.put("security",security);
+    var security=read.resolve(symbol,exchange);var result=new LinkedHashMap<String,Object>();result.put("security",security);
     result.put("publicResultsAvailable",false);result.put("executionAvailable",false);result.put("models",List.of());
     if(!installed()){result.put("state","NOT_INSTALLED");return data(result,NOTE);}
     var pkg=packageRow(packageId);result.put("package",pkg);if(pkg==null){result.put("state","NO_REGISTERED_PACKAGE");return data(result,NOTE);}
@@ -98,5 +112,70 @@ public class UserLocalAiService {
     result.put("modelsTruncated",rows.size()>100);var models=rows.stream().limit(100).map(this::project).toList();result.put("models",models);
     boolean input=models.stream().anyMatch(m->Long.parseLong(m.get("registeredInputs").toString())>0);
     result.put("state",input?"RESEARCH_ONLY":"NO_REGISTERED_INPUT");return data(result,NOTE,"No stored result value, input features, train files, artifact paths, run payload or retrospective outcome is published. Missing ticker input is not filled from a different company.");
+  }
+
+  // ---- opt-in research preview ----
+  static final String PREVIEW_NOTE="RESEARCH PREVIEW ONLY. Stored outputs of a RESEARCH_ONLY package without publication approval. Not investment advice, not a calibrated probability or verified forecast accuracy. Reads never execute a model.";
+  static final Map<String,List<String>> PREVIEW_FIELDS=Map.of(
+    "h3",List.of("direction","score_up","threshold"),
+    "quantile",List.of("return_p10","return_p50","return_p90"),
+    "npat",List.of("prediction_vnd"),
+    "return",List.of("prediction"),
+    "volatility",List.of("prediction"),
+    "drawdown",List.of("prediction"));
+  private static final String PREVIEW_QUERY="""
+    select distinct on (x.model_id) x.model_id as "modelId",model->>'kind' as kind,
+      case when model->>'horizon' ~ '^[1-4]$' then (model->>'horizon')::integer end as "horizonQuarters",
+      x.target_period as "targetPeriod",x.issued_at as "issuedAt",r.completed_at as "completedAt",
+      i.data_as_of as "dataAsOf",model->'selection'->>'selected' as "selectedAlgorithm",
+      model->'selection'->'gate_pass'='true'::jsonb as "developmentGatePassed",x.prediction::text as prediction
+    from local_ai_package_predictions x
+    join local_ai_package_runs r on r.id=x.run_id and r.package_id=x.package_id and r.model_id=x.model_id and r.ticker=x.ticker and r.role=x.role
+    join local_ai_package_inputs i on i.package_id=x.package_id and i.model_id=x.model_id and i.ticker=x.ticker
+    join local_ai_packages p on p.id=x.package_id
+    cross join lateral jsonb_array_elements(p.manifest->'models') model
+    where x.package_id=:package and x.ticker=:ticker and model->>'id'=x.model_id
+      and model->'production_eligible'='false'::jsonb
+      and x.role='selected' and x.readiness='RESEARCH_ONLY'
+      and r.status='SUCCEEDED' and r.http_status=200 and r.completed_at is not null and r.checks->'passed'='true'::jsonb
+    order by x.model_id,x.issued_at desc,x.id desc
+    """;
+
+  public boolean previewEnabled(){return previewEnabled;}
+
+  public Data<Map<String,Object>> preview(String symbol,String exchange,UUID packageId){
+    if(!previewEnabled)throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Local AI research preview is disabled");
+    var security=read.resolve(symbol,exchange);var result=new LinkedHashMap<String,Object>();
+    result.put("security",security);result.put("readiness","RESEARCH_ONLY");result.put("researchPreview",true);
+    result.put("publicResultsAvailable",false);result.put("predictions",List.of());
+    if(!installed()){result.put("state","NOT_INSTALLED");return data(result,PREVIEW_NOTE);}
+    var pkg=packageRow(packageId);result.put("package",pkg);
+    if(pkg==null){result.put("state","NO_REGISTERED_PACKAGE");return data(result,PREVIEW_NOTE);}
+    String ticker=security.get("symbol").toString();
+    var identity=read.one("select count(*) as count from securities where symbol=:symbol",Map.of("symbol",ticker),"Ticker identity");
+    if(!"1".equals(identity.get("count").toString())){result.put("state","TICKER_IDENTITY_AMBIGUOUS");return data(result,PREVIEW_NOTE);}
+    var args=new HashMap<String,Object>();args.put("package",UUID.fromString(pkg.get("id").toString()));args.put("ticker",ticker);
+    var rows=read.rows(PREVIEW_QUERY,args).stream().map(this::projectPreview).filter(Objects::nonNull).toList();
+    result.put("predictions",rows);result.put("state",rows.isEmpty()?"NO_STORED_RESULT":"RESEARCH_PREVIEW");
+    return data(result,PREVIEW_NOTE,"Values are the latest stored selected output per model. Decimal values are strings. Direction score is uncalibrated (0-1).");
+  }
+
+  /** Keep metadata, replace raw prediction JSON with whitelisted contract fields only. */
+  Map<String,Object> projectPreview(Map<String,Object> row){
+    var fields=PREVIEW_FIELDS.get(Objects.toString(row.get("kind"),""));
+    if(fields==null)return null;
+    JsonNode node;
+    try{node=json.reader().with(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS).readTree(Objects.toString(row.get("prediction"),"{}"));}catch(Exception e){return null;}
+    var values=new LinkedHashMap<String,Object>();
+    for(String field:fields){
+      JsonNode value=node.get(field);
+      if(value==null||value.isNull())values.put(field,null);
+      else if(value.isNumber())values.put(field,value.decimalValue().toPlainString());
+      else if(value.isTextual()&&value.asText().length()<=40)values.put(field,value.asText());
+      else if(value.isBoolean())values.put(field,value.asBoolean());
+      else values.put(field,null);
+    }
+    var result=new LinkedHashMap<>(row);result.remove("prediction");result.put("values",values);result.put("readiness","RESEARCH_ONLY");
+    return result;
   }
 }

@@ -2,7 +2,6 @@ package com.hethongdata.taichinh.service.validation;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hethongdata.taichinh.dto.validation.ValidationExecutionResponse;
-import com.hethongdata.taichinh.entity.enums.IngestionRunStatus;
 import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
 import com.hethongdata.taichinh.entity.ingestion.RawPayloadEntity;
 import com.hethongdata.taichinh.entity.validation.DataVersionEntity;
@@ -216,7 +215,7 @@ public class ValidationJobService {
         var existingVersion = versions.findByIngestionRunId(ingestionRunId);
         if (existingVersion.isPresent()) return existingVersion.get().getId();
 
-        if (run.getStatus() != IngestionRunStatus.SUCCESS) {
+        if (run.getStatus() != IngestionRunEntity.Status.SUCCESS) {
             LOGGER.info(
                     "Data version deferred for ingestionRunId={}: ingestion status is {}",
                     ingestionRunId,

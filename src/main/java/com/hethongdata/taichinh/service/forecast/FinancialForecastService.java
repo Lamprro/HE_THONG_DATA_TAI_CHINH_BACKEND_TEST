@@ -48,7 +48,7 @@ public class FinancialForecastService {
     return new Preview(
         issues.isEmpty(),
         ctx.hash(),
-        ForecastHorizon.periodStart(ctx.targetDate()),
+        ForecastContextService.periodStart(ctx.targetDate()),
         ctx.targetDate(),
         ctx.coverage(),
         List.copyOf(issues),

@@ -13,16 +13,14 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/admin")
 public class MarketDataAdminController {
-    private final MarketPriceReadService prices;
-    private final MarketIndexReadService indices;
+    private final MarketDataReadService reads;
     private final IndexJobProvisioningService indexJobs;
     private final MacroJobCatalogService macroJobs;
     private final JdbcTemplate db;
 
-    public MarketDataAdminController(MarketPriceReadService prices, MarketIndexReadService indices,
+    public MarketDataAdminController(MarketDataReadService reads,
             IndexJobProvisioningService indexJobs, MacroJobCatalogService macroJobs, JdbcTemplate db) {
-        this.prices = prices;
-        this.indices = indices;
+        this.reads = reads;
         this.indexJobs = indexJobs;
         this.macroJobs = macroJobs;
         this.db = db;
@@ -32,7 +30,7 @@ public class MarketDataAdminController {
     public Page<MarketPriceEntity> canonicalPrices(@PathVariable String symbol,
             @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "50") int size,
             @RequestParam(required = false) String interval) {
-        return prices.canonicalPrices(symbol, safePage(page), safeSize(size), interval);
+        return reads.securityPrices(symbol, safePage(page), safeSize(size), interval);
     }
 
     @PostMapping("/market-indices/catalog/seed")
@@ -43,19 +41,19 @@ public class MarketDataAdminController {
     @GetMapping("/market-indices")
     public Page<MarketIndexEntity> indices(@RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size) {
-        return indices.indices(safePage(page), safeSize(size));
+        return reads.indices(safePage(page), safeSize(size));
     }
 
     @GetMapping("/market-indices/{code}/prices")
     public Page<IndexPriceEntity> canonicalPrices(@PathVariable String code,
             @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "50") int size) {
-        return indices.canonicalPrices(code, safePage(page), safeSize(size));
+        return reads.indexPrices(code, safePage(page), safeSize(size));
     }
 
     @GetMapping("/market-indices/{code}/memberships")
     public Page<SecurityIndexMembershipEntity> memberships(@PathVariable String code,
             @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "50") int size) {
-        return indices.memberships(code, safePage(page), safeSize(size));
+        return reads.memberships(code, safePage(page), safeSize(size));
     }
 
     @PostMapping("/macro/jobs/seed")

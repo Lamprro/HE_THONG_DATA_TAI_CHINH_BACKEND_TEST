@@ -16,7 +16,7 @@ class ManualIngestionSourceSelectionTests {
     final DataSourceRepository sources = mock(DataSourceRepository.class);
     final IngestionRunRepository runs = mock(IngestionRunRepository.class);
     final IngestionService service = new IngestionService(port, sources, runs,
-            mock(RawPayloadRepository.class), mock(IngestionCompletionService.class),
+            mock(com.hethongdata.taichinh.repository.jpa.ingestion.RawPayloadJpaRepository.class), mock(IngestionCompletionService.class),
             new ChecksumService(), new ObjectMapper());
 
     ManualIngestionRequest request(String code) {

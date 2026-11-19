@@ -2,11 +2,11 @@ package com.hethongdata.taichinh.controller.admin;
 
 import com.fasterxml.jackson.databind.*;
 import com.hethongdata.taichinh.service.admin.*;
+import com.hethongdata.taichinh.service.llm.NewsLlmService;
 import java.util.*;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.env.Environment;
 import org.springframework.http.*;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
@@ -18,13 +18,13 @@ public class AdminConsoleController {
   private final RequestMappingHandlerMapping routes;
   private final ObjectMapper json;
   private final Environment environment;
-  private final JdbcTemplate db;
-  @org.springframework.beans.factory.annotation.Autowired private AdminScheduleService schedule;
-  @org.springframework.beans.factory.annotation.Autowired private NewsLlmAdminController news;
+  private final AdminScheduleService schedule;
+  private final NewsLlmService news;
   public AdminConsoleController(AdminConsoleReadService reads, AdminCommandService commands,
       @Qualifier("requestMappingHandlerMapping") RequestMappingHandlerMapping routes,
-      ObjectMapper json, Environment environment, JdbcTemplate db) {
-    this.reads=reads; this.commands=commands; this.routes=routes; this.json=json; this.environment=environment; this.db=db;
+      ObjectMapper json, Environment environment, AdminScheduleService schedule, NewsLlmService news) {
+    this.reads=reads; this.commands=commands; this.routes=routes; this.json=json; this.environment=environment;
+    this.schedule=schedule; this.news=news;
   }
   @GetMapping("/session") public Map<String,Object> session() {
     return Map.of("authenticated",true,"principal","DEDICATED_ADMIN_TOKEN","humanIdentityVerified",false,
@@ -35,7 +35,7 @@ public class AdminConsoleController {
     for(String name:List.of("ingestion","macro","validation","security-job-reconciliation","llm","news-recovery"))
       schedulers.put(name,Map.of("enabled", environment.getProperty("financial."+name+".scheduler.enabled",Boolean.class,false),
           "evidence","configuration only; no heartbeat is inferred"));
-    return Map.of("database",db.queryForObject("select 1",Integer.class)==1?"UP":"DOWN", "schedulers",schedulers,
+    return Map.of("database",reads.databaseUp()?"UP":"DOWN", "schedulers",schedulers,
         "timezone","Asia/Ho_Chi_Minh","nativeApiCount",catalog().size(),
         "adminWorkers",Map.of("commandsEnabled",commands.workerEnabled(),"scheduleEnabled",schedule.workerEnabled(),"scope","this instance only; other instances may still process shared work"),
         "commandSemantics","SUCCEEDED means the native call returned; inspect result status and final data versions. UNKNOWN must be reviewed before retry.");
@@ -63,32 +63,16 @@ public class AdminConsoleController {
   @PostMapping("/commands/{id}/retry") public ResponseEntity<Map<String,Object>> retry(@PathVariable UUID id,@RequestBody RetryRequest body) {
     return ResponseEntity.accepted().body(commands.retry(id,body.idempotencyKey(),body.reason(),body.reviewed()));
   }
-  @GetMapping("/summary") public Map<String,Object> summary() {
-    return Map.of("jobs",db.queryForList("select is_active,count(*) as count from ingestion_jobs group by is_active"),
-      "commands",db.queryForList("select status,count(*) as count from admin_commands group by status"),
-      "runs",db.queryForList("select status,count(*) as count from ingestion_runs group by status"),
-      "versions",db.queryForList("select data_domain,status,count(*) as count from data_versions group by data_domain,status"),
-      "validation",db.queryForList("select validation_target,result_status,count(*) as count from validation_results group by validation_target,result_status"));
-  }
+  @GetMapping("/summary") public Map<String,Object> summary() { return reads.summary(); }
   @GetMapping("/schedule") public Map<String,Object> schedule() {return schedule.status();}
   @GetMapping("/news-candidates") public List<Map<String,Object>> newsCandidates(@RequestParam(defaultValue="20") int limit) {
     if(limit<1||limit>100) throw new IllegalArgumentException("limit must be 1..100");
-    var ids=news.candidates(limit);if(ids.isEmpty()) return List.of();
-    String placeholders=String.join(",",Collections.nCopies(ids.size(),"?"));
-    var rows=db.queryForList("select id as \"articleId\",title,published_at from news_articles where id in ("+placeholders+")",ids.toArray());
-    rows.sort(Comparator.comparingInt(row->ids.indexOf(row.get("articleId"))));return rows;
+    return reads.articleTitles(news.candidates(limit));
   }
   @PutMapping("/schedule") public Map<String,Object> updateSchedule(@RequestBody AdminScheduleService.Request request) {return schedule.update(request);}
-  @GetMapping("/issues/{id}/reviews") public List<Map<String,Object>> reviews(@PathVariable UUID id) {
-    return db.queryForList("select id,event_type,reason,principal,created_at from admin_operation_events where target_id=? order by created_at desc,id desc",id);
-  }
+  @GetMapping("/issues/{id}/reviews") public List<Map<String,Object>> reviews(@PathVariable UUID id) { return reads.issueReviews(id); }
   @PostMapping("/issues/{id}/reviews") public Map<String,Object> reviewIssue(@PathVariable UUID id,@RequestBody Map<String,String> body) {
-    String reason=body.get("reason");
-    if(reason==null || reason.isBlank() || reason.length()>2000) throw new IllegalArgumentException("A review reason (1..2000) is required");
-    if(db.queryForObject("select count(*) from validation_results where id=?",Integer.class,id)!=1) throw new IllegalArgumentException("Validation result not found");
-    UUID reviewId=UUID.randomUUID();
-    db.update("insert into admin_operation_events(id,event_type,target_id,reason) values (?,'ISSUE_REVIEWED',?,?)",reviewId,id,reason);
-    return Map.of("id",reviewId,"validationResultId",id,"validationStatusChanged",false);
+    return commands.reviewIssue(id,body.get("reason"));
   }
   /** Discovers the deployed MVC contract; a future controller is visible without pretending it is deployed today. */
   @GetMapping("/catalog") public List<Map<String,Object>> catalog() {
@@ -97,7 +81,7 @@ public class AdminConsoleController {
       for(String path:mapping.getPatternValues()) {
         if(path.startsWith("/api/admin/console")) continue;
         if(!(path.startsWith("/api/admin/") || List.of("/api/ingestion-jobs","/api/ingestions","/api/raw-payloads",
-            "/api/data-sources","/api/companies","/api/securities","/api/external-financial-data/health",
+            "/api/data-sources","/api/companies","/api/securities","/api/security-job-reconciliation","/api/external-financial-data/health",
             "/api/external-financial-data/providers","/api/external-financial-data/capabilities").stream().anyMatch(path::startsWith))) continue;
         for(var method:mapping.getMethodsCondition().getMethods()) {
           var inputs=new ArrayList<Map<String,Object>>();
@@ -106,6 +90,7 @@ public class AdminConsoleController {
             var q=parameter.getParameterAnnotation(RequestParam.class);
             var b=parameter.getParameterAnnotation(RequestBody.class);
             if(p==null && q==null && b==null) continue;
+            parameter.initParameterNameDiscovery(new org.springframework.core.DefaultParameterNameDiscoverer());
             String name=parameter.getParameterName();
             if(p!=null && !p.value().isBlank()) name=p.value();
             if(q!=null && !q.value().isBlank()) name=q.value();

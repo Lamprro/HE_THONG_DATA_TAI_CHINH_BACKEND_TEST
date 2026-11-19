@@ -15,7 +15,7 @@ public class AdminOperationAuditConfiguration implements WebMvcConfigurer {
   @Override public void addInterceptors(InterceptorRegistry registry) {
     registry.addInterceptor(new HandlerInterceptor() {
       @Override public void afterCompletion(HttpServletRequest request,HttpServletResponse response,Object handler,Exception failure) {
-        if(!Boolean.TRUE.equals(request.getAttribute("adminAuthenticated")) || Set.of("GET","HEAD","OPTIONS").contains(request.getMethod())) return;
+        if(!Boolean.TRUE.equals(request.getAttribute(AdminAccessConfiguration.AUTHENTICATED_ATTRIBUTE)) || Set.of("GET","HEAD","OPTIONS").contains(request.getMethod())) return;
         try {
           db.update("insert into admin_operation_events(id,event_type,http_method,request_path,http_status) values (?,'HTTP_MUTATION',?,?,?)",
             UUID.randomUUID(),request.getMethod(),request.getRequestURI(),response.getStatus());

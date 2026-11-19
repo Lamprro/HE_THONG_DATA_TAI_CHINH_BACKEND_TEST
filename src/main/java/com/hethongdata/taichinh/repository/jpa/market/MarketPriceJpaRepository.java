@@ -36,7 +36,6 @@ AND (m.foreign_raw_payload_id IS DISTINCT FROM f.raw_payload_id OR m.foreign_buy
     boolean existsBySecurityIdAndPriceTimestampAndIntervalCodeAndDataSourceIdAndIdNot(
             UUID securityId, Instant timestamp, String intervalCode, Long dataSourceId, Long id);
 
-    List<MarketPriceEntity> findByIntervalCodeOrderByPriceTimestampAsc(String intervalCode);
 
     Optional<MarketPriceEntity> findTopBySecurityIdAndIntervalCodeAndDataSourceIdOrderByPriceTimestampDesc(
             UUID securityId, String intervalCode, Long dataSourceId);

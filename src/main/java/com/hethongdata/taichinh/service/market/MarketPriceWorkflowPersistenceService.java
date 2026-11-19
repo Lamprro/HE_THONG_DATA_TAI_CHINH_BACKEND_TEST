@@ -36,12 +36,13 @@ public class MarketPriceWorkflowPersistenceService {
     private final MarketPriceJpaRepository prices;
     private final MarketPricePayloadParser parser;
     private final ObjectMapper mapper;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     public MarketPriceWorkflowPersistenceService(
             DataVersionJpaRepository versions, RawPayloadJpaRepository rawPayloads,
             IngestionRunJpaRepository runs, DataSourceJpaRepository sources,
             SecurityJpaRepository securities, MarketPriceJpaRepository prices,
-            MarketPricePayloadParser parser, ObjectMapper mapper) {
+            MarketPricePayloadParser parser, ObjectMapper mapper, org.springframework.jdbc.core.JdbcTemplate jdbc) {
         this.versions = versions;
         this.rawPayloads = rawPayloads;
         this.runs = runs;
@@ -50,6 +51,7 @@ public class MarketPriceWorkflowPersistenceService {
         this.prices = prices;
         this.parser = parser;
         this.mapper = mapper;
+        this.jdbc = jdbc;
     }
 
     @Transactional
@@ -177,6 +179,7 @@ public class MarketPriceWorkflowPersistenceService {
         Map<Instant,List<MarketPriceEntity>> buckets=new HashMap<>();
         for (var existing:prices.findBySecurityIdAndIntervalCodeAndPriceTimestampBetween(securityId,"1d",start,end))
             buckets.computeIfAbsent(existing.getPriceTimestamp(),ignored->new java.util.ArrayList<>()).add(existing);
+        if (buckets.isEmpty()) return insertEmptyDailyRange(raw, versionId, securityId, rows);
         Map<Long,DataSourceEntity> sourceCache=new HashMap<>();
         Map<UUID,Instant> fetchedCache=new HashMap<>();
         int inserted=0,updated=0,skipped=0;
@@ -218,6 +221,49 @@ public class MarketPriceWorkflowPersistenceService {
             }
         }
         return new int[]{inserted,updated,skipped};
+    }
+
+    /** Only an empty locked range uses JDBC batching; correction and winner rules stay in JPA. */
+    private int[] insertEmptyDailyRange(RawPayloadEntity raw, UUID versionId, UUID securityId,
+            List<MarketPricePayloadParser.PriceRow> rows) {
+        var created = new java.util.ArrayList<MarketPriceEntity>();
+        for (var row : rows) {
+            var price = MarketPriceEntity.create(securityId, row.timestamp(), row.interval(), row.open(), row.high(),
+                    row.low(), row.close(), row.adjustedClose(), row.referencePrice(), row.ceilingPrice(), row.floorPrice(),
+                    row.volume(), row.tradingValue(), row.foreignBuyVolume(), row.foreignSellVolume(),
+                    raw.getDataSource().getId(), raw.getId(), versionId);
+            price.annotatePriceSource(raw.getPayload().path("provider").asText(), raw.getFetchedAt());
+            price.setCanonical(true);
+            created.add(price);
+        }
+        jdbc.batchUpdate("INSERT INTO market_prices (security_id,price_timestamp,interval_code,open_price,high_price,low_price,close_price,adjusted_close,reference_price,ceiling_price,floor_price,volume,trading_value,foreign_buy_volume,foreign_sell_volume,data_source_id,raw_payload_id,data_version_id,is_canonical,created_at,updated_at,price_basis,first_seen_at,price_metadata) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CAST(? AS jsonb))",
+                created, 100, (statement, p) -> {
+                    statement.setObject(1, p.getSecurityId());
+                    statement.setObject(2, java.sql.Timestamp.from(p.getPriceTimestamp()));
+                    statement.setObject(3, p.getIntervalCode());
+                    statement.setObject(4, p.getOpenPrice());
+                    statement.setObject(5, p.getHighPrice());
+                    statement.setObject(6, p.getLowPrice());
+                    statement.setObject(7, p.getClosePrice());
+                    statement.setObject(8, p.getAdjustedClose());
+                    statement.setObject(9, p.getReferencePrice());
+                    statement.setObject(10, p.getCeilingPrice());
+                    statement.setObject(11, p.getFloorPrice());
+                    statement.setObject(12, p.getVolume());
+                    statement.setObject(13, p.getTradingValue());
+                    statement.setObject(14, p.getForeignBuyVolume());
+                    statement.setObject(15, p.getForeignSellVolume());
+                    statement.setObject(16, p.getDataSourceId());
+                    statement.setObject(17, p.getRawPayloadId());
+                    statement.setObject(18, p.getDataVersionId());
+                    statement.setObject(19, p.getIsCanonical());
+                    statement.setObject(20, java.sql.Timestamp.from(p.getCreatedAt()));
+                    statement.setObject(21, java.sql.Timestamp.from(p.getUpdatedAt()));
+                    statement.setObject(22, p.getPriceBasis());
+                    statement.setObject(23, java.sql.Timestamp.from(p.getFirstSeenAt()));
+                    statement.setObject(24, p.getPriceMetadata() .toString());
+                });
+        return new int[]{created.size(), 0, 0};
     }
 
     private Instant storageTimestamp(UUID securityId, Long sourceId,

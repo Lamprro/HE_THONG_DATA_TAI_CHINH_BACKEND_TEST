@@ -7,10 +7,12 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.*;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /** Authenticated raw storage. No public CDN URLs or credentials in the returned manifest. */
 @Component
+@EnableConfigurationProperties(CloudinaryDocumentProperties.class)
 public class CloudinaryDocumentStorage {
   public record Asset(
       String assetId, String publicId, String sha256, long bytes, String deliveryType) {}

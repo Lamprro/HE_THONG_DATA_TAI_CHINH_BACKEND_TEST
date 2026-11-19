@@ -54,7 +54,7 @@ public class MarketIndexWorkflowService {
 
     public IngestionExecutionResponse executeVersion(IngestionJobEntity job,UUID id,String trigger) {
         if(!supports(job.getCode())) throw new IllegalArgumentException("Unsupported index builder");
-        var version=com.hethongdata.taichinh.service.validation.SelectedDataVersion.active(versions,id,"MARKET_INDEX");
+        var version=DataVersionLifecycleService.requireActive(versions,id,"MARKET_INDEX");
         String rawType=PRICE_BUILD.equals(job.getCode())?"INDEX_OHLCV":"INDEX_MEMBERS";
         if(rawPayloads.findByIngestionRunIdAndEntityTypeOrderByFetchedAtAsc(version.getIngestionRunId(),rawType).isEmpty())
             throw new IllegalArgumentException("Selected version does not contain "+rawType);

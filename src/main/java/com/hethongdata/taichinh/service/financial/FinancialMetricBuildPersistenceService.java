@@ -2,9 +2,11 @@ package com.hethongdata.taichinh.service.financial;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.hethongdata.taichinh.repository.jpa.ingestion.*;
 import com.hethongdata.taichinh.repository.jpa.validation.DataVersionJpaRepository;
 import com.hethongdata.taichinh.service.ingestion.ChecksumService;
+import java.math.BigDecimal;
 import java.time.*;
 import java.util.*;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -18,13 +20,11 @@ public class FinancialMetricBuildPersistenceService {
     private final DataVersionJpaRepository versions;
     private final RawPayloadJpaRepository raws;
     private final IngestionRunJpaRepository runs;
-    private final ProviderRatioParser parser;
     private final ObjectMapper mapper;
     private final ChecksumService hashes;
     public FinancialMetricBuildPersistenceService(JdbcTemplate db, DataVersionJpaRepository versions,
-            RawPayloadJpaRepository raws, IngestionRunJpaRepository runs, ProviderRatioParser parser,
-            ObjectMapper mapper, ChecksumService hashes) {
-        this.db=db; this.versions=versions; this.raws=raws; this.runs=runs; this.parser=parser;
+            RawPayloadJpaRepository raws, IngestionRunJpaRepository runs, ObjectMapper mapper, ChecksumService hashes) {
+        this.db=db; this.versions=versions; this.raws=raws; this.runs=runs;
         this.mapper=mapper; this.hashes=hashes;
     }
     @Transactional
@@ -37,7 +37,7 @@ public class FinancialMetricBuildPersistenceService {
         int inserted=0;
         for (var raw:payloads) {
             if (!"RATIO".equals(raw.getEntityType())) throw new IllegalArgumentException("Batch contains non-RATIO payload");
-            var rows=parser.parse(raw.getPayload(),raw.getSourceSymbol());
+            var rows=parseRatios(raw.getPayload(),raw.getSourceSymbol());
             var security=db.queryForList("SELECT id,company_id FROM securities WHERE upper(symbol)=upper(?)",
                     raw.getSourceSymbol());
             if (security.size()!=1 || security.getFirst().get("company_id")==null)
@@ -116,5 +116,39 @@ ORDER BY d.is_official DESC NULLS LAST,d.priority ASC NULLS LAST,d.id ASC NULLS 
     public void noWork(IngestionRunEntity run) {
         run.markBatchSuccess(mapper.valueToTree(Map.of("workflow","FINANCIAL_METRIC_BUILD","noWork",true)),Instant.now(),0);
         runs.save(run);
+    }
+
+    // ---- Explicit VNDirect ratio contract; no magnitude-based guessing and no forecast inputs. ----
+    private static final Set<String> RATIO_CODES = Set.of("PRICE_TO_EARNINGS", "PRICE_TO_BOOK", "EPS_TR",
+            "ROAE_TR_AVG5Q", "ROAA_TR_AVG5Q", "DIVIDEND_YIELD");
+    private static final Set<String> FRACTION_RATIOS = Set.of("ROAE_TR_AVG5Q", "ROAA_TR_AVG5Q", "DIVIDEND_YIELD");
+    public record Ratio(String code, LocalDate date, BigDecimal value, BigDecimal sourceValue,
+                        String transformation, JsonNode sourceRow) {}
+
+    public static List<Ratio> parseRatios(JsonNode payload, String sourceSymbol) {
+        if (!"vndirect".equalsIgnoreCase(payload.path("provider").asText())
+                || !"ratios".equalsIgnoreCase(payload.path("dataset").asText()))
+            throw new IllegalArgumentException("Only the reviewed VNDirect ratios contract is supported");
+        if (!sourceSymbol.equalsIgnoreCase(payload.path("symbol").asText())
+                || !payload.path("data").isArray() || payload.path("data").isEmpty()
+                || payload.path("count").asInt(-1) != payload.path("data").size())
+            throw new IllegalArgumentException("Invalid ratio symbol/count/data envelope");
+        var out = new ArrayList<Ratio>();
+        var identities = new HashSet<String>();
+        for (JsonNode row : payload.path("data")) {
+            String code = row.path("ratioCode").asText();
+            if (!RATIO_CODES.contains(code) || !sourceSymbol.equalsIgnoreCase(row.path("code").asText()))
+                throw new IllegalArgumentException("Unknown ratio code or mismatched security");
+            LocalDate date = LocalDate.parse(row.path("reportDate").asText());
+            if (date.isAfter(LocalDate.now(java.time.ZoneId.of("Asia/Ho_Chi_Minh"))))
+                throw new IllegalArgumentException("Ratio report date is in the future");
+            if (!row.path("value").isNumber()) throw new IllegalArgumentException("Missing numeric ratio value");
+            if (!identities.add(code + ":" + date)) throw new IllegalArgumentException("Duplicate ratio/date in batch");
+            BigDecimal original = row.path("value").decimalValue();
+            boolean fraction = FRACTION_RATIOS.contains(code);
+            out.add(new Ratio(code, date, fraction ? original.multiply(new BigDecimal("100")) : original,
+                    original, fraction ? "fraction_to_percent:*100" : "identity", row.deepCopy()));
+        }
+        return List.copyOf(out);
     }
 }

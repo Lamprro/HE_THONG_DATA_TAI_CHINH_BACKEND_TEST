@@ -15,10 +15,9 @@ public class LlmValidationService {
             "LLM_COMPANY_IMPACT_UNIQUE","LLM_SOURCE_SNAPSHOT","LLM_PROMPT_SNAPSHOT");
     private final JdbcTemplate db;
     private final LlmJson json;
-    private final NewsLlmValidator validator;
     private final ChecksumService hashes;
-    public LlmValidationService(JdbcTemplate db,LlmJson json,NewsLlmValidator validator,ChecksumService hashes) {
-        this.db=db;this.json=json;this.validator=validator;this.hashes=hashes;
+    public LlmValidationService(JdbcTemplate db,LlmJson json,ChecksumService hashes) {
+        this.db=db;this.json=json;this.hashes=hashes;
     }
     private List<JsonNode> rules(String task) {
         return db.query("""
@@ -58,7 +57,7 @@ public class LlmValidationService {
         boolean policyCurrent=fingerprint(rules).equals(expectedPolicy);
         boolean ready=readiness.isEmpty()&&output!=null;
         boolean schemaOk=false;
-        try {schemaOk=ready&&validator.schema(template.responseSchema(),output).isEmpty();}
+        try {schemaOk=ready&&LlmJson.validateSchema(template.responseSchema(),output).isEmpty();}
         catch(Exception e) {errors.add("LLM_SCHEMA_EXECUTOR_ERROR");technical=true;}
         for(var rule:rules) {
             String executor=rule.path("executor").asText(),state="PASS",message="Rule passed";
@@ -76,7 +75,7 @@ public class LlmValidationService {
                     default -> {
                         if(!ready||(!schemaOk&&!"LLM_RESPONSE_SCHEMA".equals(executor))) {
                             state="SKIP";message="Prerequisite response/schema failed; publication remains blocked";
-                        } else issues=validator.execute(executor,template,context.input(),output);
+                        } else issues=executeNewsRule(executor,template,context.input(),output);
                     }
                 }
             } catch(Exception e) {issues=List.of("LLM_RULE_EXECUTOR_ERROR: "+executor);technical=true;}
@@ -93,5 +92,61 @@ public class LlmValidationService {
                     json.mapper().valueToTree(issues).toString(),"PASS",message);
         }
         return new Evaluation(round,List.copyOf(new LinkedHashSet<>(errors)),technical,warnings);
+    }
+
+    // ---- NEWS response rules (executors referenced by validation_rules.executor_key) ----
+    public static List<String> newsResponseErrors(LlmPromptCatalog.Template template,JsonNode input,JsonNode output) {
+        var errors=new ArrayList<>(LlmJson.validateSchema(template.responseSchema(),output));
+        if(!errors.isEmpty()) return errors;
+        JsonNode article=input.path("article");
+        if(!article.path("id").asText().equals(output.path("source_article_id").asText())) errors.add("SOURCE_ARTICLE_MISMATCH");
+        Map<String,String> segments=new HashMap<>();
+        article.path("segments").forEach(s->segments.put(s.path("id").asText(),s.path("text").asText()));
+        Set<String> companies=new HashSet<>();
+        article.path("companies").forEach(c->companies.add(c.path("company_id").asText()));
+        inspect(output,segments,companies,errors);
+        String status=output.path("status").asText();
+        if("INSUFFICIENT".equals(status)) errors.add("INSUFFICIENT_CONTENT");
+        if(("PARTIAL".equals(status)||"NOT_APPLICABLE".equals(status)) && output.path("limitations").isEmpty())
+            errors.add("LIMITATIONS_REQUIRED");
+        if(!"NEWS_FINANCIAL_FACTS".equals(template.task()) && output.path("sections").isEmpty()) errors.add("SECTIONS_REQUIRED");
+        if("NEWS_FINANCIAL_FACTS".equals(template.task())) {
+            if("NOT_APPLICABLE".equals(status) != output.path("facts").isEmpty()) errors.add("FACTS_STATUS_MISMATCH");
+            output.path("facts").forEach(f->{
+                StringBuilder quoted=new StringBuilder();
+                f.path("evidence").forEach(e->quoted.append(e.path("quote").asText()).append('\n'));
+                if(!quoted.toString().contains(f.path("value_text").asText())) errors.add("FINANCIAL_VALUE_NOT_IN_EVIDENCE");
+                for(String key:List.of("unit","period","attributed_to"))
+                    if(!f.path(key).isNull() && !quoted.toString().contains(f.path(key).asText())) errors.add(key.toUpperCase()+"_NOT_IN_EVIDENCE");
+            });
+        }
+        Set<String> impactCompanies=new HashSet<>();
+        output.path("company_impacts").forEach(i->{ if(!impactCompanies.add(i.path("company_id").asText())) errors.add("DUPLICATE_COMPANY_IMPACT"); });
+        return List.copyOf(errors);
+    }
+    static List<String> executeNewsRule(String executor,LlmPromptCatalog.Template template,JsonNode input,JsonNode output) {
+        if("LLM_RESPONSE_SCHEMA".equals(executor)) return LlmJson.validateSchema(template.responseSchema(),output);
+        var all=newsResponseErrors(template,input,output);
+        Set<String> names=switch(executor) {
+            case "LLM_SOURCE_ID" -> Set.of("SOURCE_ARTICLE_MISMATCH");
+            case "LLM_EVIDENCE_QUOTES" -> Set.of("EVIDENCE_QUOTE_MISMATCH");
+            case "LLM_COMPANY_REFERENCES" -> Set.of("UNKNOWN_COMPANY");
+            case "LLM_ANALYSIS_COMPLETENESS" -> Set.of("INSUFFICIENT_CONTENT","LIMITATIONS_REQUIRED","SECTIONS_REQUIRED");
+            case "LLM_FINANCIAL_FACTS" -> Set.of("FACTS_STATUS_MISMATCH","FINANCIAL_VALUE_NOT_IN_EVIDENCE",
+                    "UNIT_NOT_IN_EVIDENCE","PERIOD_NOT_IN_EVIDENCE","ATTRIBUTED_TO_NOT_IN_EVIDENCE");
+            case "LLM_COMPANY_IMPACT_UNIQUE" -> Set.of("DUPLICATE_COMPANY_IMPACT");
+            default -> throw new IllegalArgumentException("Unknown LLM executor: "+executor);
+        };
+        return all.stream().filter(names::contains).distinct().toList();
+    }
+    private static void inspect(JsonNode node,Map<String,String> segments,Set<String> companies,List<String> errors) {
+        if(node.isObject()) {
+            if(node.has("segment_id")) {
+                String body=segments.get(node.path("segment_id").asText());
+                if(body==null || !body.contains(node.path("quote").asText())) errors.add("EVIDENCE_QUOTE_MISMATCH");
+            }
+            if(node.hasNonNull("company_id") && !companies.contains(node.path("company_id").asText())) errors.add("UNKNOWN_COMPANY");
+        }
+        node.forEach(child->{ if(child.isContainerNode()) inspect(child,segments,companies,errors); });
     }
 }

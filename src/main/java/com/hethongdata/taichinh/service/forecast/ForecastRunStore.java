@@ -114,7 +114,7 @@ public class ForecastRunStore {
 
   @Transactional
   public void attempt(UUID run, JsonNode request, LlmGateway.Attempt a) {
-    com.hethongdata.taichinh.service.llm.LlmAttemptAudit.append(db, json, run, request, a);
+    com.hethongdata.taichinh.service.llm.LlmRunStore.appendAttempt(db, json, run, request, a);
   }
 
   @Transactional
@@ -300,7 +300,7 @@ public class ForecastRunStore {
       return new Outcome("SUCCESS", run, current.getFirst(), List.of());
     }
     LocalDate periodEnd = ctx.targetDate();
-    LocalDate periodStart = ForecastHorizon.periodStart(periodEnd);
+    LocalDate periodStart = ForecastContextService.periodStart(periodEnd);
     String targetScope = request.targetScope();
     if (!pending
         && db.queryForObject(
@@ -361,7 +361,7 @@ public class ForecastRunStore {
             "SELECT * FROM llm_runs WHERE id=? AND task_code=?", id, ForecastPromptService.TASK);
     if (rows.isEmpty()) throw new IllegalArgumentException("Forecast run not found");
     var r = rows.getFirst();
-    var attempts = com.hethongdata.taichinh.service.llm.LlmAttemptAudit.read(db, json, id);
+    var attempts = com.hethongdata.taichinh.service.llm.LlmRunStore.readAttempts(db, json, id);
     var audit =
         db.query(
             "SELECT row_to_json(v)::text FROM validation_results v WHERE llm_run_id=? ORDER BY"

@@ -2,6 +2,8 @@ package com.hethongdata.taichinh.service.llm;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.networknt.schema.JsonSchemaFactory;
+import com.networknt.schema.SpecVersion;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -33,5 +35,15 @@ public class LlmJson {
             var result=mapper.createArrayNode();for(var item:value) result.add(canonical(item));return result;
         }
         return value;
+    }
+    /** Shared structural JSON Schema (2020-12) validation; no NEWS/FINANCIAL business rules. */
+    public static java.util.List<String> validateSchema(JsonNode schema, JsonNode value) {
+        return JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V202012)
+            .getSchema(schema)
+            .validate(value)
+            .stream()
+            .map(Object::toString)
+            .sorted()
+            .toList();
     }
 }

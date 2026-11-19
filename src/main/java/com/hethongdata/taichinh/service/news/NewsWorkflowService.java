@@ -306,13 +306,13 @@ public class NewsWorkflowService {
         if (data != null && data.isArray()) {
             for (JsonNode item : data) {
                 String url = firstText(item, "url", "link", "href");
-                if (isHttpUrl(url)) items.putIfAbsent(NewsUrlNormalizer.normalize(url), new NewsListItem(
-                        NewsUrlNormalizer.normalize(url), firstText(item, "publishedAt", "published_at"),
+                if (isHttpUrl(url)) items.putIfAbsent(normalizeUrl(url), new NewsListItem(
+                        normalizeUrl(url), firstText(item, "publishedAt", "published_at"),
                         firstText(item, "title", "headline")));
             }
         }
         if (items.isEmpty() && isHttpUrl(source.getSourceUrl())) {
-            String url = NewsUrlNormalizer.normalize(source.getSourceUrl());
+            String url = normalizeUrl(source.getSourceUrl());
             items.put(url, new NewsListItem(url, null, null));
         }
         return List.copyOf(items.values());
@@ -320,10 +320,10 @@ public class NewsWorkflowService {
 
     NewsArticleDraft articleDraft(RawPayloadEntity payload) {
         JsonNode json = payload.getPayload();
-        if (NewsContentClassification.urlOnly(json)) {
+        if (urlOnly(json)) {
             String url = firstText(json, "requested_url", "final_url", "canonical_url");
             if (!isHttpUrl(url)) throw new IllegalArgumentException("Failed extraction has no valid article URL");
-            url = NewsUrlNormalizer.normalize(url);
+            url = normalizeUrl(url);
             String title = clean(firstText(json, "list_title", "title"));
             Instant publishedAt = parsePublishedAt(firstText(json, "list_published_at"));
             String dateSource = publishedAt == null ? "unknown" : "news_list";
@@ -347,7 +347,7 @@ public class NewsWorkflowService {
         if (url == null || title == null || content == null || content.isBlank()) {
             throw new IllegalArgumentException("NEWS_DATA extracted article is incomplete: " + payload.getId());
         }
-        url = NewsUrlNormalizer.normalize(url);
+        url = normalizeUrl(url);
         Instant publishedAt = parsePublishedAt(firstText(json, "published_at"));
         String publishedAtSource = "article";
         if (publishedAt == null) {
@@ -416,4 +416,46 @@ public class NewsWorkflowService {
     }
 
     private record NewsListItem(String url, String publishedAt, String title) {}
+
+    // ---- URL canonicalization: drops tracking parameters, default ports and fragments. ----
+    public static String normalizeUrl(String value) {
+        java.net.URI uri=java.net.URI.create(value.trim()).normalize();
+        String scheme=uri.getScheme()==null?"":uri.getScheme().toLowerCase(java.util.Locale.ROOT);
+        if(!java.util.Set.of("http","https").contains(scheme)||uri.getHost()==null||uri.getUserInfo()!=null)
+            throw new IllegalArgumentException("Invalid news URL");
+        String host=uri.getHost().toLowerCase(java.util.Locale.ROOT);
+        int port=uri.getPort();
+        String authority=host+((port<0||(port==80&&scheme.equals("http"))||(port==443&&scheme.equals("https")))?"":":"+port);
+        java.util.List<String> query=new java.util.ArrayList<>();
+        if(uri.getRawQuery()!=null) for(String part:uri.getRawQuery().split("&")) {
+            String key=java.net.URLDecoder.decode(part.split("=",2)[0],java.nio.charset.StandardCharsets.UTF_8).toLowerCase(java.util.Locale.ROOT);
+            if(!key.startsWith("utm_")&&!java.util.Set.of("fbclid","gclid","zarsrc").contains(key)) query.add(part);
+        }
+        String path=uri.getRawPath()==null||uri.getRawPath().isEmpty()?"/":uri.getRawPath();
+        return scheme+"://"+authority+path+(query.isEmpty()?"":"?"+String.join("&",query));
+    }
+
+    // ---- Content classification: a link is not article evidence. SUCCESS still goes through every content validation rule. ----
+    public static boolean urlOnly(JsonNode payload) {
+        if (payload == null || !payload.isObject()) return false;
+        boolean link=false;
+        for (String field:java.util.List.of("requested_url","final_url","canonical_url")) {
+            try {
+                var uri=java.net.URI.create(payload.path(field).asText(""));
+                if (("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
+                        && uri.getHost()!=null && uri.getUserInfo()==null) link=true;
+            } catch (IllegalArgumentException ignored) {}
+        }
+        if (!link) return false;
+        String status = payload.path("extraction_status").asText("");
+        return "FAILED".equals(status) || "SKIPPED".equals(status)
+                || (status.isBlank() && payload.path("content_text").asText("").isBlank());
+    }
+
+    public static boolean validExtractionStatus(JsonNode payload) {
+        if (payload == null || !payload.isObject()) return false;
+        JsonNode status = payload.get("extraction_status");
+        return status == null || status.isNull() || (status.isTextual()
+                && java.util.Set.of("SUCCESS", "FAILED", "SKIPPED").contains(status.asText()));
+    }
 }

@@ -252,10 +252,12 @@ public class PythonExternalFinancialDataAdapter implements ExternalFinancialData
     }
 
     private String indexPath(String provider, String indexCode, String dataset) {
-        if (!java.util.Set.of("vnstock", "kbs").contains(provider)) {
+        if (!java.util.Set.of("vnstock", "kbs", "cafef").contains(provider)) {
             throw new IllegalArgumentException(
-                    "Index APIs support vnstock or kbs.");
+                    "Index APIs support vnstock, kbs or cafef.");
         }
+        if ("cafef".equals(provider) && !"ohlcv".equals(dataset))
+            throw new IllegalArgumentException("CafeF index adapter supports only OHLCV.");
         String path = "/api/v1/" + provider + "/indices";
         if (indexCode != null) path += "/" + indexCode;
         return dataset == null ? path : path + "/" + dataset;

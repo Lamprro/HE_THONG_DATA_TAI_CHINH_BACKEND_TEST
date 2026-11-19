@@ -111,6 +111,13 @@ def main():
         assert local_ai['publicResultsAvailable'] is False and local_ai['executionAvailable'] is False
         if suite['state'] == 'RESEARCH_ONLY':
             assert models['items'] and all(model['readiness'] == 'RESEARCH_ONLY' and model['publicResultsAvailable'] is False for model in models['items'])
+        # Opt-in research preview: 404 when financial.local-ai.research-preview.enabled=false (default).
+        preview = call(security + '/local-ai/research-preview' + exchange, (200, 404))
+        preview_enabled = 'data' in preview
+        if preview_enabled:
+            assert preview['data']['readiness'] == 'RESEARCH_ONLY' and preview['data']['publicResultsAvailable'] is False
+            text = json.dumps(preview).lower()
+            assert not any(key in text for key in ('input_payload', 'input_sha256', '.pkl', 'request_id', 'checks')), 'private Local AI field exposed'
         overview = call(security + '/overview' + exchange)['data']
         assert overview['profile']['data']['id'] == profile['id']
         assert overview['financialScenarioState'] in ('AVAILABLE', 'NO_ELIGIBLE_RESULT')
@@ -133,7 +140,8 @@ def main():
         call(security + '/overview', 405, 'POST')
         call('/api/v1/local-ai/models', 405, 'POST')
         visited = [urlsplit(row['path']).path for row in evidence if row['method'] == 'GET' and row['http'] == 200]
-        missing = [path for path in contract['paths'] if not any(re.fullmatch(re.sub(r'\{[^}]+\}', '[^/]+', path), visit) for visit in visited)]
+        optional = set() if preview_enabled else {'/api/v1/securities/{symbol}/local-ai/research-preview'}
+        missing = [path for path in contract['paths'] if path not in optional and not any(re.fullmatch(re.sub(r'\{[^}]+\}', '[^/]+', path), visit) for visit in visited)]
         assert not missing, missing
         print(json.dumps(dict(status='PASS', publicGetRoutes=len(contract['paths']), requests=len(evidence), maxElapsedMs=max(row['elapsedMs'] for row in evidence), modelCalls=False, adminCredentialUsed=False)))
     finally:

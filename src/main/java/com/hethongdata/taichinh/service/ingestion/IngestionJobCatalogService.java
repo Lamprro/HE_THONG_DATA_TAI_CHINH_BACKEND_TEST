@@ -6,7 +6,7 @@ import com.hethongdata.taichinh.common.AppParams;
 import com.hethongdata.taichinh.repository.ingestion.DataSourceRepository;
 import com.hethongdata.taichinh.repository.ingestion.IngestionJobRepository;
 import com.hethongdata.taichinh.service.market.IndexJobProvisioningService;
-import com.hethongdata.taichinh.service.financial.FinancialMetricCatalogService;
+import com.hethongdata.taichinh.service.financial.FinancialMetricWorkflowService;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,13 +36,13 @@ public class IngestionJobCatalogService {
     private final IngestionJobRepository ingestionJobs;
     private final ObjectMapper objectMapper;
     private final IndexJobProvisioningService indexJobs;
-    private final FinancialMetricCatalogService metricCatalog;
+    private final FinancialMetricWorkflowService metricCatalog;
 
     public IngestionJobCatalogService(
             DataSourceRepository dataSources,
             IngestionJobRepository ingestionJobs,
             ObjectMapper objectMapper,
-            IndexJobProvisioningService indexJobs, FinancialMetricCatalogService metricCatalog) {
+            IndexJobProvisioningService indexJobs, FinancialMetricWorkflowService metricCatalog) {
         this.dataSources = dataSources;
         this.ingestionJobs = ingestionJobs;
         this.objectMapper = objectMapper;
@@ -54,7 +54,7 @@ public class IngestionJobCatalogService {
     public int seed() {
         seedSources();
         int indexJobCount = indexJobs.seed();
-        metricCatalog.seed();
+        metricCatalog.seedCatalog();
         // VnStock News requires a paid/API-key integration and is deliberately outside the free
         // Phase 1 catalog.
         ingestionJobs.deactivateByCodes(RETIRED_PAID_NEWS_JOB_CODES);

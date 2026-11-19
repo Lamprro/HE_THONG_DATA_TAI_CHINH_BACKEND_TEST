@@ -3,7 +3,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hethongdata.taichinh.config.ForecastAdminAccessConfiguration;
+import com.hethongdata.taichinh.config.AdminAccessConfiguration;
 import com.hethongdata.taichinh.controller.exception.ApiExceptionHandler;
 import com.hethongdata.taichinh.controller.user.*;
 import org.junit.jupiter.api.Test;
@@ -16,25 +16,17 @@ import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 class UserApiMvcTests {
   @Configuration @EnableWebMvc static class Config {
     @Bean UserSecurityService service() {return mock(UserSecurityService.class);}
-    @Bean UserSecurityController controller(UserSecurityService s) {return new UserSecurityController(s, coverage(), overview());}
+    @Bean UserSecurityController controller(UserSecurityService s) {return new UserSecurityController(s);}
     @Bean UserMarketService market() {return mock(UserMarketService.class);}
-    @Bean com.hethongdata.taichinh.controller.user.UserMarketController marketController(UserMarketService s) {return new UserMarketController(s, comparison(), coverage(), provenance(), supplementary());}
-    @Bean UserComparisonService comparison(){return mock(UserComparisonService.class);}
-    @Bean UserDataStatusService coverage(){return mock(UserDataStatusService.class);}
-    @Bean UserOverviewService overview(){return mock(UserOverviewService.class);}
-    @Bean UserSupplementaryService supplementary(){return mock(UserSupplementaryService.class);}
+    @Bean com.hethongdata.taichinh.controller.user.UserMarketController marketController(UserMarketService s) {return new UserMarketController(s, financial());}
     @Bean UserFinancialService financial(){return mock(UserFinancialService.class);}
-    @Bean UserFinancialController financialController(){return new UserFinancialController(financial(), financialView(), comparison(), coverage(), provenance());}
+    @Bean UserFinancialController financialController(){return new UserFinancialController(financial());}
     @Bean UserNewsService news(){return mock(UserNewsService.class);}
-    @Bean UserAnalysisService analysis(){return mock(UserAnalysisService.class);}
-    @Bean UserNewsController newsController(){return new UserNewsController(news(), analysis());}
-    @Bean ApiExceptionHandler errors() {return new ApiExceptionHandler();}
-    @Bean UserFinancialViewService financialView() {return mock(UserFinancialViewService.class);}
-    @Bean com.hethongdata.taichinh.controller.user.UserContractController contract(org.springframework.beans.factory.ObjectProvider<org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping> routes){return new com.hethongdata.taichinh.controller.user.UserContractController(routes);}
     @Bean UserLocalAiService localAi(){return mock(UserLocalAiService.class);}
-    @Bean UserProvenanceService provenance(){return mock(UserProvenanceService.class);}
-    @Bean com.hethongdata.taichinh.controller.user.UserLocalAiController localAiController(UserLocalAiService service){return new com.hethongdata.taichinh.controller.user.UserLocalAiController(service);}
-    @Bean ForecastAdminAccessConfiguration access() {return new ForecastAdminAccessConfiguration("fixture-token-at-least-32-characters",new ObjectMapper().findAndRegisterModules());}
+    @Bean UserAnalysisController analysisController(){return new UserAnalysisController(news(), localAi());}
+    @Bean ApiExceptionHandler errors() {return new ApiExceptionHandler();}
+    @Bean com.hethongdata.taichinh.controller.user.UserContractController contract(org.springframework.beans.factory.ObjectProvider<org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping> routes){return new com.hethongdata.taichinh.controller.user.UserContractController(routes);}
+    @Bean AdminAccessConfiguration access() {return new AdminAccessConfiguration("fixture-token-at-least-32-characters",new ObjectMapper().findAndRegisterModules());}
     @Bean Probe probe() {return new Probe();}
   }
   @Test void chartDateParametersBindAsIsoDatesAndBadRangesAreNotSilentlyCoerced() throws Exception {
@@ -46,7 +38,7 @@ class UserApiMvcTests {
       mvc.perform(get("/api/v1/securities/FPT/financials")).andExpect(status().isBadRequest()).andExpect(jsonPath("message").value("Missing parameter 'codes'"));
       mvc.perform(get("/api/v1/local-ai/models").param("packageId","wrong")).andExpect(status().isBadRequest());
       mvc.perform(get("/api/v1/securities/FPT/prices/9007199254740993/lineage")).andExpect(status().isOk());
-      verify(context.getBean(UserProvenanceService.class)).price("FPT",null,9007199254740993L);
+      verify(context.getBean(UserMarketService.class)).priceLineage("FPT",null,9007199254740993L);
       mvc.perform(get("/api/v1/securities/FPT/prices/9223372036854775808/lineage")).andExpect(status().isBadRequest());
     }
   }
@@ -63,7 +55,7 @@ class UserApiMvcTests {
   @Test void productionProtectionKeepsPublicUserReadsAndSecuresLegacyRoutes() throws Exception {
     try(var context=new AnnotationConfigWebApplicationContext()) {
       context.setServletContext(new MockServletContext());context.register(Config.class);
-      context.getEnvironment().getPropertySources().addFirst(new org.springframework.core.env.MapPropertySource("production-access",java.util.Map.of("financial.admin.protect-all-api","true")));
+
       context.refresh();var mvc=MockMvcBuilders.webAppContextSetup(context).build();
       mvc.perform(get("/api/v1/securities")).andExpect(status().isOk());
       mvc.perform(get("/api/v1/openapi.json")).andExpect(status().isOk());

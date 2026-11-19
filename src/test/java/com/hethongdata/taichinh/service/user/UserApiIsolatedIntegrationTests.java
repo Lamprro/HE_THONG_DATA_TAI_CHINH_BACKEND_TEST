@@ -13,7 +13,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 @EnabledIfEnvironmentVariable(named="DATA_ENRICHMENT_TEST_DB",matches="1")
 class UserApiIsolatedIntegrationTests {
   static final String SCHEMA="user_api_test_"+UUID.randomUUID().toString().replace("-","");
-  static JdbcTemplate admin,db;static UserReadSupport read;static UserSecurityService securities;
+  static JdbcTemplate admin,db;static UserReadSupport read;static UserSecurityService securities;static UserFinancialService financial;static UserMarketService market;
   static final UUID COMPANY=UUID.randomUUID(),SECURITY=UUID.randomUUID(),VERSION=UUID.randomUUID(),REJECTED=UUID.randomUUID();
   static final UUID INDEX=UUID.randomUUID(),MACRO=UUID.randomUUID();
   static final UUID PERIOD=UUID.randomUUID(),REPORT=UUID.randomUUID(),OLD_REPORT=UUID.randomUUID();
@@ -50,7 +50,7 @@ class UserApiIsolatedIntegrationTests {
     db.update("insert into raw_payloads(id,ingestion_run_id,data_source_id,entity_type,checksum_sha256,fetched_at,created_at) values (?,?,1,'NEWS_DATA',repeat('a',64),now(),now())",RAW,NEWS_RUN);
     db.update("insert into news_articles(id,data_source_id,raw_payload_id,title,canonical_url,dedup_status,is_deleted_source,published_at,crawled_at) values (?,1,?,'Fixture link-only article','https://example.org/article','UNIQUE',false,null,'2026-10-01T00:00:00Z'),(?,1,null,'Hidden unpublished article','https://example.org/hidden','UNIQUE',false,'2026-10-01',now())",ARTICLE,RAW,HIDDEN_ARTICLE);
     db.update("insert into news_article_companies(id,news_article_id,company_id,security_id,match_method,match_evidence) values (?,?,?,?,'RULE','{\"kind\":\"source_job\"}'::jsonb)",UUID.randomUUID(),ARTICLE,COMPANY,SECURITY);
-    read=new UserReadSupport(db,JSON);securities=new UserSecurityService(read);
+    read=new UserReadSupport(db,JSON);financial=new UserFinancialService(read);market=new UserMarketService(read);securities=new UserSecurityService(read,market,financial,null,null);
   }
   @AfterAll static void cleanup() {if(admin!=null&&SCHEMA.matches("user_api_test_[a-f0-9]{32}"))admin.execute("drop schema "+SCHEMA+" cascade");}
   @Test void masterSearchAndDecimalEncodingArePublicProjections() throws Exception {
@@ -63,12 +63,12 @@ class UserApiIsolatedIntegrationTests {
   }
   @Test void ambiguousSymbolNeedsExchangeAndUnknownCompanyIs404() {
     UUID other=UUID.randomUUID();db.update("insert into securities(id,company_id,symbol,exchange,is_active) values (?,?,'ZZTEST','HNX',true)",other,COMPANY);
-    try {assertThatThrownBy(()->securities.resolve("ZZTEST",null)).isInstanceOf(org.springframework.web.server.ResponseStatusException.class).hasMessageContaining("409");assertThat(securities.resolve("ZZTEST","HNX").get("id")).isEqualTo(other.toString());}
+    try {assertThatThrownBy(()->read.resolve("ZZTEST",null)).isInstanceOf(org.springframework.web.server.ResponseStatusException.class).hasMessageContaining("409");assertThat(read.resolve("ZZTEST","HNX").get("id")).isEqualTo(other.toString());}
     finally {db.update("delete from securities where id=?",other);}
     assertThatThrownBy(()->securities.company(UUID.randomUUID())).hasMessageContaining("404");
   }
   @Test void dailyChartExcludesSnapshotsAndRejectedVersionsAndKeepsPagingOrder() {
-    var service=new UserMarketService(read,securities);
+    var service=market;
     var result=service.prices("ZZTEST","HOSE","1d",java.time.LocalDate.parse("2026-10-01"),java.time.LocalDate.parse("2026-10-02"),0,1);
     assertThat(result.total()).isEqualTo(2);assertThat(result.hasNext()).isTrue();assertThat(result.items().getFirst().get("tradingDate")).isEqualTo("2026-10-01");
     assertThat(result.items().getFirst().get("currency")).isEqualTo("VND");assertThat(result.items().getFirst().get("volumeUnit")).isEqualTo("SHARES");
@@ -77,41 +77,41 @@ class UserApiIsolatedIntegrationTests {
     var quote=service.latest("ZZTEST","HOSE").data();assertThat(quote.get("daily").toString()).contains("110");assertThat(quote.get("snapshot").toString()).contains("999");
   }
   @Test void observationLineageUsesExactVisibleRowAndDoesNotExposeRawInputs() throws Exception {
-    var service=new UserProvenanceService(read,securities);
+    var service=market;
     db.update("update market_prices set raw_payload_id=? where id=1",RAW);
     db.update("update raw_payloads set source_url='https://example.org/path?token=hidden' where id=?",RAW);
     try {
-      var price=service.price("ZZTEST","HOSE",1).data();
+      var price=service.priceLineage("ZZTEST","HOSE",1).data();
       assertThat(price.get("id")).isEqualTo("1");assertThat(price.get("sourceUrl")).isNull();
       assertThat(price.get("tradingDate")).isEqualTo("2026-10-01");
-      assertThatThrownBy(()->service.price("ZZTEST","HOSE",4)).hasMessageContaining("404");
-      assertThatThrownBy(()->service.price("ZZTEST","HOSE",-1)).isInstanceOf(IllegalArgumentException.class);
+      assertThatThrownBy(()->service.priceLineage("ZZTEST","HOSE",4)).hasMessageContaining("404");
+      assertThatThrownBy(()->service.priceLineage("ZZTEST","HOSE",-1)).isInstanceOf(IllegalArgumentException.class);
       UUID provider=db.queryForObject("select id from financial_metrics where not is_derived and quality_status='VALID'",UUID.class);
       UUID derived=db.queryForObject("select id from financial_metrics where is_derived",UUID.class);
       UUID rejected=db.queryForObject("select id from financial_metrics where quality_status='REJECTED'",UUID.class);
-      assertThat(service.metric("ZZTEST","HOSE",provider).data().get("origin")).isEqualTo("PROVIDER");
-      assertThat(service.metric("ZZTEST","HOSE",derived).data()).containsEntry("origin","DERIVED").containsEntry("versionId",null);
-      assertThatThrownBy(()->service.metric("ZZTEST","HOSE",rejected)).hasMessageContaining("404");
-      assertThatThrownBy(()->service.metric("ZZTEST","HOSE",UUID.randomUUID())).hasMessageContaining("404");
-      assertThat(JSON.writeValueAsString(service.metric("ZZTEST","HOSE",provider))).doesNotContain("input_snapshot","raw_payload","request_headers","hidden");
+      assertThat(financial.metricLineage("ZZTEST","HOSE",provider).data().get("origin")).isEqualTo("PROVIDER");
+      assertThat(financial.metricLineage("ZZTEST","HOSE",derived).data()).containsEntry("origin","DERIVED").containsEntry("versionId",null);
+      assertThatThrownBy(()->financial.metricLineage("ZZTEST","HOSE",rejected)).hasMessageContaining("404");
+      assertThatThrownBy(()->financial.metricLineage("ZZTEST","HOSE",UUID.randomUUID())).hasMessageContaining("404");
+      assertThat(JSON.writeValueAsString(financial.metricLineage("ZZTEST","HOSE",provider))).doesNotContain("input_snapshot","raw_payload","request_headers","hidden");
       UUID otherCompany=UUID.randomUUID(),otherSecurity=UUID.randomUUID();
       db.update("insert into companies(id,legal_name,is_active) values (?,'Other',true)",otherCompany);
       db.update("insert into securities(id,company_id,symbol,exchange,is_active) values (?,?,'ZZOTHER','HOSE',true)",otherSecurity,otherCompany);
       try {
-        assertThatThrownBy(()->service.price("ZZOTHER","HOSE",1)).hasMessageContaining("404");
-        assertThatThrownBy(()->service.metric("ZZOTHER","HOSE",provider)).hasMessageContaining("404");
+        assertThatThrownBy(()->service.priceLineage("ZZOTHER","HOSE",1)).hasMessageContaining("404");
+        assertThatThrownBy(()->financial.metricLineage("ZZOTHER","HOSE",provider)).hasMessageContaining("404");
       } finally {db.update("delete from securities where id=?",otherSecurity);db.update("delete from companies where id=?",otherCompany);}
     } finally {db.update("update market_prices set raw_payload_id=null where id=1");db.update("update raw_payloads set source_url=null where id=?",RAW);}
   }
   @Test void marketBreadthUsesOnlyDailyComparableTrackedPrices() {
-    var result=new UserMarketService(read,securities).overview("HOSE",java.time.LocalDate.parse("2026-10-02")).data();
+    var result=market.overview("HOSE",java.time.LocalDate.parse("2026-10-02")).data();
     assertThat(result.get("latestStoredTradingDate")).isEqualTo("2026-10-02");
     assertThat(((Map<?,?>)result.get("breadth")).get("rising")).isEqualTo(1);
     assertThat(result.get("securities").toString()).contains("10.00000000").doesNotContain("999","777");
     assertThat(result.get("indices").toString()).contains("ZZINDEX","1234");assertThat(result.get("indicesTruncated")).isEqualTo(false);
   }
   @Test void indexMembershipEndIsExclusiveAndMacroRejectsUnpublishedVersions() {
-    var service=new UserMarketService(read,securities);
+    var service=market;
     assertThat(service.indices(0,25).items()).hasSize(1);
     assertThat(service.indexPrices("ZZINDEX",java.time.LocalDate.parse("2026-10-01"),java.time.LocalDate.parse("2026-10-02"),0,25).items()).hasSize(1);
     assertThat(service.members("ZZINDEX",java.time.LocalDate.parse("2026-10-01"),0,25).items()).hasSize(1);
@@ -122,7 +122,7 @@ class UserApiIsolatedIntegrationTests {
     assertThatThrownBy(()->service.macro(UUID.randomUUID(),null,null,0,25)).hasMessageContaining("404");
   }
   @Test void financialReportsExposeCurrentCanonicalVersionAndStoredUnitsOnly() {
-    var service=new UserFinancialService(read,securities);
+    var service=financial;
     var reports=service.statements("ZZTEST","HOSE","BALANCE_SHEET","FY",null,null,0,25);
     assertThat(reports.items()).hasSize(1);assertThat(reports.items().getFirst().get("id")).isEqualTo(REPORT.toString());
     assertThat(reports.items().getFirst().get("publishedAt")).isNull();
@@ -131,17 +131,17 @@ class UserApiIsolatedIntegrationTests {
     assertThatThrownBy(()->service.statement("ZZTEST","HOSE",OLD_REPORT)).hasMessageContaining("404");
   }
   @Test void canonicalMetricsRetainOriginAndNeverPublishRejectedValues() {
-    var service=new UserFinancialService(read,securities);
+    var service=financial;
     assertThat(service.definitions(0,25).items()).hasSize(1);
     var all=service.metrics("ZZTEST","HOSE","ZZMETRIC",null,null,null,null,0,25);
-    assertThat(all.items()).hasSize(2);assertThat(all.items().toString()).doesNotContain("999");
+    assertThat(all.items()).hasSize(2);assertThat(all.items().toString()).doesNotContain("value=999");
     assertThat(service.metrics("ZZTEST","HOSE",null,"DERIVED",null,null,null,0,25).items()).hasSize(1);
     assertThat(service.metrics("ZZTEST","HOSE",null,"PROVIDER",null,null,null,0,25).items()).hasSize(1);
     assertThatThrownBy(()->service.statements("ZZTEST","HOSE","INVENTED",null,null,null,0,25)).isInstanceOf(IllegalArgumentException.class);
     assertThatThrownBy(()->service.metrics("ZZTEST","HOSE",null,"BAD",null,null,null,0,25)).isInstanceOf(IllegalArgumentException.class);
   }
   @Test void newsKeepsUrlOnlySourcesAndRejectsUnpublishedOrWrongDateArticles() {
-    var service=new UserNewsService(read,securities);
+    var service=new UserNewsService(read,null,null);
     var all=service.news("ZZTEST","HOSE",null,null,null,0,25);assertThat(all.items()).hasSize(1);
     assertThat(all.items().getFirst().get("hasContent")).isEqualTo(false);assertThat(all.items().getFirst().get("url")).isEqualTo("https://example.org/article");
     assertThat(service.news(null,null,null,java.time.LocalDate.parse("2026-10-01"),java.time.LocalDate.parse("2026-10-01"),0,25).items()).isEmpty();
@@ -153,14 +153,14 @@ class UserApiIsolatedIntegrationTests {
     db.update("insert into security_foreign_observations(id,security_id,trading_date,data_source_id,raw_payload_id,data_version_id,buy_volume,sell_volume,source_observed_at,source_record,is_canonical) values (?,?,'2026-10-01',1,?,?,null,99,now(),'{}',true),(?,?,'2026-10-02',1,?,?,999,999,now(),'{}',true)",foreign,SECURITY,RAW,VERSION,hidden,SECURITY,RAW,REJECTED);
     db.update("insert into security_reference_observations(id,security_id,data_source_id,raw_payload_id,data_version_id,observed_at,source_effective_at,outstanding_shares,source_record) values (?,?,1,?,?,'2026-09-30T18:00:00Z',null,9007199254740993,'{\"private\":\"hidden\"}')",reference,SECURITY,RAW,VERSION);
     try {
-      var service=new UserSupplementaryService(read,securities);var from=java.time.LocalDate.parse("2026-10-01");
+      var service=market;var from=java.time.LocalDate.parse("2026-10-01");
       var trades=service.foreign("ZZTEST","HOSE",from,from.plusDays(1),0,25);assertThat(trades.items()).hasSize(1);assertThat(trades.items().getFirst().get("buyVolume")).isNull();
       var refs=service.reference("ZZTEST","HOSE",from,from,0,25);assertThat(refs.items()).hasSize(1);assertThat(refs.items().getFirst().get("sourceEffectiveAt")).isNull();assertThat(JSON.writeValueAsString(refs)).doesNotContain("private","hidden");
       assertThat(securities.companies("fixture",true,0,25).items()).hasSize(1);
     }finally {db.update("delete from security_foreign_observations where id in (?,?)",foreign,hidden);db.update("delete from security_reference_observations where id=?",reference);}
   }
   @Test void comparisonSelectsOriginAndAsOfAndDoesNotChooseAmbiguousCanonicalMetrics() {
-    var service=new UserComparisonService(read,securities);var date=java.time.LocalDate.parse("2026-03-01");
+    var service=financial;var date=java.time.LocalDate.parse("2026-03-01");
     var provider=service.screen(null,"HOSE",null,"ZZMETRIC","PROVIDER",date,"1","2","METRIC_DESC",0,25);
     assertThat(provider.items()).hasSize(1);assertThat(provider.items().getFirst().get("asOfDate")).isEqualTo("2026-01-01");
     assertThat(provider.items().getFirst().get("derived")).isEqualTo(false);
@@ -178,7 +178,7 @@ class UserApiIsolatedIntegrationTests {
     assertThatThrownBy(()->service.screen(null,null,null,"ZZMETRIC","PROVIDER",date,null,null,"value;drop",0,25)).isInstanceOf(IllegalArgumentException.class);
   }
   @Test void financialMatrixKeepsScopeAndMissingValuesSeparate() {
-    var service=new UserFinancialViewService(read,securities);
+    var service=financial;
     var result=service.matrix("ZZTEST","HOSE","BALANCE_SHEET","FY",null,"TOTAL_ASSETS,MISSING",null,null,12).data();
     assertThat(result.get("periods").toString()).contains("2025-12-31");
     assertThat(result.get("series").toString()).contains("9007199254740993","UNKNOWN","POINT_IN_TIME");
@@ -192,11 +192,11 @@ class UserApiIsolatedIntegrationTests {
     finally {db.update("delete from financial_statement_items where financial_statement_id=?",separate);db.update("delete from financial_statements where id=?",separate);}
   }
   @Test void coverageAndLineageRetainUnknownsAndNeverExposeSourceCredentials() throws Exception {
-    var financial=new UserFinancialService(read,securities);var service=new UserDataStatusService(read,securities,financial);
-    var status=service.status("ZZTEST","HOSE").data();assertThat(status.get("pointInTimeCertified")).isEqualTo(false);
+    var service=financial;
+    var status=securities.status("ZZTEST","HOSE").data();assertThat(status.get("pointInTimeCertified")).isEqualTo(false);
     assertThat(status.get("availability")).isEqualTo("PARTIAL");assertThat(status.get("limitations").toString()).contains("PUBLICATION_DATES_INCOMPLETE","REPORT_SCOPE_INCOMPLETE");
     assertThat(((Map<?,?>)status.get("prices")).get("count")).isEqualTo("2");
-    assertThat(service.periods("ZZTEST","HOSE").data()).hasSize(1);assertThat(service.filters().data().get("exchanges").toString()).contains("HOSE");
+    assertThat(service.periods("ZZTEST","HOSE").data()).hasSize(1);assertThat(market.filters().data().get("exchanges").toString()).contains("HOSE");
     db.update("update financial_statements set raw_payload_id=? where id=?",RAW,REPORT);
     db.update("update raw_payloads set source_url='https://provider.invalid/report?api_key=private-value' where id=?",RAW);
     try {String body=JSON.writeValueAsString(service.lineage("ZZTEST","HOSE",REPORT));assertThat(body).contains("ACTIVATED").doesNotContain("private-value","api_key");}

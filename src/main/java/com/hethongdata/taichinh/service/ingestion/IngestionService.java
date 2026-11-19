@@ -10,29 +10,36 @@ import com.hethongdata.taichinh.application.port.error.ExternalFetchException;
 import com.hethongdata.taichinh.application.port.model.ExternalFetchRequest;
 import com.hethongdata.taichinh.application.port.model.ExternalFetchResponse;
 import com.hethongdata.taichinh.application.port.model.ExternalOperation;
+import com.hethongdata.taichinh.common.AppParams;
 import com.hethongdata.taichinh.dto.ingestion.IngestionExecutionResponse;
+import com.hethongdata.taichinh.dto.ingestion.IngestionRunResponse;
 import com.hethongdata.taichinh.dto.ingestion.ManualIngestionRequest;
+import com.hethongdata.taichinh.dto.ingestion.RawPayloadResponse;
 import com.hethongdata.taichinh.entity.ingestion.DataSourceEntity;
 import com.hethongdata.taichinh.entity.ingestion.IngestionJobEntity;
 import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
 import com.hethongdata.taichinh.repository.ingestion.DataSourceRepository;
 import com.hethongdata.taichinh.repository.ingestion.IngestionRunRepository;
-import com.hethongdata.taichinh.repository.ingestion.RawPayloadRepository;
+import com.hethongdata.taichinh.repository.jpa.ingestion.RawPayloadJpaRepository;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
  * Coordinates a fetch run: resolve the source, call the external port, parse the response, persist
- * raw data on success, and record failures against the ingestion run.
+ * raw data on success, and record failures against the ingestion run. Also serves the read-only
+ * run/raw-payload lookups used by the ingestion diagnostics API.
  */
 @Service
 public class IngestionService {
@@ -44,7 +51,7 @@ public class IngestionService {
     private final ExternalFinancialDataPort externalFinancialDataPort;
     private final DataSourceRepository dataSourceRepository;
     private final IngestionRunRepository ingestionRunRepository;
-    private final RawPayloadRepository rawPayloadRepository;
+    private final RawPayloadJpaRepository rawPayloadRepository;
     private final IngestionCompletionService completionService;
     private final ChecksumService checksumService;
     private final ObjectMapper objectMapper;
@@ -54,7 +61,7 @@ public class IngestionService {
             ExternalFinancialDataPort externalFinancialDataPort,
             DataSourceRepository dataSourceRepository,
             IngestionRunRepository ingestionRunRepository,
-            RawPayloadRepository rawPayloadRepository,
+            RawPayloadJpaRepository rawPayloadRepository,
             IngestionCompletionService completionService,
             ChecksumService checksumService,
             ObjectMapper objectMapper) {
@@ -65,8 +72,32 @@ public class IngestionService {
         this.completionService = completionService;
         this.checksumService = checksumService;
         this.objectMapper = objectMapper;
-        this.documentObjectMapper = com.hethongdata.taichinh.service.financial.FinancialDocumentJson.copyForStorage(objectMapper);
+        this.documentObjectMapper = com.hethongdata.taichinh.service.financial.OfficialFinancialSources.copyForStorage(objectMapper);
     }
+
+    @Transactional(readOnly = true)
+    public Optional<IngestionRunResponse> findRun(UUID id) {
+        return ingestionRunRepository.findById(id).map(IngestionRunResponse::from);
+    }
+
+    /** Bounds list requests to prevent an accidental unbounded database read. */
+    @Transactional(readOnly = true)
+    public List<IngestionRunResponse> latestRuns(int limit) {
+        return ingestionRunRepository.findLatestSummaries(AppParams.pageLimit(limit));
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<RawPayloadResponse> findPayload(UUID id, boolean includeBody) {
+        return rawPayloadRepository.findById(id).map(entity -> RawPayloadResponse.from(entity, includeBody));
+    }
+
+    @Transactional(readOnly = true)
+    public List<RawPayloadResponse> findPayloadsByRun(UUID runId, boolean includeBody) {
+        return rawPayloadRepository.findByIngestionRunIdOrderByFetchedAtDesc(runId).stream()
+                .map(entity -> RawPayloadResponse.from(entity, includeBody))
+                .toList();
+    }
+
 
     public IngestionExecutionResponse ingest(ManualIngestionRequest manualRequest) {
         LOGGER.info(
@@ -151,7 +182,9 @@ public class IngestionService {
             ParsedBody parsedBody = parseBody(response);
             String checksum = checksumService.sha256(response.rawBody());
             boolean duplicate =
-                    rawPayloadRepository.findLatestByChecksum(source.getId(), checksum).isPresent();
+                    rawPayloadRepository
+                            .findTopByDataSourceIdAndChecksumSha256OrderByFetchedAtDesc(source.getId(), checksum)
+                            .isPresent();
             UUID rawId =
                     completionService.persistSuccess(
                             run,

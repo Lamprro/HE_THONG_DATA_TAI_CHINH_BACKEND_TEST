@@ -9,7 +9,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hethongdata.taichinh.dto.validation.ValidationExecutionResponse;
-import com.hethongdata.taichinh.entity.enums.IngestionRunStatus;
 import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
 import com.hethongdata.taichinh.entity.ingestion.RawPayloadEntity;
 import com.hethongdata.taichinh.entity.validation.DataVersionEntity;
@@ -137,7 +136,7 @@ class ValidationJobServiceTests {
     private IngestionRunEntity successfulRun(UUID runId) {
         IngestionRunEntity run = org.mockito.Mockito.mock(IngestionRunEntity.class);
         when(run.getId()).thenReturn(runId);
-        when(run.getStatus()).thenReturn(IngestionRunStatus.SUCCESS);
+        when(run.getStatus()).thenReturn(IngestionRunEntity.Status.SUCCESS);
         return run;
     }
 

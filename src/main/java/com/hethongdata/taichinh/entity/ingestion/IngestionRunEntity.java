@@ -1,7 +1,6 @@
 package com.hethongdata.taichinh.entity.ingestion;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.hethongdata.taichinh.entity.enums.IngestionRunStatus;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -46,7 +45,7 @@ public class IngestionRunEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private IngestionRunStatus status;
+    private Status status;
 
     @Column(name = "started_at", nullable = false)
     private Instant startedAt;
@@ -126,7 +125,7 @@ public class IngestionRunEntity {
         entity.dataSource = dataSource;
         entity.ingestionJob = ingestionJob;
         entity.triggerType = triggerType;
-        entity.status = IngestionRunStatus.RUNNING;
+        entity.status = Status.RUNNING;
         entity.startedAt = startedAt;
         entity.requestQueryParams = requestQueryParams;
         entity.metadata = emptyJson;
@@ -146,7 +145,7 @@ public class IngestionRunEntity {
             String responseText,
             JsonNode metadata,
             Instant finishedAt) {
-        status = IngestionRunStatus.SUCCESS;
+        status = Status.SUCCESS;
         this.finishedAt = finishedAt;
         fetchedCount = 1;
         insertedCount = 1;
@@ -167,7 +166,7 @@ public class IngestionRunEntity {
             String message,
             JsonNode metadata,
             Instant finishedAt) {
-        status = IngestionRunStatus.FAILED;
+        status = Status.FAILED;
         this.finishedAt = finishedAt;
         errorCount = 1;
         errorMessage = message;
@@ -180,7 +179,7 @@ public class IngestionRunEntity {
     }
 
     public void markBatchSuccess(JsonNode metadata, Instant finishedAt, int itemCount) {
-        status = IngestionRunStatus.SUCCESS;
+        status = Status.SUCCESS;
         this.finishedAt = finishedAt;
         fetchedCount = itemCount;
         insertedCount = itemCount;
@@ -189,11 +188,21 @@ public class IngestionRunEntity {
 
     public void markWorkflowSuccess(
             JsonNode metadata, Instant finishedAt, int fetched, int inserted, int updated) {
-        status = IngestionRunStatus.SUCCESS;
+        status = Status.SUCCESS;
         this.finishedAt = finishedAt;
         fetchedCount = fetched;
         insertedCount = inserted;
         updatedCount = updated;
         this.metadata = metadata;
+    }
+
+    /** Values persisted in ingestion_runs.status. */
+    public enum Status {
+        PENDING,
+        RUNNING,
+        SUCCESS,
+        PARTIAL_SUCCESS,
+        FAILED,
+        CANCELLED
     }
 }

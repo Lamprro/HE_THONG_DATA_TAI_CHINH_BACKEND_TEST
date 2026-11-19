@@ -23,7 +23,8 @@ class MarketPriceDailyBackfillTests {
         var raws=mock(RawPayloadJpaRepository.class);var runs=mock(IngestionRunJpaRepository.class);
         var sources=mock(DataSourceJpaRepository.class);var securities=mock(SecurityJpaRepository.class);
         var prices=mock(MarketPriceJpaRepository.class);
-        var writes=new MarketPriceWorkflowPersistenceService(versions,raws,runs,sources,securities,prices,new MarketPricePayloadParser(),json);
+        var jdbc=mock(org.springframework.jdbc.core.JdbcTemplate.class);
+        var writes=new MarketPriceWorkflowPersistenceService(versions,raws,runs,sources,securities,prices,new MarketPricePayloadParser(),json,jdbc);
         var security=SecurityEntity.create(UUID.randomUUID(),"FPT","HOSE","STOCK",null,"VND",null,null,null,null,true,true);
         ReflectionTestUtils.setField(security,"id",UUID.randomUUID());
         when(securities.findById(security.getId())).thenReturn(Optional.of(security));
@@ -34,6 +35,12 @@ class MarketPriceDailyBackfillTests {
         ReflectionTestUtils.setField(preferred,"id",1L);ReflectionTestUtils.setField(preferred,"priority",(short)20);
         when(sources.findById(11L)).thenReturn(Optional.of(direct));when(sources.findById(1L)).thenReturn(Optional.of(preferred));
         var stored=new ArrayList<MarketPriceEntity>();
+        when(jdbc.batchUpdate(anyString(), anyCollection(), anyInt(), any(org.springframework.jdbc.core.ParameterizedPreparedStatementSetter.class)))
+                .thenAnswer(call -> {
+                    Collection<MarketPriceEntity> inserted=call.getArgument(1);
+                    for (var entity:inserted) {ReflectionTestUtils.setField(entity,"id",(long)stored.size()+1);stored.add(entity);}
+                    return new int[][]{new int[inserted.size()]};
+                });
         when(prices.findBySecurityIdAndIntervalCodeAndPriceTimestampBetween(eq(security.getId()),eq("1d"),any(),any()))
                 .thenAnswer(call->List.copyOf(stored));
         when(prices.saveAndFlush(any())).thenAnswer(call->{MarketPriceEntity e=call.getArgument(0);
@@ -64,6 +71,6 @@ class MarketPriceDailyBackfillTests {
                 .allSatisfy(p->{assertThat(p.getDataSourceId()).isEqualTo(1L);assertThat(p.getClosePrice()).isEqualByComparingTo("110");assertThat(p.getRawPayloadId()).isEqualTo(rawIds.get(2));});
         verify(prices,never()).findBucketForUpdate(any(),any(),any());
         verify(prices,never()).findBySecurityIdAndPriceTimestampAndIntervalCodeAndDataSourceId(any(),any(),any(),any());
-        verify(sources,times(4)).findById(11L);verify(sources,times(2)).findById(1L);
+        verify(sources,times(3)).findById(11L);verify(sources,times(2)).findById(1L);
     }
 }

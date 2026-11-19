@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hethongdata.taichinh.integration.cloudinary.*;
-import com.hethongdata.taichinh.service.llm.LlmSchemaValidator;
+import com.hethongdata.taichinh.service.llm.LlmJson;
 import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
@@ -45,7 +45,7 @@ class NewsRecoverySafetyTests {
   @Test
   void distinguishesImagesWithoutUploadingAndRejectsHtml() throws Exception {
     assertThat(
-            NewsDocumentReader.inspect(
+            NewsRecoveryService.inspectDocument(
                     new SafeDocumentDownloader.Download(
                         "https://source/a",
                         "image/png",
@@ -54,7 +54,7 @@ class NewsRecoverySafetyTests {
         .isTrue();
     assertThatThrownBy(
             () ->
-                NewsDocumentReader.inspect(
+                NewsRecoveryService.inspectDocument(
                     new SafeDocumentDownloader.Download(
                         "https://source/a.pdf",
                         "text/html",
@@ -62,7 +62,7 @@ class NewsRecoverySafetyTests {
         .hasMessage("UNSUPPORTED_DOCUMENT_TYPE");
     assertThatThrownBy(
             () ->
-                NewsDocumentReader.inspect(
+                NewsRecoveryService.inspectDocument(
                     new SafeDocumentDownloader.Download(
                         "https://source/a.pdf",
                         "application/pdf",
@@ -74,18 +74,18 @@ class NewsRecoverySafetyTests {
   void officeCannotExpandArbitrarilyOrResolveExternalEntities() throws Exception {
     assertThatThrownBy(
             () ->
-                NewsDocumentReader.inspect(
+                NewsRecoveryService.inspectDocument(
                     zip(
                         "word/document.xml",
                         "<!DOCTYPE x [<!ENTITY e SYSTEM 'file:///private'>]><x>&e;</x>")))
         .isInstanceOf(Exception.class);
-    assertThatThrownBy(() -> NewsDocumentReader.inspect(zip("word/vbaProject.bin", "bad")))
+    assertThatThrownBy(() -> NewsRecoveryService.inspectDocument(zip("word/vbaProject.bin", "bad")))
         .hasMessage("UNSAFE_OFFICE_ARCHIVE");
     assertThatThrownBy(
-            () -> NewsDocumentReader.inspect(zip("word/document.xml", "a".repeat(2_000_001))))
+            () -> NewsRecoveryService.inspectDocument(zip("word/document.xml", "a".repeat(2_000_001))))
         .hasMessage("OFFICE_EXPANSION_LIMIT");
     var valid =
-        NewsDocumentReader.inspect(
+        NewsRecoveryService.inspectDocument(
             zip("word/document.xml", "<document><p>Report 123</p></document>"));
     assertThat(valid.extension()).isEqualTo("docx");
     assertThat(valid.text()).contains("Report 123");
@@ -148,9 +148,9 @@ class NewsRecoverySafetyTests {
             .put("proposed_title", "Report")
             .put("assessment", "COMPLETE");
     output.putArray("evidence").addObject().put("quote", "not found in source");
-    assertThat(NewsRecoveryValidation.contentIssues(output)).contains("RECOVERY_QUOTE_MISMATCH");
+    assertThat(NewsRecoveryStore.contentIssues(output)).contains("RECOVERY_QUOTE_MISMATCH");
     output.put("proposed_content", "");
-    assertThat(NewsRecoveryValidation.contentIssues(output))
+    assertThat(NewsRecoveryStore.contentIssues(output))
         .contains("RECOVERY_BODY_MISSING_OR_OUT_OF_BOUNDS");
   }
 
@@ -159,7 +159,7 @@ class NewsRecoverySafetyTests {
     try (var stream = new ClassPathResource("llm/news_content_recovery.json").getInputStream()) {
       var schema = json.readTree(stream).path("response_schema");
       assertThat(
-              LlmSchemaValidator.validate(
+              LlmJson.validateSchema(
                   schema, json.createObjectNode().put("fetch_success", true)))
           .isNotEmpty();
     }

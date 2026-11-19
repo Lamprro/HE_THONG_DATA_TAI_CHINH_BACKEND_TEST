@@ -106,11 +106,17 @@ class MarketIndexPayloadParserTests {
                 "vnstock", "VN30", LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 17),
                 "1D", Map.of())).toString())
                 .isEqualTo("https://python.example/api/v1/vnstock/indices/VN30/ohlcv?start=2026-09-10&end=2026-09-17");
+        assertThat(adapter.resolveUri(new ExternalFetchRequest(ExternalOperation.INDEX_OHLCV,
+                "cafef", "VN30", LocalDate.of(2016, 1, 1), LocalDate.of(2016, 1, 31), "1D", Map.of())).toString())
+                .isEqualTo("https://python.example/api/v1/cafef/indices/VN30/ohlcv?start=2016-01-01&end=2016-01-31");
+        assertThatThrownBy(() -> adapter.resolveUri(new ExternalFetchRequest(
+                ExternalOperation.INDEX_MEMBERS, "cafef", "VN30", null, null, null, Map.of())))
+                .isInstanceOf(IllegalArgumentException.class);
         assertThat(adapter.resolveUri(new ExternalFetchRequest(ExternalOperation.INDEX_MEMBERS,
                 "vnstock", "VNINDEX", null, null, null, Map.of())).toString())
                 .isEqualTo("https://python.example/api/v1/vnstock/indices/VNINDEX/members");
         assertThatThrownBy(() -> adapter.resolveUri(new ExternalFetchRequest(
-                ExternalOperation.INDEX_OHLCV, "cafef", "VN30", null, null, null, Map.of())))
+                ExternalOperation.INDEX_OHLCV, "vndirect", "VN30", null, null, null, Map.of())))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ExternalFetchRequest(
                 ExternalOperation.INDEX_MEMBERS, "vnstock", "../VN30", null, null, null, Map.of()))

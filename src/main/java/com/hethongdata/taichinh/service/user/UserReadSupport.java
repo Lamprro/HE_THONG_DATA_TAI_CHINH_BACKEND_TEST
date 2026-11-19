@@ -28,6 +28,20 @@ public class UserReadSupport {
     var bounded=new JdbcTemplate(Objects.requireNonNull(source.getDataSource()));bounded.setQueryTimeout(10);
     this.db=new NamedParameterJdbcTemplate(bounded);this.json=json;
   }
+  /** Public listing projection shared by every per-security reader. */
+  public static final String SECURITY_FIELDS="""
+    s.id as "id",s.symbol,s.exchange,s.security_type as "securityType",s.currency,
+    s.is_active as "active",s.is_primary as "primary",s.listed_date as "listedDate",s.delisted_date as "delistedDate",
+    s.shares_outstanding as "sharesOutstanding",s.par_value as "parValue",s.company_id as "companyId",
+    c.legal_name as "companyName",c.short_name as "shortName",c.industry_name as "industryName",c.sector_name as "sectorName"
+    """;
+  public static final String SECURITY_JOIN=" from securities s join companies c on c.id=s.company_id ";
+  /** Resolves one listing by symbol (and optional exchange): 404 when unknown, 409 when ambiguous. Always runs inside the caller's read transaction. */
+  public Map<String,Object> resolve(String symbol,String exchange) {
+    var args=new HashMap<String,Object>();args.put("symbol",code(symbol));String where="where s.symbol=:symbol";
+    if(exchange!=null&&!exchange.isBlank()) {where+=" and s.exchange=:exchange";args.put("exchange",code(exchange));}
+    return one("select "+SECURITY_FIELDS+SECURITY_JOIN+where,args,"Security");
+  }
   public static Meta meta(String... notes) {return new Meta(ZONE.getId(),"DECIMAL_STRING",Instant.now(),List.of(notes));}
   public static <T> Data<T> data(T value,String... notes) {return new Data<>(value,meta(notes));}
   public static void paging(int page,int size,int max) {

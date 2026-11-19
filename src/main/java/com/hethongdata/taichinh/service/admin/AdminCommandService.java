@@ -36,8 +36,8 @@ public class AdminCommandService {
   private final ValidationJobService validation;
   private final Validator validator;
   private final TransactionTemplate tx;
-  @org.springframework.beans.factory.annotation.Autowired private AdminPipelineService pipeline;
-  @org.springframework.beans.factory.annotation.Autowired private AdminAiActionService ai;
+  private final AdminPipelineService pipeline;
+  private final AdminAiActionService ai;
   private final UUID owner=UUID.randomUUID();
   @org.springframework.beans.factory.annotation.Value("${financial.admin.commands.enabled:true}")
   private boolean enabled=true;
@@ -49,8 +49,8 @@ public class AdminCommandService {
   });
   public AdminCommandService(JdbcTemplate db, ObjectMapper json, IngestionJobService jobs,
       IngestionService ingestion, ValidationJobService validation, Validator validator,
-      PlatformTransactionManager transactions) {
-    this.db=db; this.json=json; this.jobs=jobs; this.ingestion=ingestion;
+      PlatformTransactionManager transactions, AdminPipelineService pipeline, AdminAiActionService ai) {
+    this.db=db; this.json=json; this.jobs=jobs; this.ingestion=ingestion; this.pipeline=pipeline; this.ai=ai;
     this.validation=validation; this.validator=validator; this.tx=new TransactionTemplate(transactions);
   }
   @PostConstruct void start() {
@@ -184,6 +184,15 @@ public class AdminCommandService {
     }
     if(key!=null && key.equals(old.get("idempotency_key"))) throw new IllegalArgumentException("Retry requires a fresh idempotency key");
     return submit(new Request(key,action,reason,input),id);
+  }
+  /** Records an operator note on a validation issue. The validation status itself never changes. */
+  public Map<String,Object> reviewIssue(UUID validationResultId,String reason) {
+    requireReason(reason);
+    if(db.queryForObject("select count(*) from validation_results where id=?",Integer.class,validationResultId)!=1)
+      throw new IllegalArgumentException("Validation result not found");
+    UUID reviewId=UUID.randomUUID();
+    db.update("insert into admin_operation_events(id,event_type,target_id,reason) values (?,'ISSUE_REVIEWED',?,?)",reviewId,validationResultId,reason);
+    return Map.of("id",reviewId,"validationResultId",validationResultId,"validationStatusChanged",false);
   }
   private void requireReason(String reason) { if(reason==null || reason.isBlank() || reason.length()>2000) throw new IllegalArgumentException("A reason (1..2000) is required"); }
   private void event(String type,UUID id,String reason) {

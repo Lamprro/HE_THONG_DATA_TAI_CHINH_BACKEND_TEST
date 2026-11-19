@@ -1,8 +1,8 @@
 package com.hethongdata.taichinh.service.source;
 
 import com.hethongdata.taichinh.common.AppParams;
-import com.hethongdata.taichinh.dto.source.DataSourceRequest;
-import com.hethongdata.taichinh.dto.source.DataSourceResponse;
+import com.hethongdata.taichinh.dto.source.DataSourceDtos.DataSourceRequest;
+import com.hethongdata.taichinh.dto.source.DataSourceDtos.DataSourceResponse;
 import com.hethongdata.taichinh.repository.ingestion.DataSourceRepository;
 
 import org.springframework.stereotype.Service;
@@ -25,12 +25,12 @@ public class DataSourceService {
 
     @Transactional
     public DataSourceResponse upsert(DataSourceRequest request) {
-        String code = AppParams.requiredUpper(request.getCode(), "code");
-        String sourceType = AppParams.requiredUpper(request.getSourceType(), "sourceType");
+        String code = AppParams.requiredUpper(request.code(), "code");
+        String sourceType = AppParams.requiredUpper(request.sourceType(), "sourceType");
         String licenseStatus =
-                request.getLicenseStatus() == null
+                request.licenseStatus() == null
                         ? "UNKNOWN"
-                        : AppParams.requiredUpper(request.getLicenseStatus(), "licenseStatus");
+                        : AppParams.requiredUpper(request.licenseStatus(), "licenseStatus");
         if (!AppParams.DATA_SOURCE_TYPES.contains(sourceType))
             throw new IllegalArgumentException("Unsupported sourceType: " + sourceType);
         if (!AppParams.LICENSE_STATUSES.contains(licenseStatus))
@@ -38,12 +38,12 @@ public class DataSourceService {
         return DataSourceResponse.from(
                 dataSources.upsert(
                         code,
-                        AppParams.requiredTrimmed(request.getName(), "name"),
+                        AppParams.requiredTrimmed(request.name(), "name"),
                         sourceType,
-                        request.getBaseUrl(),
-                        request.getProvider(),
-                        request.isOfficial(),
+                        request.baseUrl(),
+                        request.provider(),
+                        request.official(),
                         licenseStatus,
-                        request.isActive()));
+                        request.active()));
     }
 }

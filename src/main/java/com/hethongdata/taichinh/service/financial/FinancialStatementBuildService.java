@@ -68,7 +68,7 @@ public class FinancialStatementBuildService {
 
     public IngestionExecutionResponse executeVersion(IngestionJobEntity job,UUID id,String trigger) {
         if(!supports(job.getCode())) throw new IllegalArgumentException("Requires FINANCIAL_STATEMENT_BUILD job");
-        return executeCandidates(job,trigger,List.of(com.hethongdata.taichinh.service.validation.SelectedDataVersion.active(versions,id,"FINANCIAL_STATEMENT")));
+        return executeCandidates(job,trigger,List.of(DataVersionLifecycleService.requireActive(versions,id,"FINANCIAL_STATEMENT")));
     }
 
     private IngestionExecutionResponse executeCandidates(IngestionJobEntity job,String triggerType,List<DataVersionEntity> candidates) {

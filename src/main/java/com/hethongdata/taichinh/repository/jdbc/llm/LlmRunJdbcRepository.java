@@ -172,7 +172,7 @@ public class LlmRunJdbcRepository {
   }
 
   public List<Map<String, Object>> findPassingResults(UUID article, String sourceHash) {
-    return db.queryForList(
+    return db.query(
         """
         SELECT r.id,r.task_code,r.result_json,r.quality_status,r.created_at,r.validation_policy_hash FROM llm_results r
         JOIN llm_prompt_templates t ON t.id=r.prompt_template_id AND t.enabled
@@ -183,7 +183,16 @@ public class LlmRunJdbcRepository {
                 AND v.validation_round_id=r.validation_round_id AND v.result_status='FAIL' AND v.severity IN ('ERROR','CRITICAL'))
         ORDER BY r.task_code
         """,
-        article, sourceHash);
+        (rs, n) -> {
+          var row = new LinkedHashMap<String, Object>();
+          row.put("id", rs.getString("id"));
+          row.put("task_code", rs.getString("task_code"));
+          row.put("result_json", rs.getString("result_json"));
+          row.put("quality_status", rs.getString("quality_status"));
+          row.put("created_at", rs.getTimestamp("created_at"));
+          row.put("validation_policy_hash", rs.getString("validation_policy_hash"));
+          return row;
+        }, article, sourceHash);
   }
 
   public String findTaskCode(UUID run) {

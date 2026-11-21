@@ -38,7 +38,7 @@ public class PromptTemplateJdbcRepository {
     return db.update("""
         INSERT INTO llm_prompt_templates(id,task_code,version,input_domain,description,system_prompt,
             request_schema,response_schema,checksum,enabled)
-        VALUES (?,?,?,?,?,?,?::jsonb,?::jsonb,?,true) ON CONFLICT(task_code,version) DO NOTHING
+        VALUES (?,?,?,?,?,?,?::jsonb,?::jsonb,?,true)
         """, id, task, version, inputDomain, description, systemPrompt, requestSchema, responseSchema, checksum);
   }
 
@@ -56,10 +56,6 @@ public class PromptTemplateJdbcRepository {
 
   public void lockPrompt(String task) {
     db.queryForObject("select 1 from pg_advisory_xact_lock(hashtext(?))", Integer.class, "llm-prompt:" + task);
-  }
-
-  public void lockRecoveryPrompt() {
-    db.queryForList("SELECT pg_advisory_xact_lock(hashtextextended(?,0))", "recovery-prompt");
   }
 
   public Optional<String> findChecksum(String task, String version) {

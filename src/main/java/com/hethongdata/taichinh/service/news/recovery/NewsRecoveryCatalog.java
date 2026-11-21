@@ -26,7 +26,7 @@ public class NewsRecoveryCatalog {
     try (var stream = new ClassPathResource("llm/news_content_recovery.json").getInputStream()) {
       var resource = json.mapper().readTree(stream);
       String checksum = hashes.sha256(resource.toString());
-      repository.lockRecoveryPrompt();
+      repository.lockPrompt(TASK);
       var old = repository.findChecksum(TASK, resource.path("version").asText());
       if (old.isPresent()) {
         if (!old.get().equals(checksum))

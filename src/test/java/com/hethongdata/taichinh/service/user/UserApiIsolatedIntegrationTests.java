@@ -2,6 +2,11 @@ package com.hethongdata.taichinh.service.user;
 
 import static org.assertj.core.api.Assertions.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hethongdata.taichinh.repository.jdbc.user.UserFinancialQueryRepository;
+import com.hethongdata.taichinh.repository.jdbc.user.UserMarketQueryRepository;
+import com.hethongdata.taichinh.repository.jdbc.user.UserNewsQueryRepository;
+import com.hethongdata.taichinh.repository.jdbc.user.UserReadJdbcRepository;
+import com.hethongdata.taichinh.repository.jdbc.user.UserSecurityQueryRepository;
 import java.nio.file.*;
 import java.util.*;
 import org.junit.jupiter.api.*;
@@ -50,7 +55,7 @@ class UserApiIsolatedIntegrationTests {
     db.update("insert into raw_payloads(id,ingestion_run_id,data_source_id,entity_type,checksum_sha256,fetched_at,created_at) values (?,?,1,'NEWS_DATA',repeat('a',64),now(),now())",RAW,NEWS_RUN);
     db.update("insert into news_articles(id,data_source_id,raw_payload_id,title,canonical_url,dedup_status,is_deleted_source,published_at,crawled_at) values (?,1,?,'Fixture link-only article','https://example.org/article','UNIQUE',false,null,'2026-10-01T00:00:00Z'),(?,1,null,'Hidden unpublished article','https://example.org/hidden','UNIQUE',false,'2026-10-01',now())",ARTICLE,RAW,HIDDEN_ARTICLE);
     db.update("insert into news_article_companies(id,news_article_id,company_id,security_id,match_method,match_evidence) values (?,?,?,?,'RULE','{\"kind\":\"source_job\"}'::jsonb)",UUID.randomUUID(),ARTICLE,COMPANY,SECURITY);
-    read=new UserReadSupport(db,JSON);financial=new UserFinancialService(read);market=new UserMarketService(read);securities=new UserSecurityService(read,market,financial,null,null);
+    var readRepo=new UserReadJdbcRepository(db,JSON);read=new UserReadSupport(readRepo,JSON);financial=new UserFinancialService(new UserFinancialQueryRepository(readRepo),read);market=new UserMarketService(new UserMarketQueryRepository(readRepo),read);securities=new UserSecurityService(new UserSecurityQueryRepository(readRepo),read,market,financial,null,null);
   }
   @AfterAll static void cleanup() {if(admin!=null&&SCHEMA.matches("user_api_test_[a-f0-9]{32}"))admin.execute("drop schema "+SCHEMA+" cascade");}
   @Test void masterSearchAndDecimalEncodingArePublicProjections() throws Exception {
@@ -141,7 +146,8 @@ class UserApiIsolatedIntegrationTests {
     assertThatThrownBy(()->service.metrics("ZZTEST","HOSE",null,"BAD",null,null,null,0,25)).isInstanceOf(IllegalArgumentException.class);
   }
   @Test void newsKeepsUrlOnlySourcesAndRejectsUnpublishedOrWrongDateArticles() {
-    var service=new UserNewsService(read,null,null);
+    var readRepo=new UserReadJdbcRepository(db,JSON);var newsRepo=new UserNewsQueryRepository(readRepo);
+    var service=new UserNewsService(newsRepo,read,null,null);
     var all=service.news("ZZTEST","HOSE",null,null,null,0,25);assertThat(all.items()).hasSize(1);
     assertThat(all.items().getFirst().get("hasContent")).isEqualTo(false);assertThat(all.items().getFirst().get("url")).isEqualTo("https://example.org/article");
     assertThat(service.news(null,null,null,java.time.LocalDate.parse("2026-10-01"),java.time.LocalDate.parse("2026-10-01"),0,25).items()).isEmpty();

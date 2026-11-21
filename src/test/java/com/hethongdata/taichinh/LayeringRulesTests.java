@@ -13,13 +13,7 @@ class LayeringRulesTests {
   // Allowlist: file còn được phép có SQL — xóa dần sau mỗi đợt, cuối cùng phải rỗng
   static final Set<String> ALLOW = Set.of(
     "service/localai/LocalAiTrainerService.java",
-    "service/user/UserFinancialService.java",
-    "service/user/UserMarketService.java",
-    "service/localai/LocalAiSuiteService.java",
-    "service/user/UserLocalAiService.java",
-    "service/user/UserSecurityService.java",
-    "service/user/UserNewsService.java",
-    "service/user/UserReadSupport.java"
+    "service/localai/LocalAiSuiteService.java"
   );
 
   @Test

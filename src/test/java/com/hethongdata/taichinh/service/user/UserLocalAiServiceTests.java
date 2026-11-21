@@ -11,13 +11,13 @@ class UserLocalAiServiceTests {
   private final ObjectMapper json=new ObjectMapper();
 
   @Test void disabledPreviewIsNotFoundAndTouchesNothing(){
-    var service=new UserLocalAiService(false,null,json);
+    var service=new UserLocalAiService(false,null,null,json);
     assertThat(service.previewEnabled()).isFalse();
     assertThatThrownBy(()->service.preview("FPT","HOSE",null)).isInstanceOf(ResponseStatusException.class).hasMessageContaining("disabled");
   }
 
   @Test void projectsOnlyContractFieldsAsDecimalStrings(){
-    var service=new UserLocalAiService(true,null,json);
+    var service=new UserLocalAiService(true,null,null,json);
     var row=new LinkedHashMap<String,Object>();
     row.put("modelId","direction_h1");row.put("kind","h3");
     row.put("prediction","{\"direction\":\"UP\",\"score_up\":0.6123456789012345678,\"threshold\":0.5,\"features\":{\"x\":1},\"artifact\":\"C:/models/a.pkl\"}");
@@ -31,7 +31,7 @@ class UserLocalAiServiceTests {
   }
 
   @Test void unknownKindOrBrokenJsonIsDropped(){
-    var service=new UserLocalAiService(true,null,json);
+    var service=new UserLocalAiService(true,null,null,json);
     assertThat(service.projectPreview(new HashMap<>(Map.of("kind","secret","prediction","{}")))).isNull();
     assertThat(service.projectPreview(new HashMap<>(Map.of("kind","npat","prediction","not-json")))).isNull();
     var npat=service.projectPreview(new HashMap<>(Map.of("kind","npat","prediction","{\"prediction_vnd\":12345678901234567890}")));

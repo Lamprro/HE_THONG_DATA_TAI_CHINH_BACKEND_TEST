@@ -8,9 +8,7 @@ async function financialScreen() {
   const detail = await api.statement('FPT', reports.items[0].id, { exchange: 'HOSE' });
   const matrix = await api.financials('FPT', { codes: [detail.data.items[0].code], type: detail.data.statementType, period: detail.data.periodType });
   const values: (DecimalString | null)[] = Object.values(matrix.data.series[0].values).map(point => point.value);
-  const local = await api.securityLocalAi('FPT', { exchange: 'HOSE' });
-  const approved: false = local.data.publicResultsAvailable;
-  return { company, values, approved };
+  return { company, values };
 }
 void financialScreen;
 // @ts-expect-error Old SQL Server numeric company IDs are not this API's UUID strings.

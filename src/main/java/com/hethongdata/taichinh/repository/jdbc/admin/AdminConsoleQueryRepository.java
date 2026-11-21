@@ -128,8 +128,7 @@ public class AdminConsoleQueryRepository {
 
     String time = List.of("created_at", "started_at", "registered_at", "observed_at").stream().filter(cols::contains).findFirst().orElse(null);
     String order = time == null ? "" : "t." + time + " desc nulls last,";
-    order += cols.contains("id") ? "t.id desc" : table.equals("local_ai_package_inputs")
-        ? "t.package_id,t.model_id,t.ticker" : "cast(" + projection + " as text)";
+    order += cols.contains("id") ? "t.id desc" : "cast(" + projection + " as text)";
 
     params.put("limit", size);
     params.put("offset", (long) page * size);

@@ -98,14 +98,4 @@ public class UserSecurityQueryRepository {
             + " and exists(select 1 from news_article_companies x where x.news_article_id=n.id and (x.security_id=:security or (x.security_id is null and x.company_id=:company)))",
         args, "News coverage");
   }
-
-  public boolean hasModelVersionsColumns() {
-    return read.hasColumns("model_versions", Set.of("target_name", "status", "trained_at"));
-  }
-
-  public List<Map<String, Object>> queryModelVersionRegistry() {
-    return read.rows(
-        "select target_name as target,status,count(*) as count,max(trained_at) as \"lastTrainedAt\" from model_versions group by target_name,status order by target_name,status limit 101",
-        Map.of());
-  }
 }

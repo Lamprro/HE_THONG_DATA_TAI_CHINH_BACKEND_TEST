@@ -1,11 +1,8 @@
-# Cập nhật 21/11/2026 — xử lý phát hiện review backend
+# Ranh giới backend
 
-- Nhánh GitHub `refactor/repository-layer` đã nhận các commit gỡ kết quả Local AI mô phỏng, sửa seed prompt, xóa helper không dùng và sửa SQL readiness theo cột thực tế. FE đã gỡ bảng xếp hạng mẫu và thao tác train/publish chưa xác minh trên `fix/local-ai-review`.
-- API rank mẫu đã được gỡ. Retrain chỉ còn ghi BLOCKED khi thiếu dữ liệu, hoặc báo trainer đã xác minh chưa kết nối. Publish/rollback dừng trước khi ghi. Suite nghiên cứu giữ luồng cũ. Migration thủ công cho lịch sử training không mở rộng trạng thái gói. Không chạy migration này trên schema nghiệp vụ.
-- Seed recovery dùng lock cùng task với admin. Bước thêm prompt active phải thành công, nếu có conflict PostgreSQL sẽ làm transaction rollback thay vì để task mất prompt.
-- Readiness đổi từ cột không có `price_date` sang `price_timestamp`; ngày hiển thị dùng Asia/Ho_Chi_Minh. Bỏ số coverage gõ cứng. Số mã có giá từ 2021 là thống kê có dữ liệu, chưa đo tính liên tục hoặc chất lượng mô hình.
-- Test: Maven mặc định 291 đạt, 121 bỏ qua sau sửa P0. News/forecast/recovery PostgreSQL cô lập 77 đạt, 1 bỏ qua (Python thật). Nhóm layering, user API, Local AI user và market 18 đạt. Nhóm readiness/market và quyền API tài chính 8 đạt, gồm kiểm SQL ghi BLOCKED và ngày VN. Test model/provider dùng mock.
-- Chưa so toàn bộ JSON giữa main và refactor trên cùng fixture. Còn các chỗ repository import service, DTO động và chuẩn hóa tra mã kèm sàn. Giả định tiền tệ/hệ số VNDirect giữ nguyên cho đến khi có mẫu đã đối chiếu; ca gaps chỉ kiểm HTTP với service mock trong lượt này. Main và production giữ phiên bản cũ đến khi merge/deploy riêng.
+Local AI chạy ở dự án huấn luyện riêng. Backend Java giữ API tài chính, vận hành và LLM news/forecast. Gỡ script huấn luyện, mô hình Suite, API Admin/User, cấu hình và migration riêng của Local AI khỏi source. Việc gỡ file trong Git không chạy SQL xóa bảng. Các mục lịch sử bên dưới mô tả phiên bản trước thay đổi này.
+
+Kiểm thử mặc định sau khi gỡ: 272 bài đạt, 117 bài cần cấu hình riêng bị bỏ qua. Client API: 4 bài đạt. Giữ migration chất lượng thị trường đang tạo cột giá, bảng khối ngoại/bản ghi tham chiếu và audit phục vụ backend.
 
 # Cập nhật 19/11/2026 — tinh gọn lớp backend (nhánh `refactor/backend-consolidation`, chưa push)
 
@@ -84,7 +81,7 @@ riêng trên main/FE main; không đưa API user lên main.
 # Cập nhật 23/10/2026 — reader gói Local AI mới và client FE
 
 Tiếp tục `feature/user-api`, chỉ push, **chưa PR/merge/deploy**.
-Đọc [35 GET, registry Local AI thật và luồng browser](USER_LOCAL_AI_FE_20261023.md).
+Đọc 35 GET, registry Local AI thật và luồng browser (tài liệu cũ).
 Thêm model catalog/per-security progress từ suite registry, nối availability/overview;
 không xuất prediction nghiên cứu hoặc sửa thư mục train/checkout gốc.
 Client FE có UUID/envelope/decimal string, chỉ GET không credential, TypeScript và

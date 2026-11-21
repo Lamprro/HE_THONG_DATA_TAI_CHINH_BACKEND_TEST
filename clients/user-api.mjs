@@ -17,7 +17,7 @@ export const userOperations = Object.freeze({
   financials: '/securities/{symbol}/financials', screener: '/market/screener', compare: '/securities/compare',
   foreignTrades: '/securities/{symbol}/foreign-trades', referenceObservations: '/securities/{symbol}/reference-observations',
   analysisAvailability: '/analysis/availability', overview: '/securities/{symbol}/overview',
-  localAiModels: '/local-ai/models', securityLocalAi: '/securities/{symbol}/local-ai', contract: '/openapi.json',
+  contract: '/openapi.json',
 });
 
 function apiRoot(value) {

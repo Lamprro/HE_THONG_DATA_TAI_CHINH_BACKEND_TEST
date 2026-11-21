@@ -20,7 +20,6 @@ public class UserSecurityService {
   private final UserMarketService market;
   private final UserFinancialService financial;
   private final UserNewsService news;
-  private final UserLocalAiService localAi;
 
   @Autowired
   public UserSecurityService(
@@ -28,14 +27,12 @@ public class UserSecurityService {
       UserReadSupport read,
       UserMarketService market,
       UserFinancialService financial,
-      UserNewsService news,
-      UserLocalAiService localAi) {
+      UserNewsService news) {
     this.securityRepo = securityRepo;
     this.read = read;
     this.market = market;
     this.financial = financial;
     this.news = news;
-    this.localAi = localAi;
   }
 
   // ---- master data ----
@@ -101,27 +98,11 @@ public class UserSecurityService {
   // ---- overview: longer read snapshot (timeout 30) shared by every composed section ----
   @Transactional(readOnly=true,timeout=30,isolation=Isolation.REPEATABLE_READ)
   public Data<Map<String,Object>> availability() {
-    var local = new LinkedHashMap<String,Object>();
-    boolean registry = securityRepo.hasModelVersionsColumns();
-    local.put("registryAvailable", registry);
-    local.put("publicPredictionReader", "NOT_INTEGRATED");
-    local.put("reason", "PUBLICATION_POLICY_REQUIRED");
-    var regEntries = registry ? securityRepo.queryModelVersionRegistry() : List.<Map<String,Object>>of();
-    if (regEntries.size() > 100) {
-      local.put("registry", List.copyOf(regEntries.subList(0, 100)));
-      local.put("registryTruncated", true);
-    } else {
-      local.put("registry", regEntries);
-      local.put("registryTruncated", false);
-    }
-    local.put("registeredSuite", localAi.summary());
     var result = new LinkedHashMap<String,Object>();
-    result.put("localAi", local);
     result.put("newsAnalysis", Map.of("readerAvailable", true, "publicationGuard", "CURRENT_SOURCE_AND_COMPLETE_VALIDATION", "route", "/api/v1/news/{id}/analysis"));
     result.put("financialScenarios", Map.of("readerAvailable", true, "publicationGuard", "CURRENT_SOURCE_AND_COMPLETE_VALIDATION", "route", "/api/v1/securities/{symbol}/forecasts"));
     result.put("executesModels", false);
     return data(result,
-        "Registry state (including ACTIVE) does not certify public prediction eligibility. Local AI research artifacts, retrospective outcomes and unapproved disclosure facts are not published by this API.",
         "Availability describes readers in this build, not model accuracy or a guarantee that any eligible result exists. Native NEWS/forecast publication guards remain authoritative.");
   }
 
@@ -140,7 +121,6 @@ public class UserSecurityService {
     result.put("financialScenarios", forecasts);
     result.put("financialScenarioState", forecasts.data().isEmpty() ? "NO_ELIGIBLE_RESULT" : "AVAILABLE");
     result.put("analysisAvailability", availability());
-    result.put("localAi", localAi.security(symbol, resolvedExchange, null));
     return data(result,
         "Bounded overview: 3 statements, 10 metric observations, 3 news and at most 3 current scenario candidates. Follow each paginated resource for history; metric observations are not one latest value per code.",
         "All sections share the read transaction snapshot. No eligible scenario can mean absent, outdated or blocked by publication guards; reads do not repair or execute it.");

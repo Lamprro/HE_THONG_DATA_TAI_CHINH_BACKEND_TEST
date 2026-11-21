@@ -96,6 +96,6 @@ public class UserNewsService {
     }
     return data(List.copyOf(results),
         "Existing publication reader checks current source snapshot, validation policy and the complete blocking-validation round. At most limit current candidates are examined; this is not a paginated history.",
-        "These are AI scenarios with evidence and limitations, not certified forecasts, calibrated probabilities, target prices or local-AI deployment results. Reads never execute a model.");
+        "These are AI scenarios with evidence and limitations, not certified forecasts, calibrated probabilities, or target prices. Reads never execute a model.");
   }
 }

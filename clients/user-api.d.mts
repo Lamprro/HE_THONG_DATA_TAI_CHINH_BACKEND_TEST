@@ -23,26 +23,13 @@ export interface CompareQuery extends Query { symbols: string | readonly string[
 export interface MetricObservation extends Projection { code: string; value: DecimalString | null; valueText: string | null; asOfDate: string; unit: string | null; derived: boolean }
 export interface DataStatus extends Projection { security: Security; availability: 'PARTIAL' | 'AVAILABLE_WITH_UNVERIFIED_HISTORY'; pointInTimeCertified: false; limitations: string[] }
 export interface Article extends Projection { id: UUID; title: string; url: string | null; hasContent: boolean; publishedAt: string | null; crawledAt: string; contentText?: string | null }
-export interface ResearchPackage { id: UUID; status: 'RESEARCH_ONLY'; registeredAt: string }
-export interface LocalAiModel {
-  packageId: UUID; registeredAt: string; modelId: string; kind: string; horizonQuarters: number | null; targetPeriod: string | null;
-  selectedAlgorithm: string | null; developmentGatePassed: boolean | null; registeredInputs: DecimalString;
-  firstInputAsOf: string | null; lastInputAsOf: string | null; storedSelectedResearchResults: DecimalString;
-  readiness: 'RESEARCH_ONLY'; publicResultsAvailable: false; inputMode: 'REGISTERED_SNAPSHOT'; featureSubmissionAllowed: false;
-  outputContract: { type: string; fields: string[]; unit?: string; note?: string; reportScope?: string; periodBasis?: string };
-}
-export interface LocalAiSecurity {
-  security: Security; state: 'NOT_INSTALLED' | 'NO_REGISTERED_PACKAGE' | 'TICKER_IDENTITY_AMBIGUOUS' | 'NO_REGISTERED_INPUT' | 'RESEARCH_ONLY';
-  package?: ResearchPackage | null; models: LocalAiModel[]; modelsTruncated?: boolean; publicResultsAvailable: false; executionAvailable: false;
-}
 export interface AnalysisAvailability extends Projection {
   executesModels: false;
-  localAi: Projection & { publicPredictionReader: 'NOT_INTEGRATED'; reason: 'PUBLICATION_POLICY_REQUIRED'; registeredSuite: Data<Projection> };
 }
 export interface Overview extends Projection {
   profile: Data<Security>; dataStatus: Data<DataStatus>; statements: Page<Statement>; metrics: Page<MetricObservation>;
   news: Page<Article>; financialScenarios: Data<Projection[]>; financialScenarioState: 'AVAILABLE' | 'NO_ELIGIBLE_RESULT';
-  localAi: Data<LocalAiSecurity>; analysisAvailability: Data<AnalysisAvailability>;
+  analysisAvailability: Data<AnalysisAvailability>;
 }
 type ListCall<T> = (query?: Query, options?: RequestOptions) => Promise<Page<T>>;
 type DetailCall<T> = (key: string, query?: Query, options?: RequestOptions) => Promise<Data<T>>;
@@ -67,7 +54,7 @@ export interface UserApi {
   compare(query: CompareQuery, options?: RequestOptions): Promise<Data<Projection>>;
   foreignTrades: SecurityList<Projection>; referenceObservations: SecurityList<Projection>;
   analysisAvailability(query?: Query, options?: RequestOptions): Promise<Data<AnalysisAvailability>>;
-  overview: DetailCall<Overview>; localAiModels: ListCall<LocalAiModel>; securityLocalAi: DetailCall<LocalAiSecurity>;
+  overview: DetailCall<Overview>;
   contract(query?: Query, options?: RequestOptions): Promise<Projection>;
 }
 export type ErrorKind = 'HTTP' | 'NETWORK' | 'TIMEOUT' | 'ABORTED' | 'INVALID_RESPONSE';

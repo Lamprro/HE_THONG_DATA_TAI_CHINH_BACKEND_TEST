@@ -22,8 +22,7 @@ class UserApiMvcTests {
     @Bean UserFinancialService financial(){return mock(UserFinancialService.class);}
     @Bean UserFinancialController financialController(){return new UserFinancialController(financial());}
     @Bean UserNewsService news(){return mock(UserNewsService.class);}
-    @Bean UserLocalAiService localAi(){return mock(UserLocalAiService.class);}
-    @Bean UserAnalysisController analysisController(){return new UserAnalysisController(news(), localAi());}
+    @Bean UserAnalysisController analysisController(){return new UserAnalysisController(news());}
     @Bean ApiExceptionHandler errors() {return new ApiExceptionHandler();}
     @Bean com.hethongdata.taichinh.controller.user.UserContractController contract(org.springframework.beans.factory.ObjectProvider<org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping> routes){return new com.hethongdata.taichinh.controller.user.UserContractController(routes);}
     @Bean AdminAccessConfiguration access() {return new AdminAccessConfiguration("fixture-token-at-least-32-characters",new ObjectMapper().findAndRegisterModules());}
@@ -36,18 +35,20 @@ class UserApiMvcTests {
       verify(context.getBean(UserMarketService.class)).prices("FPT",null,"1d",java.time.LocalDate.parse("2016-10-01"),java.time.LocalDate.parse("2026-10-01"),0,250);
       mvc.perform(get("/api/v1/securities/FPT/prices").param("from","invalid")).andExpect(status().isBadRequest());
       mvc.perform(get("/api/v1/securities/FPT/financials")).andExpect(status().isBadRequest()).andExpect(jsonPath("message").value("Missing parameter 'codes'"));
-      mvc.perform(get("/api/v1/local-ai/models").param("packageId","wrong")).andExpect(status().isBadRequest());
       mvc.perform(get("/api/v1/securities/FPT/prices/9007199254740993/lineage")).andExpect(status().isOk());
       verify(context.getBean(UserMarketService.class)).priceLineage("FPT",null,9007199254740993L);
       mvc.perform(get("/api/v1/securities/FPT/prices/9223372036854775808/lineage")).andExpect(status().isBadRequest());
     }
   }
-  @Test void consolidationPreservesTheEntirePublishedContract() throws Exception {
+  @Test void publishedContractMatchesSupportedRoutes() throws Exception {
     try(var context=new AnnotationConfigWebApplicationContext();
         var snapshot=getClass().getResourceAsStream("/contracts/user-api.json")) {
       context.setServletContext(new MockServletContext());context.register(Config.class);context.refresh();
       var mvc=MockMvcBuilders.webAppContextSetup(context).build();
       var body=mvc.perform(get("/api/v1/openapi.json")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+      mvc.perform(get("/api/v1/local-ai/models")).andExpect(status().isNotFound());
+      mvc.perform(get("/api/v1/securities/FPT/local-ai")).andExpect(status().isNotFound());
+      mvc.perform(get("/api/v1/securities/FPT/local-ai/research-preview")).andExpect(status().isNotFound());
       var mapper=new ObjectMapper();
       org.assertj.core.api.Assertions.assertThat(mapper.readTree(body)).isEqualTo(mapper.readTree(snapshot));
     }

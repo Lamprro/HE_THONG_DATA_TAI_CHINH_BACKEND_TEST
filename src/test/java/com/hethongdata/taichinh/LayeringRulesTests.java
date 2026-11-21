@@ -12,24 +12,17 @@ import org.junit.jupiter.api.Test;
 class LayeringRulesTests {
   // Allowlist: file còn được phép có SQL — xóa dần sau mỗi đợt, cuối cùng phải rỗng
   static final Set<String> ALLOW = Set.of(
-    "service/financial/FinancialDataQualityService.java",
     "service/localai/LocalAiTrainerService.java",
     "service/user/UserFinancialService.java",
     "service/user/UserMarketService.java",
     "service/localai/LocalAiSuiteService.java",
-    "service/forecast/ForecastContextService.java",
-    "service/financial/FinancialMetricBuildPersistenceService.java",
-    "service/market/TrainingDataQualityService.java",
     "service/user/UserLocalAiService.java",
     "service/market/SupplementaryDataPersistenceService.java",
     "service/user/UserSecurityService.java",
     "service/macro/MacroWorkflowPersistenceService.java",
-    "service/financial/HistoricalFinancialMetricService.java",
-    "service/financial/FinancialDisclosureDocumentStore.java",
     "service/user/UserNewsService.java",
     "service/macro/MacroJobCatalogService.java",
     "service/user/UserReadSupport.java",
-    "service/financial/FinancialMetricWorkflowService.java",
     "service/market/MarketPriceWorkflowPersistenceService.java",
     "service/validation/DataVersionLifecycleService.java"
   );

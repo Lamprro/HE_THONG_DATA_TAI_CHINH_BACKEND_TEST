@@ -5,6 +5,7 @@ import static org.mockito.Mockito.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hethongdata.taichinh.entity.ingestion.*;
 import com.hethongdata.taichinh.entity.validation.DataVersionEntity;
+import com.hethongdata.taichinh.repository.jdbc.financial.FinancialMetricJdbcRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.*;
 import com.hethongdata.taichinh.repository.jpa.validation.DataVersionJpaRepository;
 import com.hethongdata.taichinh.service.ingestion.ChecksumService;
@@ -55,7 +56,7 @@ class DataEnrichmentIsolatedIntegrationTests {
     }
     @BeforeEach void empty() {db.execute("TRUNCATE financial_metrics,financial_statement_items,financial_statements,raw_payloads,data_versions");}
     FinancialMetricBuildPersistenceService writer() {
-        return new FinancialMetricBuildPersistenceService(db,versions,raws,runs,json,new ChecksumService());
+        return new FinancialMetricBuildPersistenceService(new FinancialMetricJdbcRepository(db),versions,raws,runs,json,new ChecksumService());
     }
     DataVersionEntity batch(List<RawPayloadEntity> payloads) {
         var version=DataVersionEntity.acceptedForRun("FINANCIAL_METRIC",UUID.randomUUID(),payloads.size(),"fixture-hash");
@@ -119,7 +120,7 @@ class DataEnrichmentIsolatedIntegrationTests {
     @Test void historicalRatiosKeepInputsAndAreIdempotentAcrossEightFormulas() {
         statement("BALANCE_SHEET",Map.of("TOTAL_ASSETS","100","LIABILITIES","60","OWNERS_EQUITY","40","CURRENT_ASSETS","20","SHORT_TERM_LIABILITIES","10","CASH_AND_CASH_EQUIVALENTS","2"));
         statement("INCOME_STATEMENT",Map.of("NET_SALES","200","NET_PROFIT_AFTER_TAX","10","GROSS_PROFIT","30","NET_PROFIT_FROM_OPERATING_ACTIVITIES","25"));
-        var service=new HistoricalFinancialMetricService(db,new FinancialRatioCalculator(),json,new ChecksumService());
+        var service=new HistoricalFinancialMetricService(new FinancialMetricJdbcRepository(db),new FinancialRatioCalculator(),json,new ChecksumService());
         var req=new HistoricalFinancialMetricService.Request("FPT",LocalDate.of(2016,1,1),LocalDate.of(2016,12,31));
         assertThat(tx.execute(s->service.calculate(req)).inserted()).isEqualTo(8);
         assertThat(tx.execute(s->service.calculate(req)).unchanged()).isEqualTo(8);
@@ -129,7 +130,7 @@ class DataEnrichmentIsolatedIntegrationTests {
     @Test void refusesToDeriveFromUnactivatedSourceVersions() {
         statement("BALANCE_SHEET",Map.of("TOTAL_ASSETS","100","LIABILITIES","60","OWNERS_EQUITY","40"));
         db.update("UPDATE data_versions SET status='REJECTED'");
-        var service=new HistoricalFinancialMetricService(db,new FinancialRatioCalculator(),json,new ChecksumService());
+        var service=new HistoricalFinancialMetricService(new FinancialMetricJdbcRepository(db),new FinancialRatioCalculator(),json,new ChecksumService());
         var req=new HistoricalFinancialMetricService.Request("FPT",LocalDate.of(2016,1,1),LocalDate.of(2016,12,31));
         assertThat(tx.execute(s->service.calculate(req)).inserted()).isZero();
         assertThat(db.queryForObject("SELECT count(*) FROM financial_metrics",Integer.class)).isZero();
@@ -137,14 +138,14 @@ class DataEnrichmentIsolatedIntegrationTests {
 
     @Test void legacyCalculateJobUsesAuditedCanonicalWriterAndReplayKeepsHistory() {
         statement("BALANCE_SHEET",Map.of("TOTAL_ASSETS","100","LIABILITIES","60","OWNERS_EQUITY","40"));
-        var actual=new HistoricalFinancialMetricService(db,new FinancialRatioCalculator(),json,new ChecksumService());
+        var actual=new HistoricalFinancialMetricService(new FinancialMetricJdbcRepository(db),new FinancialRatioCalculator(),json,new ChecksumService());
         var audit=mock(com.hethongdata.taichinh.repository.ingestion.IngestionRunRepository.class);
         var run=mock(IngestionRunEntity.class);var job=mock(IngestionJobEntity.class);
         UUID id=UUID.randomUUID();when(run.getId()).thenReturn(id);
         when(job.getParameters()).thenReturn(json.createObjectNode().put("symbol","FPT")
                 .put("startDate","2016-01-01").put("endDate","2016-12-31"));
         when(audit.startInternalBatch(any(),eq(job),eq("MANUAL"),eq("FINANCIAL_METRIC_CALCULATE"))).thenReturn(run);
-        var workflow=new FinancialMetricWorkflowService(null,audit,null,null,db,actual,runs,json,null);
+        var workflow=new FinancialMetricWorkflowService(null,audit,null,null,new FinancialMetricJdbcRepository(db),actual,runs,json,null);
         assertThat(tx.execute(s->workflow.executeCalculate(job,"MANUAL")).getStatus()).isEqualTo("SUCCESS");
         assertThat(tx.execute(s->workflow.executeCalculate(job,"MANUAL")).getRunId()).isEqualTo(id);
         assertThat(db.queryForObject("SELECT count(*) FROM financial_metrics WHERE is_canonical "

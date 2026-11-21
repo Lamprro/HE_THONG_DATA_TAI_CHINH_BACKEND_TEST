@@ -14,7 +14,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
-import org.springframework.jdbc.core.JdbcTemplate;
+import com.hethongdata.taichinh.repository.jdbc.financial.FinancialMetricJdbcRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,17 +31,17 @@ public class FinancialMetricWorkflowService {
     private final IngestionRunRepository runs;
     private final FinancialMetricBuildPersistenceService writes;
     private final DataVersionLifecycleService lifecycle;
-    private final JdbcTemplate db;
+    private final FinancialMetricJdbcRepository metricRepo;
     private final HistoricalFinancialMetricService actualRatios;
     private final IngestionRunJpaRepository persistence;
     private final ObjectMapper mapper;
     private final MetricDefinitionJpaRepository definitions;
     public FinancialMetricWorkflowService(DataVersionJpaRepository versions, IngestionRunRepository runs,
-            FinancialMetricBuildPersistenceService writes, DataVersionLifecycleService lifecycle, JdbcTemplate db,
+            FinancialMetricBuildPersistenceService writes, DataVersionLifecycleService lifecycle, FinancialMetricJdbcRepository metricRepo,
             HistoricalFinancialMetricService actualRatios, IngestionRunJpaRepository persistence, ObjectMapper mapper,
             MetricDefinitionJpaRepository definitions) {
         this.versions=versions;this.runs=runs;this.writes=writes;this.lifecycle=lifecycle;
-        this.db=db;this.actualRatios=actualRatios;this.persistence=persistence;this.mapper=mapper;
+        this.metricRepo=metricRepo;this.actualRatios=actualRatios;this.persistence=persistence;this.mapper=mapper;
         this.definitions=definitions;
     }
 
@@ -83,9 +83,7 @@ public class FinancialMetricWorkflowService {
         if (start.isAfter(end) || end.isAfter(LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh"))))
             throw new IllegalArgumentException("Choose a valid actual-data date range");
         var symbols = symbol.isEmpty()
-                ? db.queryForList("SELECT DISTINCT s.symbol FROM securities s "
-                        + "JOIN financial_statements f ON f.security_id=s.id "
-                        + "WHERE f.is_current AND f.is_canonical ORDER BY s.symbol", String.class)
+                ? metricRepo.findDistinctSymbolsWithStatements()
                 : java.util.List.of(symbol);
         var run = runs.startInternalBatch(job.getDataSource(), job, trigger, CALCULATE_WORKFLOW);
         int statements = 0, inserted = 0, unchanged = 0;

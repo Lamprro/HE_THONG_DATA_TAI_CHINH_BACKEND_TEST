@@ -2,10 +2,8 @@ package com.hethongdata.taichinh.service.admin;
 
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.node.*;
+import com.hethongdata.taichinh.repository.jdbc.admin.AdminConsoleQueryRepository;
 import java.util.*;
-import javax.sql.DataSource;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 
 /** Bounded, read-only browsing. Identifiers come exclusively from the server allowlist/catalog. */
@@ -29,39 +27,31 @@ public class AdminConsoleReadService {
     if(table.startsWith("local_ai_")) result.addAll(Set.of("manifest","input_payload","request_json","response_json"));
     return result;
   }
-  private final NamedParameterJdbcTemplate db;
+  private final AdminConsoleQueryRepository repository;
   private final ObjectMapper json;
-  public AdminConsoleReadService(DataSource source, ObjectMapper json) {
-    var jdbc = new JdbcTemplate(source); jdbc.setQueryTimeout(15);
-    this.db = new NamedParameterJdbcTemplate(jdbc);
+
+  public AdminConsoleReadService(javax.sql.DataSource source, ObjectMapper json) {
+    this(new AdminConsoleQueryRepository(source), json);
+  }
+
+  public AdminConsoleReadService(AdminConsoleQueryRepository repository, ObjectMapper json) {
+    this.repository = repository;
     this.json = json.copy().enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
         .enable(DeserializationFeature.USE_BIG_INTEGER_FOR_INTS);
   }
   /** Whole-database counts for the overview; never a sample of recent rows. */
   public Map<String, Object> summary() {
-    var jdbc = db.getJdbcTemplate();
-    return Map.of(
-        "jobs", jdbc.queryForList("select is_active,count(*) as count from ingestion_jobs group by is_active"),
-        "commands", jdbc.queryForList("select status,count(*) as count from admin_commands group by status"),
-        "runs", jdbc.queryForList("select status,count(*) as count from ingestion_runs group by status"),
-        "versions", jdbc.queryForList("select data_domain,status,count(*) as count from data_versions group by data_domain,status"),
-        "validation", jdbc.queryForList("select validation_target,result_status,count(*) as count from validation_results group by validation_target,result_status"));
+    return repository.summary();
   }
   /** Titles for article ids, preserving the caller's order. */
   public List<Map<String, Object>> articleTitles(List<UUID> ids) {
-    if (ids.isEmpty()) return List.of();
-    var rows = new ArrayList<>(db.queryForList(
-        "select id as \"articleId\",title,published_at from news_articles where id in (:ids)", Map.of("ids", ids)));
-    rows.sort(Comparator.comparingInt(row -> ids.indexOf(row.get("articleId"))));
-    return rows;
+    return repository.articleTitles(ids);
   }
   public List<Map<String, Object>> issueReviews(UUID validationResultId) {
-    return db.getJdbcTemplate().queryForList("select id,event_type,reason,principal,created_at from admin_operation_events "
-        + "where target_id=? order by created_at desc,id desc", validationResultId);
+    return repository.issueReviews(validationResultId);
   }
   public boolean databaseUp() {
-    Integer one = db.getJdbcTemplate().queryForObject("select 1", Integer.class);
-    return one != null && one == 1;
+    return repository.databaseUp();
   }
   public List<Map<String, Object>> tables() {
     return TABLES.stream().map(name -> {
@@ -71,8 +61,7 @@ public class AdminConsoleReadService {
     }).toList();
   }
   private List<String> columns(String name) {
-    return db.queryForList("select column_name from information_schema.columns where table_schema=current_schema() "
-        + "and table_name=:name order by ordinal_position", Map.of("name", name), String.class);
+    return repository.columns(name);
   }
   public Map<String,Object> browse(String table, int page, int size, String search, String runId, String status) {
     return browse(table,page,size,search,runId,status,Map.of());
@@ -84,75 +73,28 @@ public class AdminConsoleReadService {
     if (cols.isEmpty()) throw new IllegalArgumentException("Dataset is not installed on this deployment");
     var omitted=omitted(table);
     List<String> visible = cols.stream().filter(c -> !omitted.contains(c) && !sensitive(c)).toList();
-    // Search only visible scalar columns; large payloads and secrets cannot influence search results.
-    var searchable=db.queryForList("select column_name from information_schema.columns where table_schema=current_schema() "
-        +"and table_name=:table and data_type not in ('json','jsonb','bytea','ARRAY','USER-DEFINED') order by ordinal_position",
-        Map.of("table",table),String.class).stream().filter(visible::contains).toList();
-    var labels = new LinkedHashMap<String,String>();
-    if(cols.contains("security_id")) labels.put("symbol","(select s.symbol from securities s where s.id=t.security_id)");
-    if(cols.contains("company_id")) labels.put("company_name","(select c.legal_name from companies c where c.id=t.company_id)");
-    if(cols.contains("data_source_id")) labels.put("source_code","(select s.code from data_sources s where s.id=t.data_source_id)");
-    if(cols.contains("metric_definition_id")) labels.put("metric_code","(select d.code from metric_definitions d where d.id=t.metric_definition_id)");
-    if(cols.contains("financial_period_id")) labels.put("period_end","(select p.end_date from financial_periods p where p.id=t.financial_period_id)");
-    if(cols.contains("financial_statement_id")) {
-      labels.put("symbol","(select s.symbol from financial_statements f join securities s on s.id=f.security_id where f.id=t.financial_statement_id)");
-      labels.put("period_end","(select p.end_date from financial_statements f join financial_periods p on p.id=f.financial_period_id where f.id=t.financial_statement_id)");
-      labels.put("statement_type","(select f.statement_type from financial_statements f where f.id=t.financial_statement_id)");
-    }
-    var filters = new ArrayList<String>(); var params = new HashMap<String,Object>();
-    int index=0;
+    var searchable = repository.searchableColumns(table, visible);
+
     for(var entry:exact.entrySet()) {
       if(entry.getValue()==null || entry.getValue().isBlank()) continue;
       if(!EXACT.contains(entry.getKey()) || !cols.contains(entry.getKey()))
         throw new IllegalArgumentException("Unsupported dataset filter: "+entry.getKey());
       if(entry.getValue().length()>200) throw new IllegalArgumentException("Exact filter is limited to 200 characters");
-      String key="exact"+(index++);filters.add("cast(t."+entry.getKey()+" as text)=:"+key);params.put(key,entry.getValue());
     }
-    if (search != null && !search.isBlank()) {
-      if (search.length()>100) throw new IllegalArgumentException("Search is limited to 100 characters");
-      var searches=new ArrayList<String>();
-      searchable.forEach(c->searches.add("cast(t.\""+c+"\" as text) ilike :q escape '\\'"));
-      if(cols.contains("security_id")) searches.add("t.security_id in (select s.id from securities s where s.symbol ilike :q escape '\\')");
-      if(cols.contains("financial_statement_id")) searches.add("t.financial_statement_id in (select f.id from financial_statements f join securities s on s.id=f.security_id where s.symbol ilike :q escape '\\')");
-      if(cols.contains("metric_definition_id")) searches.add("t.metric_definition_id in (select d.id from metric_definitions d where d.code ilike :q escape '\\')");
-      filters.add(searches.isEmpty()?"false":"("+String.join(" or ",searches)+")");
-      params.put("q", "%" + search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%");
+    if (search != null && !search.isBlank() && search.length()>100) {
+      throw new IllegalArgumentException("Search is limited to 100 characters");
     }
-    if (runId != null && !runId.isBlank()) {
-      if (!cols.contains("ingestion_run_id")) throw new IllegalArgumentException("Dataset has no ingestion run filter");
-      filters.add("t.ingestion_run_id=:runId"); params.put("runId", UUID.fromString(runId));
+    if (runId != null && !runId.isBlank() && !cols.contains("ingestion_run_id")) {
+      throw new IllegalArgumentException("Dataset has no ingestion run filter");
     }
     if (status != null && !status.isBlank()) {
       String column = cols.contains("result_status") ? "result_status" : "status";
       if (!cols.contains(column)) throw new IllegalArgumentException("Dataset has no status filter");
-      if (status.contains(",")) {
-        var parts = Arrays.stream(status.split(",")).map(String::trim).filter(s -> !s.isBlank()).toList();
-        var keys = new ArrayList<String>();
-        for (int i = 0; i < parts.size(); i++) {
-          String k = "status" + i;
-          keys.add(":" + k);
-          params.put(k, parts.get(i));
-        }
-        filters.add("cast(t." + column + " as text) in (" + String.join(",", keys) + ")");
-      } else {
-        filters.add("cast(t."+column+" as text)=:status"); params.put("status", status);
-      }
     }
-    String where = filters.isEmpty() ? "" : " where " + String.join(" and ", filters);
-    String source = " from " + table + " t" + where;
-    long total = db.queryForObject("select count(*)"+source, params, Long.class);
-    String projection = "jsonb_build_object(" + visible.stream()
-        .map(c -> "'"+c+"',t.\""+c+"\"").collect(java.util.stream.Collectors.joining(",")) + ")";
-    if(!labels.isEmpty()) projection += " || jsonb_build_object("+labels.entrySet().stream()
-        .map(e -> "'"+e.getKey()+"',"+e.getValue()).collect(java.util.stream.Collectors.joining(","))+")";
-    String time=List.of("created_at","started_at","registered_at","observed_at").stream().filter(cols::contains).findFirst().orElse(null);
-    String order=time==null?"":"t."+time+" desc nulls last,";
-    order += cols.contains("id") ? "t.id desc" : table.equals("local_ai_package_inputs")
-        ? "t.package_id,t.model_id,t.ticker" : "cast("+projection+" as text)";
-    params.put("limit", size); params.put("offset", (long)page*size);
-    var rows = db.query("select cast("+projection+" as text)"+source+" order by "+order+" limit :limit offset :offset",
-        params, (rs,n) -> decode(rs.getString(1)));
-    return Map.of("rows", rows, "total", total, "page", page, "size", size,
+
+    var result = repository.browse(table, cols, visible, searchable, page, size, search, runId, status, exact);
+    var rows = result.rawRows().stream().map(this::decode).toList();
+    return Map.of("rows", rows, "total", result.total(), "page", page, "size", size,
         "columns", visible, "numberEncoding", "decimal strings preserve precision", "omittedColumns", omitted);
   }
   public JsonNode decode(String value) {

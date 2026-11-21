@@ -2,6 +2,8 @@ package com.hethongdata.taichinh.service.admin;
 
 import com.fasterxml.jackson.databind.*;
 import com.hethongdata.taichinh.dto.ingestion.ManualIngestionRequest;
+import com.hethongdata.taichinh.repository.jdbc.admin.AdminAuditJdbcRepository;
+import com.hethongdata.taichinh.repository.jdbc.admin.AdminCommandJdbcRepository;
 import com.hethongdata.taichinh.service.ingestion.*;
 import com.hethongdata.taichinh.service.validation.ValidationJobService;
 import jakarta.annotation.PostConstruct;
@@ -11,7 +13,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.*;
 import java.util.concurrent.*;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -29,7 +30,8 @@ public class AdminCommandService {
         "INGEST_VALIDATE_BUILD","PROCESS_RUN","REPLAY_RUN","VALIDATE_RAW","VALIDATE_PENDING"));
     WORKER_ACTIONS=Collections.unmodifiableSet(actions);
   }
-  private final JdbcTemplate db;
+  private final AdminCommandJdbcRepository repository;
+  private final AdminAuditJdbcRepository auditRepository;
   private final ObjectMapper json;
   private final IngestionJobService jobs;
   private final IngestionService ingestion;
@@ -47,10 +49,13 @@ public class AdminCommandService {
   private final ScheduledExecutorService workers=Executors.newScheduledThreadPool(3, r -> {
     var t=new Thread(r,"admin-native-command"); t.setDaemon(true); return t;
   });
-  public AdminCommandService(JdbcTemplate db, ObjectMapper json, IngestionJobService jobs,
+
+  public AdminCommandService(AdminCommandJdbcRepository repository, AdminAuditJdbcRepository auditRepository,
+      ObjectMapper json, IngestionJobService jobs,
       IngestionService ingestion, ValidationJobService validation, Validator validator,
       PlatformTransactionManager transactions, AdminPipelineService pipeline, AdminAiActionService ai) {
-    this.db=db; this.json=json; this.jobs=jobs; this.ingestion=ingestion; this.pipeline=pipeline; this.ai=ai;
+    this.repository=repository; this.auditRepository=auditRepository; this.json=json; this.jobs=jobs;
+    this.ingestion=ingestion; this.pipeline=pipeline; this.ai=ai;
     this.validation=validation; this.validator=validator; this.tx=new TransactionTemplate(transactions);
   }
   @PostConstruct void start() {
@@ -71,7 +76,7 @@ public class AdminCommandService {
     rejectCredentials(request.input());
     String resource=resource(request.action(),request.input());
     String hash=hash(canonical(json.valueToTree(Map.of("action",request.action(),"reason",request.reason(),"input",request.input()))).toString());
-    var previous=db.queryForList("select id,request_hash,parent_command_id from admin_commands where idempotency_key=?",request.idempotencyKey());
+    var previous=repository.findPrevious(request.idempotencyKey());
     if (!previous.isEmpty()) {
       if(!Objects.equals(parent,previous.getFirst().get("parent_command_id"))) throw new ResponseStatusException(HttpStatus.CONFLICT,"Idempotency key belongs to another retry chain");
       if (!hash.equals(previous.getFirst().get("request_hash")) && !legacyHashMatches(request,previous.getFirst().get("request_hash").toString()))
@@ -81,14 +86,12 @@ public class AdminCommandService {
     UUID id=UUID.randomUUID();
     try {
       tx.executeWithoutResult(s -> {
-        db.update("insert into admin_commands(id,idempotency_key,request_hash,action,resource_key,reason,status,request_json,parent_command_id) "
-            +"values (?,?,?,?,?,?,'QUEUED',cast(? as jsonb),?)",id,request.idempotencyKey(),hash,
-            request.action(),resource,request.reason(),request.input().toString(),parent);
+        repository.insertQueued(id, request.idempotencyKey(), hash, request.action(), resource, request.reason(), request.input().toString(), parent);
         event("SUBMITTED",id,request.reason());
         if(parent!=null) event("RETRIED",id,request.reason());
       });
     } catch (org.springframework.dao.DuplicateKeyException e) {
-      previous=db.queryForList("select id,request_hash,parent_command_id from admin_commands where idempotency_key=?",request.idempotencyKey());
+      previous=repository.findPrevious(request.idempotencyKey());
       if (!previous.isEmpty() && Objects.equals(parent,previous.getFirst().get("parent_command_id")) && hash.equals(previous.getFirst().get("request_hash"))) return find((UUID)previous.getFirst().get("id"));
       throw new ResponseStatusException(HttpStatus.CONFLICT,"This resource already has a queued, running, or unresolved command");
     }
@@ -117,8 +120,7 @@ public class AdminCommandService {
   }
   private UUID uuid(JsonNode in,String key) { return UUID.fromString(in.path(key).asText()); }
   private ManualIngestionRequest replayInput(UUID id) {
-    var rows=db.queryForList("select r.request_query_params::text,s.code from ingestion_runs r "
-        +"join data_sources s on s.id=r.data_source_id where r.id=?",id);
+    var rows=repository.getReplayParams(id);
     if(rows.isEmpty()) throw new IllegalArgumentException("Original ingestion run not found");
     try {
       var input=json.readTree(rows.getFirst().get("request_query_params").toString());
@@ -146,8 +148,7 @@ public class AdminCommandService {
     }); else if(node.isArray()) node.forEach(this::rejectCredentials);
   }
   public Map<String,Object> find(UUID id) {
-    var rows=db.queryForList("select id,idempotency_key,action,resource_key,reason,principal,status,request_json::text,"
-        +"result_json::text,progress_json::text,parent_command_id,error_message,created_at,started_at,finished_at,acknowledgement_note from admin_commands where id=?",id);
+    var rows=repository.findById(id);
     if(rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Command not found");
     var row=new LinkedHashMap<>(rows.getFirst());
     for(String key:List.of("request_json","result_json","progress_json")) if(row.get(key)!=null) {
@@ -158,15 +159,14 @@ public class AdminCommandService {
   }
   public Map<String,Object> acknowledge(UUID id,String note) {
     if(note==null || note.isBlank() || note.length()>2000) throw new IllegalArgumentException("A review note is required");
-    int changed=db.update("update admin_commands set status='ACKNOWLEDGED', acknowledgement_note=? "
-        +"where id=? and status='UNKNOWN'",note,id);
+    int changed=repository.acknowledge(id, note);
     if(changed!=1) throw new ResponseStatusException(HttpStatus.CONFLICT,"Only UNKNOWN commands can be acknowledged after checking native runs");
     return find(id);
   }
   public Map<String,Object> cancel(UUID id,String reason) {
     requireReason(reason);
     return tx.execute(s -> {
-      int n=db.update("update admin_commands set status='CANCELLED',finished_at=now(),acknowledgement_note=? where id=? and status='QUEUED'",reason,id);
+      int n=repository.cancelQueued(id, reason);
       if(n!=1) throw new ResponseStatusException(HttpStatus.CONFLICT,"Only queued commands can be cancelled; running native work cannot be interrupted safely");
       event("CANCELLED",id,reason);return find(id);
     });
@@ -188,29 +188,20 @@ public class AdminCommandService {
   /** Records an operator note on a validation issue. The validation status itself never changes. */
   public Map<String,Object> reviewIssue(UUID validationResultId,String reason) {
     requireReason(reason);
-    if(db.queryForObject("select count(*) from validation_results where id=?",Integer.class,validationResultId)!=1)
+    if(!repository.validationResultExists(validationResultId))
       throw new IllegalArgumentException("Validation result not found");
     UUID reviewId=UUID.randomUUID();
-    db.update("insert into admin_operation_events(id,event_type,target_id,reason) values (?,'ISSUE_REVIEWED',?,?)",reviewId,validationResultId,reason);
+    auditRepository.recordEvent(reviewId,"ISSUE_REVIEWED",validationResultId,reason);
     return Map.of("id",reviewId,"validationResultId",validationResultId,"validationStatusChanged",false);
   }
   private void requireReason(String reason) { if(reason==null || reason.isBlank() || reason.length()>2000) throw new IllegalArgumentException("A reason (1..2000) is required"); }
   private void event(String type,UUID id,String reason) {
-    db.update("insert into admin_operation_events(id,event_type,command_id,reason) values (?,?,?,?)",UUID.randomUUID(),type,id,reason);
+    repository.recordEvent(UUID.randomUUID(),type,id,reason);
   }
   private void work() {
     if(!enabled) return;
     try {
-      Map<String,Object> command=tx.execute(s -> {
-        // A worker must leave actions introduced by a newer runtime for a compatible worker.
-        String placeholders=String.join(",",Collections.nCopies(WORKER_ACTIONS.size(),"?"));
-        var rows=db.queryForList("select id,action,request_json::text from admin_commands where status='QUEUED' "
-            +"and action in ("+placeholders+") order by created_at,id for update skip locked limit 1",WORKER_ACTIONS.toArray());
-        if(rows.isEmpty()) return null;
-        var row=rows.getFirst();
-        db.update("update admin_commands set status='RUNNING',owner_id=?,started_at=now(),lease_until=now()+interval '90 seconds' where id=?",owner,row.get("id"));
-        return row;
-      });
+      Map<String,Object> command=tx.execute(s -> repository.claimQueued(owner, WORKER_ACTIONS));
       if(command==null) return;
       UUID id=(UUID)command.get("id");
       inFlight.add(id);
@@ -228,8 +219,7 @@ public class AdminCommandService {
           case "VALIDATE_PENDING" -> validation.validatePending(limit(input));
           default -> ai.execute(command.get("action").toString(),input);
         };
-        db.update("update admin_commands set status='SUCCEEDED',result_json=cast(? as jsonb),finished_at=now() "
-            +"where id=? and status='RUNNING' and owner_id=?",json.writeValueAsString(result),id,owner);
+        repository.recordSuccess(id, owner, json.writeValueAsString(result));
       } catch(Exception e) {
         String message=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();
         var result=json.createObjectNode().put("exceptionType",e.getClass().getSimpleName());
@@ -238,9 +228,9 @@ public class AdminCommandService {
           result.put("category",execution.category().name());
           if(execution.upstreamStatus()!=null) result.put("upstreamStatus",execution.upstreamStatus());
         }
-        db.update("update admin_commands set status='FAILED',error_message=?,result_json=cast(? as jsonb),finished_at=now() "
-            +"where id=? and status='RUNNING' and owner_id=?",
-            AdminConsoleReadService.safe(json.getNodeFactory().textNode(message.substring(0,Math.min(2000,message.length())))).asText(),result.toString(),id,owner);
+        repository.recordFailure(id, owner,
+            AdminConsoleReadService.safe(json.getNodeFactory().textNode(message.substring(0,Math.min(2000,message.length())))).asText(),
+            result.toString());
       } finally { inFlight.remove(id); }
     } catch(Exception failure) {
       // No credential/input is logged. A lost result stops its lease and becomes UNKNOWN.
@@ -248,7 +238,7 @@ public class AdminCommandService {
     }
   }
   private void progress(UUID id,JsonNode state) {
-    db.update("update admin_commands set progress_json=cast(? as jsonb) where id=? and owner_id=? and status='RUNNING'",AdminConsoleReadService.safe(state).toString(),id,owner);
+    repository.updateProgress(id, owner, AdminConsoleReadService.safe(state).toString());
   }
   private JsonNode canonical(JsonNode node) {
     if(node.isObject()) {var out=json.createObjectNode();var keys=new TreeSet<String>();node.fieldNames().forEachRemaining(keys::add);for(String k:keys) out.set(k,canonical(node.get(k)));return out;}
@@ -263,9 +253,7 @@ public class AdminCommandService {
   private void leases() {
     if(!enabled) return;
     try {
-      for(UUID id:inFlight) db.update("update admin_commands set lease_until=now()+interval '90 seconds' where id=? and status='RUNNING' and owner_id=?",id,owner);
-      db.update("update admin_commands set status='UNKNOWN',finished_at=now(),error_message='Worker lease expired. Check original native runs before retrying.' "
-          +"where status='RUNNING' and lease_until<now()");
+      repository.extendLeases(inFlight, owner);
     } catch(Exception ignored) { /* DB outage is visible in console reads. */ }
   }
   private String hash(String text) {

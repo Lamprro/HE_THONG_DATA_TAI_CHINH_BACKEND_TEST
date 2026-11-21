@@ -44,7 +44,9 @@ class AdminCommandIsolatedIntegrationTests {
   @AfterAll static void cleanup() { if(admin!=null && SCHEMA.matches("admin_console_test_[a-f0-9]{32}")) admin.execute("drop schema "+SCHEMA+" cascade"); }
   @BeforeEach void setup() {
     db.execute("truncate admin_operation_events,admin_commands,ingestion_runs,securities,metric_definitions,financial_periods,financial_metrics,llm_prompt_templates");
-    service=new AdminCommandService(db,json,jobs,mock(IngestionService.class),mock(ValidationJobService.class),
+    service=new AdminCommandService(new com.hethongdata.taichinh.repository.jdbc.admin.AdminCommandJdbcRepository(db),
+        new com.hethongdata.taichinh.repository.jdbc.admin.AdminAuditJdbcRepository(db),
+        json,jobs,mock(IngestionService.class),mock(ValidationJobService.class),
         Validation.buildDefaultValidatorFactory().getValidator(),new DataSourceTransactionManager(scoped),mock(AdminPipelineService.class),mock(AdminAiActionService.class));
   }
   @AfterEach void stop() { service.stop(); }
@@ -171,7 +173,9 @@ class AdminCommandIsolatedIntegrationTests {
   @Test void schedulerStartsDisabledAndRejectsEmptyOrStaleScope() {
     db.update("update admin_schedule_policy set enabled=false,version=0,job_codes='[]' where id='INGESTION'");
     var definitions=mock(com.hethongdata.taichinh.repository.ingestion.IngestionJobRepository.class);
-    var scheduler=new AdminScheduleService(db,json,jobs,definitions,new org.springframework.mock.env.MockEnvironment(),new NativeJobGuard(scoped));
+    var scheduler=new AdminScheduleService(new com.hethongdata.taichinh.repository.jdbc.admin.AdminScheduleJdbcRepository(db),
+        new com.hethongdata.taichinh.repository.jdbc.admin.AdminAuditJdbcRepository(db),
+        json,jobs,definitions,new org.springframework.mock.env.MockEnvironment(),new NativeJobGuard(scoped));
     try {
       assertThat(scheduler.status().get("enabled")).isEqualTo(false);
       ReflectionTestUtils.invokeMethod(scheduler,"tick");verifyNoInteractions(jobs);

@@ -30,24 +30,6 @@ public class UserReadSupport {
     return repo.resolve(symbol, exchange);
   }
 
-  public boolean hasColumns(String table, Set<String> required) {
-    return repo.hasColumns(table, required);
-  }
-
-  public List<Map<String, Object>> rows(String sqlQuery, Map<String, ?> params) {
-    return repo.rows(sqlQuery, params);
-  }
-
-  public Map<String, Object> one(String sqlQuery, Map<String, ?> params, String label) {
-    return repo.one(sqlQuery, params, label);
-  }
-
-  public Page<Map<String, Object>> page(
-      String selectColumns, String fromWhere, String order, Map<String, ?> params,
-      int page, int size, int max, String... notes) {
-    return repo.page(selectColumns, fromWhere, order, params, page, size, max, notes);
-  }
-
   public static Meta meta(String... notes) {
     return new Meta(ZONE.getId(), "DECIMAL_STRING", Instant.now(), List.of(notes));
   }

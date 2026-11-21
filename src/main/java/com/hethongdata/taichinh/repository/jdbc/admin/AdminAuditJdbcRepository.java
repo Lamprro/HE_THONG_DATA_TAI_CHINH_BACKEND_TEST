@@ -23,10 +23,4 @@ public class AdminAuditJdbcRepository {
         "insert into admin_operation_events(id,event_type,target_id,reason) values (?,?,?,?)",
         id, eventType, targetId, reason);
   }
-
-  public void recordCommand(UUID id, String eventType, String commandType, UUID targetId, String reason) {
-    db.update(
-        "insert into admin_operation_events(id,event_type,command_type,target_id,reason) values (?,?,?,?,?)",
-        id, eventType, commandType, targetId, reason);
-  }
 }

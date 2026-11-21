@@ -2,7 +2,7 @@
 
 Local AI chạy ở dự án huấn luyện riêng. Backend Java giữ API tài chính, vận hành và LLM news/forecast. Gỡ script huấn luyện, mô hình Suite, API Admin/User, cấu hình và migration riêng của Local AI khỏi source. Việc gỡ file trong Git không chạy SQL xóa bảng. Các mục lịch sử bên dưới mô tả phiên bản trước thay đổi này.
 
-Kiểm thử mặc định sau khi gỡ: 272 bài đạt, 117 bài cần cấu hình riêng bị bỏ qua. Client API: 4 bài đạt. Giữ migration chất lượng thị trường đang tạo cột giá, bảng khối ngoại/bản ghi tham chiếu và audit phục vụ backend.
+Kiểm thử mặc định sau khi gỡ: 272 bài đạt, 117 bài cần cấu hình riêng bị bỏ qua. Client API: 4 bài đạt. PostgreSQL cô lập: 26 bài Admin/User/market đạt. Sau sửa ánh xạ lỗi thiếu route, 6 bài MVC/kiến trúc đạt và các route Local AI cũ trả 404. Giữ migration chất lượng thị trường đang tạo cột giá, bảng khối ngoại/bản ghi tham chiếu và audit phục vụ backend.
 
 # Cập nhật 19/11/2026 — tinh gọn lớp backend (nhánh `refactor/backend-consolidation`, chưa push)
 

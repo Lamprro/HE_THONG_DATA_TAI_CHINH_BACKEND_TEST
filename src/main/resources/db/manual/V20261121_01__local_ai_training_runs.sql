@@ -1,4 +1,4 @@
--- Migration: Training run provenance tracking and package lifecycle states
+-- Migration: Training run provenance tracking
 -- Date: 2026-11-21
 
 CREATE TABLE IF NOT EXISTS local_ai_training_runs (
@@ -22,14 +22,3 @@ CREATE TABLE IF NOT EXISTS local_ai_training_runs (
 
 CREATE INDEX IF NOT EXISTS idx_local_ai_training_runs_status ON local_ai_training_runs(status);
 CREATE INDEX IF NOT EXISTS idx_local_ai_training_runs_started ON local_ai_training_runs(started_at DESC);
-
--- Expand status check on local_ai_packages to support managed lifecycle (ACTIVE, SUPERSEDED, ROLLED_BACK)
-DO $$
-BEGIN
-  ALTER TABLE local_ai_packages DROP CONSTRAINT IF EXISTS local_ai_packages_status_check;
-  ALTER TABLE local_ai_packages ADD CONSTRAINT local_ai_packages_status_check
-    CHECK(status IN ('RESEARCH_ONLY', 'ACTIVE', 'SUPERSEDED', 'ROLLED_BACK'));
-EXCEPTION
-  WHEN undefined_table THEN
-    NULL;
-END $$;

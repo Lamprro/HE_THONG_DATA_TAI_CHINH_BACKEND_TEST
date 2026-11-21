@@ -30,9 +30,9 @@ class LocalAiTrainerServiceTests {
     void getReadinessReturnsExpectedStructure() {
         when(db.queryForObject(contains("securities"), eq(Integer.class))).thenReturn(105);
         when(db.queryForObject(contains("DISTINCT security_id"), eq(Integer.class))).thenReturn(103);
-        when(db.queryForObject(contains("price_date >= '2021-01-01'"), eq(Integer.class))).thenReturn(100);
+        when(db.queryForObject(contains("price_timestamp >= TIMESTAMPTZ '2021-01-01 00:00:00+07'"), eq(Integer.class))).thenReturn(100);
         when(db.queryForObject(contains("AND open_price BETWEEN"), eq(Integer.class))).thenReturn(0);
-        when(db.queryForObject(contains("max(price_date)"), eq(String.class))).thenReturn("2026-11-19");
+        when(db.queryForObject(contains("max((price_timestamp"), eq(String.class))).thenReturn("2026-11-19");
         when(db.queryForObject(contains("max(p.end_date)"), eq(String.class))).thenReturn("2026-09-30");
         when(db.queryForObject(contains("index_prices"), eq(Integer.class), anyString())).thenReturn(2185);
 
@@ -63,7 +63,7 @@ class LocalAiTrainerServiceTests {
 
     @Test
     void readyDataCannotTriggerAnUnverifiedTrainerOrPublish() {
-        when(db.queryForObject(contains("price_date >= '2021-01-01'"), eq(Integer.class))).thenReturn(100);
+        when(db.queryForObject(contains("price_timestamp >= TIMESTAMPTZ '2021-01-01 00:00:00+07'"), eq(Integer.class))).thenReturn(100);
         when(db.queryForObject(contains("index_prices"), eq(Integer.class), anyString())).thenReturn(2000);
         assertEquals(503, assertThrows(ResponseStatusException.class,
             () -> service.retrain(UUID.randomUUID(), "MANUAL", "admin", "Run verified trainer", 1)).getStatusCode().value());

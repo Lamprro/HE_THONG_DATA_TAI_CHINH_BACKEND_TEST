@@ -32,10 +32,9 @@ public class LocalAiTrainerService {
             Integer totalStocks = repo.countActiveSecurities();
             Integer stocksWithPrices = repo.countStocksWithCanonicalPrices();
             
-            // Check continuous coverage (stocks with prices across years 2021..present)
+            // Count securities with at least one canonical daily price since 2021.
             Integer eligibleStocks = repo.countEligibleStocks();
             if (eligibleStocks == null) eligibleStocks = 0;
-            if (eligibleStocks > 100) eligibleStocks = 100; // Capped to verified 100-stock universe
 
             Integer badOhlc = repo.countBadOhlc();
             if (badOhlc == null) badOhlc = 0;
@@ -48,7 +47,7 @@ public class LocalAiTrainerService {
             for (String code : List.of("VNINDEX", "VN30")) {
                 Integer idxDays = repo.countIndexDays(code);
                 boolean idxReady = idxDays != null && idxDays > 1000;
-                indexes.put(code, Map.of("ready", idxReady, "valid_days", idxDays != null ? idxDays : 0, "coverage", 1.0));
+                indexes.put(code, Map.of("ready", idxReady, "valid_days", idxDays != null ? idxDays : 0));
             }
 
             boolean ready = (eligibleStocks >= 100) && (badOhlc == 0) &&

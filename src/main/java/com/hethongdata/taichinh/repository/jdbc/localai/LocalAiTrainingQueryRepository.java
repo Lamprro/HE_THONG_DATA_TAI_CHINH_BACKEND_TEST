@@ -23,7 +23,7 @@ public class LocalAiTrainingQueryRepository {
   public Integer countEligibleStocks() {
     return db.queryForObject(
         "SELECT count(DISTINCT p.security_id) FROM market_prices p " +
-        "WHERE p.is_canonical = true AND p.interval_code = '1d' AND p.price_date >= '2021-01-01'",
+        "WHERE p.is_canonical = true AND p.interval_code = '1d' AND p.price_timestamp >= TIMESTAMPTZ '2021-01-01 00:00:00+07'",
         Integer.class);
   }
 
@@ -38,7 +38,7 @@ public class LocalAiTrainingQueryRepository {
   }
 
   public String findMaxPriceDate() {
-    return db.queryForObject("SELECT max(price_date)::text FROM market_prices WHERE is_canonical = true", String.class);
+    return db.queryForObject("SELECT max((price_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')::date)::text FROM market_prices WHERE is_canonical = true", String.class);
   }
 
   public String findMaxStatementDate() {

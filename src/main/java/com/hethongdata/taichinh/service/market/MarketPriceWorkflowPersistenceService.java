@@ -7,6 +7,7 @@ import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
 import com.hethongdata.taichinh.entity.ingestion.RawPayloadEntity;
 import com.hethongdata.taichinh.entity.master.SecurityEntity;
 import com.hethongdata.taichinh.entity.validation.DataVersionEntity;
+import com.hethongdata.taichinh.repository.jdbc.market.MarketPriceBatchInsertJdbcRepository;
 import com.hethongdata.taichinh.repository.jpa.market.MarketPriceJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.DataSourceJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaRepository;
@@ -36,13 +37,13 @@ public class MarketPriceWorkflowPersistenceService {
     private final MarketPriceJpaRepository prices;
     private final MarketPricePayloadParser parser;
     private final ObjectMapper mapper;
-    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
+    private final MarketPriceBatchInsertJdbcRepository batchRepo;
 
     public MarketPriceWorkflowPersistenceService(
             DataVersionJpaRepository versions, RawPayloadJpaRepository rawPayloads,
             IngestionRunJpaRepository runs, DataSourceJpaRepository sources,
             SecurityJpaRepository securities, MarketPriceJpaRepository prices,
-            MarketPricePayloadParser parser, ObjectMapper mapper, org.springframework.jdbc.core.JdbcTemplate jdbc) {
+            MarketPricePayloadParser parser, ObjectMapper mapper, MarketPriceBatchInsertJdbcRepository batchRepo) {
         this.versions = versions;
         this.rawPayloads = rawPayloads;
         this.runs = runs;
@@ -51,7 +52,7 @@ public class MarketPriceWorkflowPersistenceService {
         this.prices = prices;
         this.parser = parser;
         this.mapper = mapper;
-        this.jdbc = jdbc;
+        this.batchRepo = batchRepo;
     }
 
     @Transactional
@@ -236,34 +237,8 @@ public class MarketPriceWorkflowPersistenceService {
             price.setCanonical(true);
             created.add(price);
         }
-        jdbc.batchUpdate("INSERT INTO market_prices (security_id,price_timestamp,interval_code,open_price,high_price,low_price,close_price,adjusted_close,reference_price,ceiling_price,floor_price,volume,trading_value,foreign_buy_volume,foreign_sell_volume,data_source_id,raw_payload_id,data_version_id,is_canonical,created_at,updated_at,price_basis,first_seen_at,price_metadata) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CAST(? AS jsonb))",
-                created, 100, (statement, p) -> {
-                    statement.setObject(1, p.getSecurityId());
-                    statement.setObject(2, java.sql.Timestamp.from(p.getPriceTimestamp()));
-                    statement.setObject(3, p.getIntervalCode());
-                    statement.setObject(4, p.getOpenPrice());
-                    statement.setObject(5, p.getHighPrice());
-                    statement.setObject(6, p.getLowPrice());
-                    statement.setObject(7, p.getClosePrice());
-                    statement.setObject(8, p.getAdjustedClose());
-                    statement.setObject(9, p.getReferencePrice());
-                    statement.setObject(10, p.getCeilingPrice());
-                    statement.setObject(11, p.getFloorPrice());
-                    statement.setObject(12, p.getVolume());
-                    statement.setObject(13, p.getTradingValue());
-                    statement.setObject(14, p.getForeignBuyVolume());
-                    statement.setObject(15, p.getForeignSellVolume());
-                    statement.setObject(16, p.getDataSourceId());
-                    statement.setObject(17, p.getRawPayloadId());
-                    statement.setObject(18, p.getDataVersionId());
-                    statement.setObject(19, p.getIsCanonical());
-                    statement.setObject(20, java.sql.Timestamp.from(p.getCreatedAt()));
-                    statement.setObject(21, java.sql.Timestamp.from(p.getUpdatedAt()));
-                    statement.setObject(22, p.getPriceBasis());
-                    statement.setObject(23, java.sql.Timestamp.from(p.getFirstSeenAt()));
-                    statement.setObject(24, p.getPriceMetadata() .toString());
-                });
-        return new int[]{created.size(), 0, 0};
+        int inserted = batchRepo.batchInsertMarketPrices(created);
+        return new int[]{inserted, 0, 0};
     }
 
     private Instant storageTimestamp(UUID securityId, Long sourceId,

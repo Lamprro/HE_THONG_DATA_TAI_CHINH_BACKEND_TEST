@@ -4,9 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hethongdata.taichinh.common.AppParams;
 import com.hethongdata.taichinh.entity.validation.ValidationRuleEntity;
 import com.hethongdata.taichinh.repository.ingestion.*;
+import com.hethongdata.taichinh.repository.jdbc.macro.MacroPersistenceJdbcRepository;
 import com.hethongdata.taichinh.repository.jpa.validation.ValidationRuleJpaRepository;
-
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,34 +18,25 @@ public class MacroJobCatalogService {
     private final DataSourceRepository sources;
     private final IngestionJobRepository jobs;
     private final ValidationRuleJpaRepository rules;
-    private final JdbcTemplate db;
+    private final MacroPersistenceJdbcRepository repo;
     private final ObjectMapper mapper;
 
     public MacroJobCatalogService(
             DataSourceRepository sources,
             IngestionJobRepository jobs,
             ValidationRuleJpaRepository rules,
-            JdbcTemplate db,
+            MacroPersistenceJdbcRepository repo,
             ObjectMapper mapper) {
         this.sources = sources;
         this.jobs = jobs;
         this.rules = rules;
-        this.db = db;
+        this.repo = repo;
         this.mapper = mapper;
     }
 
     @Transactional
     public Map<String, Object> seed() {
-        var dates =
-                db.query(
-                        "SELECT min(d) FROM (SELECT (price_timestamp AT TIME ZONE"
-                            + " 'Asia/Ho_Chi_Minh')::date d FROM market_prices WHERE is_canonical"
-                            + " AND interval_code='1d' UNION ALL SELECT p.start_date FROM"
-                            + " financial_periods p JOIN financial_statements s ON"
-                            + " s.financial_period_id=p.id WHERE s.is_current AND s.is_canonical)"
-                            + " x",
-                        (r, n) -> r.getDate(1) == null ? null : r.getDate(1).toLocalDate());
-        LocalDate earliest = dates.isEmpty() ? null : dates.getFirst();
+        LocalDate earliest = repo.findEarliestMarketOrStatementDate();
         if (earliest == null)
             earliest = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh")).minusYears(10);
         LocalDate start = LocalDate.of(earliest.getYear(), 1, 1);

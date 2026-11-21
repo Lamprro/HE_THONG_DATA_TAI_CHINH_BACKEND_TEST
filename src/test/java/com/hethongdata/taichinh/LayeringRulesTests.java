@@ -17,14 +17,9 @@ class LayeringRulesTests {
     "service/user/UserMarketService.java",
     "service/localai/LocalAiSuiteService.java",
     "service/user/UserLocalAiService.java",
-    "service/market/SupplementaryDataPersistenceService.java",
     "service/user/UserSecurityService.java",
-    "service/macro/MacroWorkflowPersistenceService.java",
     "service/user/UserNewsService.java",
-    "service/macro/MacroJobCatalogService.java",
-    "service/user/UserReadSupport.java",
-    "service/market/MarketPriceWorkflowPersistenceService.java",
-    "service/validation/DataVersionLifecycleService.java"
+    "service/user/UserReadSupport.java"
   );
 
   @Test

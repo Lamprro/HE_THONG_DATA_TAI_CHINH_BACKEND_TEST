@@ -21,7 +21,7 @@ public class DataVersionLifecycleService {
         this.versions = versions;
     }
 
-    /** Select a reviewed batch; the native writer still performs its locked, atomic validation. */
+    /** Choose a reviewed batch; the native writer still performs its locked, atomic validation. */
     public static DataVersionEntity requireActive(DataVersionJpaRepository versions, UUID id, String domain) {
         var v = versions.findById(id).orElseThrow(() -> new IllegalArgumentException("Data version not found"));
         if (!domain.equals(v.getDataDomain()) || !"ACTIVE".equals(v.getStatus()))

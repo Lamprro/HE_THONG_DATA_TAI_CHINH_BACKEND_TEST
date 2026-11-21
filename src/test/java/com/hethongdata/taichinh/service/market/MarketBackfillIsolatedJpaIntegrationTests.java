@@ -48,6 +48,7 @@ class MarketBackfillIsolatedJpaIntegrationTests {
             s.execute(Files.readString(Path.of("src/main/resources/db/manual/V20261012_01__financial_metadata.sql")));
             s.execute(Files.readString(Path.of("src/main/resources/db/manual/V20261017_01__training_data_quality.sql")));
             s.execute(Files.readString(Path.of("src/main/resources/db/manual/V20261017_02__training_availability_views.sql")));
+            s.execute(Files.readString(Path.of("src/main/resources/db/manual/V20261121_01__local_ai_training_runs.sql")));
             var defaults=new ArrayList<String[]>();
             try(var r=s.executeQuery("SELECT table_name,column_name FROM information_schema.columns WHERE table_schema='"+SCHEMA+"' AND column_default LIKE 'nextval%'")) {while(r.next())defaults.add(new String[]{r.getString(1),r.getString(2)});}
             for(var d:defaults) {
@@ -70,6 +71,7 @@ class MarketBackfillIsolatedJpaIntegrationTests {
     @Autowired IngestionJobRepository jobs;
     @Autowired IngestionService ingestion;
     @Autowired IngestionRunRepository runs;
+    @Autowired com.hethongdata.taichinh.repository.jdbc.localai.LocalAiTrainingQueryRepository trainingReadiness;
     @Autowired ValidationJobService validation;
     @Autowired ValidationRuleCatalogService ruleCatalog;
     @Autowired MarketPriceWorkflowService workflow;
@@ -163,5 +165,12 @@ class MarketBackfillIsolatedJpaIntegrationTests {
                     runs.findById(summary.getId()).orElseThrow()));
         }
         assertThat(runs.findLatestSummaries(1)).hasSize(1);
+        // All fixture trades predate the eligibility cutoff. The close time is stored as an instant.
+        assertThat(trainingReadiness.countEligibleStocks()).isZero();
+        assertThat(trainingReadiness.findMaxPriceDate()).isEqualTo("2016-04-09");
+        UUID blocked = UUID.randomUUID();
+        trainingReadiness.insertBlockedRun(blocked, "MANUAL", "Fixture readiness", "admin", UUID.randomUUID(), null, "rank-v3");
+        assertThat(trainingReadiness.findTrainingRun(blocked)).singleElement()
+                .satisfies(row -> assertThat(row).containsEntry("status", "BLOCKED").containsEntry("reason", "Fixture readiness"));
     }
 }

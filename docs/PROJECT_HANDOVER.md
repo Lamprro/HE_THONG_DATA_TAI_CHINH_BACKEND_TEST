@@ -1,3 +1,12 @@
+# Cập nhật 21/11/2026 — xử lý phát hiện review backend
+
+- Nhánh GitHub `refactor/repository-layer` đã nhận các commit gỡ kết quả Local AI mô phỏng, sửa seed prompt, xóa helper không dùng và sửa SQL readiness theo cột thực tế. FE đã gỡ bảng xếp hạng mẫu và thao tác train/publish chưa xác minh trên `fix/local-ai-review`.
+- API rank mẫu đã được gỡ. Retrain chỉ còn ghi BLOCKED khi thiếu dữ liệu, hoặc báo trainer đã xác minh chưa kết nối. Publish/rollback dừng trước khi ghi. Suite nghiên cứu giữ luồng cũ. Migration thủ công cho lịch sử training không mở rộng trạng thái gói. Không chạy migration này trên schema nghiệp vụ.
+- Seed recovery dùng lock cùng task với admin. Bước thêm prompt active phải thành công, nếu có conflict PostgreSQL sẽ làm transaction rollback thay vì để task mất prompt.
+- Readiness đổi từ cột không có `price_date` sang `price_timestamp`; ngày hiển thị dùng Asia/Ho_Chi_Minh. Bỏ số coverage gõ cứng. Số mã có giá từ 2021 là thống kê có dữ liệu, chưa đo tính liên tục hoặc chất lượng mô hình.
+- Test: Maven mặc định 291 đạt, 121 bỏ qua sau sửa P0. News/forecast/recovery PostgreSQL cô lập 77 đạt, 1 bỏ qua (Python thật). Nhóm layering, user API, Local AI user và market 18 đạt. Nhóm readiness/market và quyền API tài chính 8 đạt, gồm kiểm SQL ghi BLOCKED và ngày VN. Test model/provider dùng mock.
+- Chưa so toàn bộ JSON giữa main và refactor trên cùng fixture. Còn các chỗ repository import service, DTO động và chuẩn hóa tra mã kèm sàn. Giả định tiền tệ/hệ số VNDirect giữ nguyên cho đến khi có mẫu đã đối chiếu; ca gaps chỉ kiểm HTTP với service mock trong lượt này. Main và production giữ phiên bản cũ đến khi merge/deploy riêng.
+
 # Cập nhật 19/11/2026 — tinh gọn lớp backend (nhánh `refactor/backend-consolidation`, chưa push)
 
 - `src/main/java` 234 → 177 file: gộp seeder/config/scheduler, controller ingestion/master/prompt, DTO master/source thành record,

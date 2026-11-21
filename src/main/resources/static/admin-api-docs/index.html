@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>API quản trị · Swagger UI</title>
+  <link rel="stylesheet" href="/webjars/swagger-ui/5.34.0/swagger-ui.css">
+  <script src="/webjars/swagger-ui/5.34.0/swagger-ui-bundle.js" defer></script>
+  <script src="/admin-api-docs/console.js" defer></script>
+</head>
+<body>
+  <form id="connect-docs">
+    <label>Token quản trị <input id="admin-token" type="password" minlength="32" autocomplete="off" required></label>
+    <button type="submit">Mở tài liệu API</button>
+    <button id="clear-docs" type="button">Ngắt kết nối</button>
+  </form>
+  <p id="docs-status" role="status">Bạn có thể thử API đọc ở đây. Dùng màn quản trị để thực hiện thay đổi dữ liệu.</p>
+  <div id="swagger-ui"></div>
+</body>
+</html>

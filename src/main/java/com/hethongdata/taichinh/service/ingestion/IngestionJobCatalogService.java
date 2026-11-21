@@ -63,6 +63,10 @@ public class IngestionJobCatalogService {
         return definitions.size() + indexJobCount;
     }
 
+    public int initializeRetryBudgets() {
+        return ingestionJobs.initializeAllRetryBudgets(AppParams.DEFAULT_MAX_RETRIES);
+    }
+
     private void seedSources() {
         // Existing sources are updated by code; absent adapter providers are inserted once.
         source("PYTHON_GATEWAY", "Financial data gateway", "gateway");

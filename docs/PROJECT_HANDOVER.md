@@ -1,3 +1,13 @@
+# 21/11/2026 — Bảo mật và tổ chức lại luồng Admin
+
+- Request Admin đi qua `SecurityConfiguration` → controller → service nghiệp vụ → repository. API health và API User dưới `/api/v1/**` vẫn công khai. CORS được xử lý trong Spring Security. Các route Admin cũ, kể cả route ngoài `/api/admin`, vẫn yêu cầu quyền `ROLE_ADMIN`.
+- Giữ cấu hình `FINANCIAL_ADMIN_API_TOKEN` với tên audit `DEDICATED_ADMIN_TOKEN`. Có thể cấp token theo định danh `financial.admin.credentials.<tên>` với `token`, `roles=ADMIN` và `email` tùy chọn. Xem file cấu hình mẫu. Quyền `AUDITOR` chưa được cấp route. Session và audit dùng danh tính của thông tin xác thực. Worker nền dùng `SYSTEM_WORKER`.
+- `AdminConsoleController` trả DTO cho `/session` và `/runtime`. `AdminRuntimeService` đọc trạng thái DB, cấu hình lịch và worker. Cờ bật cho biết cấu hình được bật. Nhịp chạy và lịch sử thực tế vẫn xem ở luồng lịch và log.
+- Mở `/admin-api-docs/index.html` trên origin Java để dùng Swagger. Đặc tả `/v3/api-docs/admin` cần token Admin. Swagger trên trình duyệt cho thử GET. Các thao tác ghi thường dùng có màn hình riêng trong FE. Catalog reflection `/api/admin/console/catalog` đã được gỡ.
+- Nạp danh mục từ **Hệ thống → Danh mục & tài liệu API** hoặc POST API tương ứng khi cần. Đã bỏ năm tác vụ seed lúc khởi động. Bộ SQL hiện có dưới `db/manual/` vẫn dùng theo quy trình hiện tại. Còn thiếu một baseline tái dựng schema hoàn chỉnh và đã kiểm thử trước khi đưa SQL nền sang Flyway hoặc Liquibase.
+- Java đã đóng gói thành công. Bản chạy cuối có 258 test đạt và 117 test cần điều kiện riêng bị bỏ qua. Hai suite trỏ DB dùng chung được loại khỏi lần chạy cuối. Kiểm thử Spring MVC đã xác nhận token theo định danh, từ chối auditor, Swagger, endpoint nạp và tham số audit với service/repository giả lập. Chưa nghiệm thu các thao tác ghi mới trên PostgreSQL riêng.
+- FE Admin và User build thành công. Có 19 test đơn vị và ba bộ browser Admin đạt với fixture. Nhánh cả hai repo là `clean-admin-architecture`. Khi phát hành, cần đồng bộ thay đổi FE Admin với backend mới. Không có thay đổi Python, dự án huấn luyện Local AI hay dữ liệu production trong bản này.
+
 # Ranh giới backend
 
 Local AI chạy ở dự án huấn luyện riêng. Backend Java giữ API tài chính, vận hành và LLM news/forecast. Gỡ script huấn luyện, mô hình Suite, API Admin/User, cấu hình và migration riêng của Local AI khỏi source. Việc gỡ file trong Git không chạy SQL xóa bảng. Các mục lịch sử bên dưới mô tả phiên bản trước thay đổi này.

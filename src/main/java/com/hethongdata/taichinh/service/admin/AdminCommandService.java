@@ -3,9 +3,12 @@ package com.hethongdata.taichinh.service.admin;
 import static com.hethongdata.taichinh.config.SecurityConfiguration.currentActor;
 
 import com.fasterxml.jackson.databind.*;
+import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.Command;
+import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.CommandRequest;
+import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.ReviewReceipt;
 import com.hethongdata.taichinh.dto.ingestion.ManualIngestionRequest;
-import com.hethongdata.taichinh.repository.jdbc.admin.AdminAuditJdbcRepository;
-import com.hethongdata.taichinh.repository.jdbc.admin.AdminCommandJdbcRepository;
+import com.hethongdata.taichinh.repository.jpa.admin.AdminAuditJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.admin.AdminCommandJpaRepository;
 import com.hethongdata.taichinh.service.ingestion.*;
 import com.hethongdata.taichinh.service.validation.ValidationJobService;
 import jakarta.annotation.PostConstruct;
@@ -24,7 +27,6 @@ import org.springframework.http.HttpStatus;
 /** Dispatches existing domain services, without performing provider fetch/build logic here. */
 @Service
 public class AdminCommandService {
-  public record Request(UUID idempotencyKey, String action, String reason, JsonNode input) {}
   private static final Set<String> WORKER_ACTIONS;
   static {
     var actions=new TreeSet<>(AdminAiActionService.ACTIONS);
@@ -32,8 +34,8 @@ public class AdminCommandService {
         "INGEST_VALIDATE_BUILD","PROCESS_RUN","REPLAY_RUN","VALIDATE_RAW","VALIDATE_PENDING"));
     WORKER_ACTIONS=Collections.unmodifiableSet(actions);
   }
-  private final AdminCommandJdbcRepository repository;
-  private final AdminAuditJdbcRepository auditRepository;
+  private final AdminCommandJpaRepository repository;
+  private final AdminAuditJpaRepository auditRepository;
   private final ObjectMapper json;
   private final IngestionJobService jobs;
   private final IngestionService ingestion;
@@ -52,7 +54,7 @@ public class AdminCommandService {
     var t=new Thread(r,"admin-native-command"); t.setDaemon(true); return t;
   });
 
-  public AdminCommandService(AdminCommandJdbcRepository repository, AdminAuditJdbcRepository auditRepository,
+  public AdminCommandService(AdminCommandJpaRepository repository, AdminAuditJpaRepository auditRepository,
       ObjectMapper json, IngestionJobService jobs,
       IngestionService ingestion, ValidationJobService validation, Validator validator,
       PlatformTransactionManager transactions, AdminPipelineService pipeline, AdminAiActionService ai) {
@@ -67,10 +69,10 @@ public class AdminCommandService {
     workers.scheduleWithFixedDelay(this::leases,2,10,TimeUnit.SECONDS);
   }
   @PreDestroy void stop() { workers.shutdownNow(); }
-  public Map<String,Object> submit(Request request) {
+  public Command submit(CommandRequest request) {
     return submit(request,null);
   }
-  private Map<String,Object> submit(Request request,UUID parent) {
+  private Command submit(CommandRequest request,UUID parent) {
     if(!enabled) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Command worker disabled on this instance; use the configured operational instance");
     if (request.idempotencyKey()==null || request.reason()==null || request.reason().isBlank()
         || request.reason().length()>2000 || request.input()==null || !request.input().isObject())
@@ -78,23 +80,29 @@ public class AdminCommandService {
     rejectCredentials(request.input());
     String resource=resource(request.action(),request.input());
     String hash=hash(canonical(json.valueToTree(Map.of("action",request.action(),"reason",request.reason(),"input",request.input()))).toString());
-    var previous=repository.findPrevious(request.idempotencyKey());
-    if (!previous.isEmpty()) {
-      if(!Objects.equals(parent,previous.getFirst().get("parent_command_id"))) throw new ResponseStatusException(HttpStatus.CONFLICT,"Idempotency key belongs to another retry chain");
-      if (!hash.equals(previous.getFirst().get("request_hash")) && !legacyHashMatches(request,previous.getFirst().get("request_hash").toString()))
+    var previous=repository.findProjectedByIdempotencyKey(request.idempotencyKey()).orElse(null);
+    if (previous != null) {
+      if (!Objects.equals(parent, previous.getParentCommandId())) {
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Idempotency key belongs to another retry chain");
+      }
+      if (!hash.equals(previous.getRequestHash()) && !legacyHashMatches(request, previous.getRequestHash())) {
         throw new ResponseStatusException(HttpStatus.CONFLICT,"Idempotency key belongs to a different request");
-      return find((UUID)previous.getFirst().get("id"));
+      }
+      return find(previous.getId());
     }
-    UUID id=UUID.randomUUID();
-    try {
-      tx.executeWithoutResult(s -> {
-        repository.insertQueued(id, request.idempotencyKey(), hash, request.action(), resource, request.reason(), request.input().toString(), parent, currentActor());
-        event("SUBMITTED",id,request.reason());
-        if(parent!=null) event("RETRIED",id,request.reason());
-      });
-    } catch (org.springframework.dao.DuplicateKeyException e) {
-      previous=repository.findPrevious(request.idempotencyKey());
-      if (!previous.isEmpty() && Objects.equals(parent,previous.getFirst().get("parent_command_id")) && hash.equals(previous.getFirst().get("request_hash"))) return find((UUID)previous.getFirst().get("id"));
+    UUID id = UUID.randomUUID();
+    boolean inserted = Boolean.TRUE.equals(tx.execute(status -> {
+      int count = repository.insertQueued(id, request.idempotencyKey(), hash, request.action(),
+          resource, request.reason(), request.input().toString(), parent, currentActor());
+      if (count == 0) return false;
+      event("SUBMITTED", id, request.reason());
+      if (parent != null) event("RETRIED", id, request.reason());
+      return true;
+    }));
+    if (!inserted) {
+      previous = repository.findProjectedByIdempotencyKey(request.idempotencyKey()).orElse(null);
+      if (previous != null && Objects.equals(parent, previous.getParentCommandId())
+          && hash.equals(previous.getRequestHash())) return find(previous.getId());
       throw new ResponseStatusException(HttpStatus.CONFLICT,"This resource already has a queued, running, or unresolved command");
     }
     return find(id);
@@ -122,14 +130,14 @@ public class AdminCommandService {
   }
   private UUID uuid(JsonNode in,String key) { return UUID.fromString(in.path(key).asText()); }
   private ManualIngestionRequest replayInput(UUID id) {
-    var rows=repository.getReplayParams(id);
-    if(rows.isEmpty()) throw new IllegalArgumentException("Original ingestion run not found");
+    var replay = repository.getReplayParams(id)
+        .orElseThrow(() -> new IllegalArgumentException("Original ingestion run not found"));
     try {
-      var input=json.readTree(rows.getFirst().get("request_query_params").toString());
+      var input=json.readTree(replay.getRequestJson());
       if(!input.hasNonNull("operation")) throw new IllegalArgumentException("Internal builder runs must be replayed using their job; inspect current job parameters first");
       var body=new ManualIngestionRequest();
       body.setOperation(com.hethongdata.taichinh.application.port.model.ExternalOperation.valueOf(input.path("operation").asText()));
-      body.setDataSourceCode(rows.getFirst().get("code").toString());
+      body.setDataSourceCode(replay.getSourceCode());
       body.setProvider(input.path("provider").asText(null)); body.setSymbol(input.path("symbol").asText(null));
       if(!input.path("startDate").asText("").isBlank()) body.setStartDate(java.time.LocalDate.parse(input.path("startDate").asText()));
       if(!input.path("endDate").asText("").isBlank()) body.setEndDate(java.time.LocalDate.parse(input.path("endDate").asText()));
@@ -149,23 +157,28 @@ public class AdminCommandService {
       rejectCredentials(e.getValue());
     }); else if(node.isArray()) node.forEach(this::rejectCredentials);
   }
-  public Map<String,Object> find(UUID id) {
-    var rows=repository.findById(id);
-    if(rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Command not found");
-    var row=new LinkedHashMap<>(rows.getFirst());
-    for(String key:List.of("request_json","result_json","progress_json")) if(row.get(key)!=null) {
-      try { row.put(key,AdminConsoleReadService.safe(json.readTree(row.get(key).toString()))); }
-      catch(Exception e) { row.put(key,"Invalid stored JSON"); }
-    }
-    return row;
+  public Command find(UUID id) {
+    var row = repository.findById(id)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,"Command not found"));
+    return new Command(row.getId(), row.getIdempotencyKey(), row.getAction(), row.getResourceKey(), row.getReason(),
+        row.getPrincipal(), row.getStatus(), safeJson(row.getRequestJson()), safeJson(row.getResultJson()),
+        safeJson(row.getProgressJson()), row.getParentCommandId(), row.getErrorMessage(), row.getCreatedAt(),
+        row.getStartedAt(), row.getFinishedAt(), row.getAcknowledgementNote());
   }
-  public Map<String,Object> acknowledge(UUID id,String note) {
+
+  private JsonNode safeJson(String text) {
+    if (text == null) return null;
+    try { return AdminConsoleReadService.safe(json.readTree(text)); }
+    catch (Exception e) { return json.getNodeFactory().textNode("Invalid stored JSON"); }
+  }
+
+  public Command acknowledge(UUID id,String note) {
     if(note==null || note.isBlank() || note.length()>2000) throw new IllegalArgumentException("A review note is required");
     int changed=repository.acknowledge(id, note);
     if(changed!=1) throw new ResponseStatusException(HttpStatus.CONFLICT,"Only UNKNOWN commands can be acknowledged after checking native runs");
     return find(id);
   }
-  public Map<String,Object> cancel(UUID id,String reason) {
+  public Command cancel(UUID id,String reason) {
     requireReason(reason);
     return tx.execute(s -> {
       int n=repository.cancelQueued(id, reason);
@@ -173,43 +186,47 @@ public class AdminCommandService {
       event("CANCELLED",id,reason);return find(id);
     });
   }
-  public Map<String,Object> retry(UUID id,UUID key,String reason,boolean reviewed) {
+  public Command retry(UUID id,UUID key,String reason,boolean reviewed) {
     requireReason(reason);
     if(!reviewed) throw new IllegalArgumentException("Review the original run before explicitly retrying");
-    var old=find(id);String state=old.get("status").toString();
+    var old=find(id);String state=old.status();
     if(!Set.of("FAILED","CANCELLED","ACKNOWLEDGED").contains(state))
       throw new ResponseStatusException(HttpStatus.CONFLICT,"Retry requires a failed/cancelled or acknowledged command; UNKNOWN must be reviewed first");
-    String action=old.get("action").toString(); JsonNode input=(JsonNode)old.get("request_json");
-    var progress=(JsonNode)old.get("progress_json");
+    String action=old.action(); JsonNode input=old.request();
+    var progress=old.progress();
     if("INGEST_VALIDATE_BUILD".equals(action) && progress!=null && progress.hasNonNull("sourceRunId")) {
       action="PROCESS_RUN";input=json.createObjectNode().put("runId",progress.path("sourceRunId").asText());
     }
-    if(key!=null && key.equals(old.get("idempotency_key"))) throw new IllegalArgumentException("Retry requires a fresh idempotency key");
-    return submit(new Request(key,action,reason,input),id);
+    if(key!=null && key.equals(old.idempotencyKey())) throw new IllegalArgumentException("Retry requires a fresh idempotency key");
+    return submit(new CommandRequest(key,action,reason,input),id);
   }
   /** Records an operator note on a validation issue. The validation status itself never changes. */
-  public Map<String,Object> reviewIssue(UUID validationResultId,String reason) {
+  public ReviewReceipt reviewIssue(UUID validationResultId,String reason) {
     requireReason(reason);
     if(!repository.validationResultExists(validationResultId))
       throw new IllegalArgumentException("Validation result not found");
     UUID reviewId=UUID.randomUUID();
     auditRepository.recordEvent(reviewId,"ISSUE_REVIEWED",validationResultId,reason,currentActor());
-    return Map.of("id",reviewId,"validationResultId",validationResultId,"validationStatusChanged",false);
+    return new ReviewReceipt(reviewId, validationResultId, false);
   }
   private void requireReason(String reason) { if(reason==null || reason.isBlank() || reason.length()>2000) throw new IllegalArgumentException("A reason (1..2000) is required"); }
   private void event(String type,UUID id,String reason) {
-    repository.recordEvent(UUID.randomUUID(),type,id,reason,currentActor());
+    auditRepository.recordCommandEvent(UUID.randomUUID(),type,id,reason,currentActor());
   }
   private void work() {
     if(!enabled) return;
     try {
-      Map<String,Object> command=tx.execute(s -> repository.claimQueued(owner, WORKER_ACTIONS));
+      var command = tx.execute(status -> {
+        var queued = repository.lockNext(WORKER_ACTIONS).orElse(null);
+        if (queued != null) repository.markRunning(queued.getId(), owner);
+        return queued;
+      });
       if(command==null) return;
-      UUID id=(UUID)command.get("id");
+      UUID id=command.getId();
       inFlight.add(id);
       try {
-        JsonNode input=json.readTree(command.get("request_json").toString());
-        Object result=switch(command.get("action").toString()) {
+        JsonNode input=json.readTree(command.getRequestJson());
+        Object result=switch(command.getAction()) {
           case "RUN_JOB" -> jobs.runOnce(uuid(input,"jobId"));
           case "BUILD_VERSION" -> jobs.runVersion(uuid(input,"jobId"),uuid(input,"versionId"));
           case "BUILD_MARKET_PRICE_VERSION" -> jobs.runPriceVersion(uuid(input,"jobId"),uuid(input,"versionId"));
@@ -219,7 +236,7 @@ public class AdminCommandService {
           case "REPLAY_RUN" -> Map.of("parentRunId",uuid(input,"runId"),"execution",ingestion.ingest(replayInput(uuid(input,"runId"))));
           case "VALIDATE_RAW" -> validation.validate(uuid(input,"rawPayloadId"));
           case "VALIDATE_PENDING" -> validation.validatePending(limit(input));
-          default -> ai.execute(command.get("action").toString(),input);
+          default -> ai.execute(command.getAction(),input);
         };
         repository.recordSuccess(id, owner, json.writeValueAsString(result));
       } catch(Exception e) {
@@ -246,7 +263,7 @@ public class AdminCommandService {
     if(node.isObject()) {var out=json.createObjectNode();var keys=new TreeSet<String>();node.fieldNames().forEachRemaining(keys::add);for(String k:keys) out.set(k,canonical(node.get(k)));return out;}
     if(node.isArray()) {var out=json.createArrayNode();node.forEach(v->out.add(canonical(v)));return out;}return node;
   }
-  private boolean legacyHashMatches(Request r,String existing) {
+  private boolean legacyHashMatches(CommandRequest r,String existing) {
     for(var keys:List.of(List.of("action","reason","input"),List.of("action","input","reason"),List.of("reason","action","input"),List.of("reason","input","action"),List.of("input","action","reason"),List.of("input","reason","action"))) {
       var old=json.createObjectNode();for(String k:keys) old.set(k,switch(k){case "action"->json.valueToTree(r.action());case "reason"->json.valueToTree(r.reason());default->r.input();});
       if(hash(old.toString()).equals(existing)) return true;
@@ -255,7 +272,9 @@ public class AdminCommandService {
   private void leases() {
     if(!enabled) return;
     try {
-      repository.extendLeases(inFlight, owner);
+      var active = Set.copyOf(inFlight);
+      if (!active.isEmpty()) repository.renewLeases(active, owner);
+      repository.expireLeases();
     } catch(Exception ignored) { /* DB outage is visible in console reads. */ }
   }
   private String hash(String text) {

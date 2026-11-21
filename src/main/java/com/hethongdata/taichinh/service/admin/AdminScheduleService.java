@@ -3,8 +3,10 @@ package com.hethongdata.taichinh.service.admin;
 import static com.hethongdata.taichinh.config.SecurityConfiguration.currentActor;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hethongdata.taichinh.repository.jdbc.admin.AdminAuditJdbcRepository;
-import com.hethongdata.taichinh.repository.jdbc.admin.AdminScheduleJdbcRepository;
+import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.Schedule;
+import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.ScheduleUpdate;
+import com.hethongdata.taichinh.repository.jpa.admin.AdminAuditJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.admin.AdminScheduleJpaRepository;
 import com.hethongdata.taichinh.service.ingestion.IngestionJobService;
 import com.hethongdata.taichinh.repository.ingestion.IngestionJobRepository;
 import jakarta.annotation.*;
@@ -18,9 +20,9 @@ import org.springframework.http.HttpStatus;
 
 @Service
 public class AdminScheduleService {
-  public record Request(boolean enabled,Set<String> jobCodes,long version,String reason) {}
-  private final AdminScheduleJdbcRepository repository;
-  private final AdminAuditJdbcRepository auditRepository;
+  private static final String POLICY_ID = "INGESTION";
+  private final AdminScheduleJpaRepository repository;
+  private final AdminAuditJpaRepository auditRepository;
   private final ObjectMapper json;
   private final IngestionJobService jobs;
   private final IngestionJobRepository definitions;
@@ -28,8 +30,8 @@ public class AdminScheduleService {
   private final NativeJobGuard guard;
   private final ScheduledExecutorService worker=Executors.newSingleThreadScheduledExecutor(r->{var t=new Thread(r,"admin-scoped-schedule");t.setDaemon(true);return t;});
 
-  public AdminScheduleService(AdminScheduleJdbcRepository repository,
-      AdminAuditJdbcRepository auditRepository,
+  public AdminScheduleService(AdminScheduleJpaRepository repository,
+      AdminAuditJpaRepository auditRepository,
       ObjectMapper json,
       IngestionJobService jobs,
       IngestionJobRepository definitions,
@@ -48,18 +50,18 @@ public class AdminScheduleService {
   @PostConstruct void start() {if(workerEnabled()) worker.scheduleWithFixedDelay(this::tick,10,30,TimeUnit.SECONDS);}
   @PreDestroy void stop() {worker.shutdownNow();}
 
-  public Map<String,Object> status() {
-    var row=new LinkedHashMap<>(repository.getPolicy());
-    row.put("job_codes",decode(row.get("job_codes").toString()));
-    row.put("workerEnabled",workerEnabled());
-    row.put("legacySchedulerEnabled",legacyEnabled());
-    row.put("timezone","UTC cron / Asia/Ho_Chi_Minh business dates");
-    return row;
+  public Schedule status() {
+    var policy = repository.findById(POLICY_ID)
+        .orElseThrow(() -> new IllegalStateException("Admin schedule policy is missing"));
+    return new Schedule(policy.getId(), policy.isEnabled(), decode(policy.getJobCodes()),
+        policy.getVersion(), policy.getReason(), policy.getUpdatedAt(), policy.getHeartbeatAt(),
+        policy.getLastSweepStartedAt(), policy.getLastSweepFinishedAt(), policy.getLastError(),
+        workerEnabled(), legacyEnabled(), "UTC cron / Asia/Ho_Chi_Minh business dates");
   }
 
   private boolean legacyEnabled() {return environment.getProperty("financial.ingestion.scheduler.enabled",Boolean.class,false)||environment.getProperty("financial.macro.scheduler.enabled",Boolean.class,false);}
 
-  @Transactional public Map<String,Object> update(Request request) {
+  @Transactional public Schedule update(ScheduleUpdate request) {
     if(request.enabled()&&!workerEnabled()) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Schedule worker disabled on this instance");
     if(request.reason()==null||request.reason().isBlank()||request.reason().length()>2000) throw new IllegalArgumentException("A reason (1..2000) is required");
     Set<String> codes=request.jobCodes()==null?Set.of():new TreeSet<>(request.jobCodes());
@@ -83,12 +85,11 @@ public class AdminScheduleService {
     if(!workerEnabled()) return;
     try {
       repository.updateHeartbeat();
-      var policy=status();if(!Boolean.TRUE.equals(policy.get("enabled"))||legacyEnabled()) return;
+      var policy=status();if(!policy.enabled()||legacyEnabled()) return;
       guard.run(UUID.nameUUIDFromBytes("admin-schedule-policy".getBytes(java.nio.charset.StandardCharsets.UTF_8)),()->{
-        var current=status();if(!Boolean.TRUE.equals(current.get("enabled"))) return null;
-        @SuppressWarnings("unchecked") var codes=(Set<String>)current.get("job_codes");
+        var current=status();if(!current.enabled()) return null;
         repository.recordSweepStarted();
-        jobs.executeDueAdminJobs(codes);
+        jobs.executeDueAdminJobs(current.jobCodes());
         repository.recordSweepFinished();
         return null;
       });

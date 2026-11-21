@@ -1,3 +1,10 @@
+# 21/11/2026 — Admin dùng JPA và DTO
+
+- Ba bảng `admin_commands`, `admin_schedule_policy` và `admin_operation_events` có entity và Spring Data JPA repository. Các truy vấn tổng hợp, metadata và duyệt bảng Admin dùng JPA EntityManager. Các API commands, summary và schedule có DTO trong `AdminConsoleDtos`; tên trường JSON phía FE giữ nguyên. Dữ liệu xem theo cột động vẫn theo danh sách bảng và bộ lọc cho phép.
+- Worker khóa hàng chờ bằng PostgreSQL `FOR UPDATE SKIP LOCKED` rồi chuyển sang RUNNING trong cùng transaction. Lệnh trùng dựa vào các ràng buộc unique hiện có. Lease và kết quả vẫn kiểm tra chủ sở hữu. Lịch vẫn cập nhật theo version. Khóa advisory theo phiên kết nối của job được giữ ở lớp dùng chung.
+- Java đóng gói thành công; 259 test đạt và 121 test theo điều kiện được bỏ qua trong lần chạy chung, ngoài hai suite mặc định trỏ DB dùng chung đã loại riêng. Chạy thêm 16 test Admin trên PostgreSQL 17.12 tạm qua loopback, tất cả đạt. Các bài kiểm tra xác nhận hai transaction lấy hai lệnh khác nhau, gửi cùng idempotency key chỉ ghi một lệnh và một audit, retry kế thừa run, replay giữ nguồn, kiểm tra version lịch và số liệu tổng hợp. Các service gọi provider dùng mock, DB và transaction dùng PostgreSQL thật.
+- Chạy lại suite Admin bằng `DATA_ENRICHMENT_TEST_DB=1` và `mvn -Dtest=AdminCommandIsolatedIntegrationTests -Dfinancial.test.config=<file-test-properties> test`. Dùng cấu hình PostgreSQL dành riêng cho kiểm thử; suite tạo và dọn schema riêng. Bản thay đổi dùng các bảng và migration hiện có.
+
 # 21/11/2026 — Bảo mật và tổ chức lại luồng Admin
 
 - Request Admin đi qua `SecurityConfiguration` → controller → service nghiệp vụ → repository. API health và API User dưới `/api/v1/**` vẫn công khai. CORS được xử lý trong Spring Security. Các route Admin cũ, kể cả route ngoài `/api/admin`, vẫn yêu cầu quyền `ROLE_ADMIN`.

@@ -50,29 +50,28 @@ public class AdminConsoleController {
     for(String framework:List.of("page","size","search","runId","status")) exact.remove(framework);
     return reads.browse(dataset,page,size,search,runId,status,exact);
   }
-  @PostMapping("/commands") public ResponseEntity<Map<String,Object>> submit(@RequestBody AdminCommandService.Request body) {
+  @PostMapping("/commands") public ResponseEntity<Command> submit(@RequestBody CommandRequest body) {
     return ResponseEntity.accepted().body(commands.submit(body));
   }
-  @GetMapping("/commands/{id}") public Map<String,Object> command(@PathVariable UUID id) { return commands.find(id); }
-  @PostMapping("/commands/{id}/acknowledge") public Map<String,Object> acknowledge(@PathVariable UUID id,@RequestBody Map<String,String> body) {
-    return commands.acknowledge(id,body.get("reason"));
+  @GetMapping("/commands/{id}") public Command command(@PathVariable UUID id) { return commands.find(id); }
+  @PostMapping("/commands/{id}/acknowledge") public Command acknowledge(@PathVariable UUID id,@RequestBody ReasonRequest body) {
+    return commands.acknowledge(id,body.reason());
   }
-  @PostMapping("/commands/{id}/cancel") public Map<String,Object> cancel(@PathVariable UUID id,@RequestBody Map<String,String> body) {
-    return commands.cancel(id,body.get("reason"));
+  @PostMapping("/commands/{id}/cancel") public Command cancel(@PathVariable UUID id,@RequestBody ReasonRequest body) {
+    return commands.cancel(id,body.reason());
   }
-  public record RetryRequest(UUID idempotencyKey,String reason,boolean reviewed) {}
-  @PostMapping("/commands/{id}/retry") public ResponseEntity<Map<String,Object>> retry(@PathVariable UUID id,@RequestBody RetryRequest body) {
+  @PostMapping("/commands/{id}/retry") public ResponseEntity<Command> retry(@PathVariable UUID id,@RequestBody RetryRequest body) {
     return ResponseEntity.accepted().body(commands.retry(id,body.idempotencyKey(),body.reason(),body.reviewed()));
   }
-  @GetMapping("/summary") public Map<String,Object> summary() { return reads.summary(); }
-  @GetMapping("/schedule") public Map<String,Object> schedule() {return schedule.status();}
-  @GetMapping("/news-candidates") public List<Map<String,Object>> newsCandidates(@RequestParam(defaultValue="20") int limit) {
+  @GetMapping("/summary") public Summary summary() { return reads.summary(); }
+  @GetMapping("/schedule") public Schedule schedule() {return schedule.status();}
+  @GetMapping("/news-candidates") public List<NewsCandidate> newsCandidates(@RequestParam(defaultValue="20") int limit) {
     if(limit<1||limit>100) throw new IllegalArgumentException("limit must be 1..100");
     return reads.articleTitles(news.candidates(limit));
   }
-  @PutMapping("/schedule") public Map<String,Object> updateSchedule(@RequestBody AdminScheduleService.Request request) {return schedule.update(request);}
-  @GetMapping("/issues/{id}/reviews") public List<Map<String,Object>> reviews(@PathVariable UUID id) { return reads.issueReviews(id); }
-  @PostMapping("/issues/{id}/reviews") public Map<String,Object> reviewIssue(@PathVariable UUID id,@RequestBody Map<String,String> body) {
-    return commands.reviewIssue(id,body.get("reason"));
+  @PutMapping("/schedule") public Schedule updateSchedule(@RequestBody ScheduleUpdate request) {return schedule.update(request);}
+  @GetMapping("/issues/{id}/reviews") public List<IssueReview> reviews(@PathVariable UUID id) { return reads.issueReviews(id); }
+  @PostMapping("/issues/{id}/reviews") public ReviewReceipt reviewIssue(@PathVariable UUID id,@RequestBody ReasonRequest body) {
+    return commands.reviewIssue(id,body.reason());
   }
 }

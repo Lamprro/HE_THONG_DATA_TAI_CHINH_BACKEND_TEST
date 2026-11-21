@@ -4,7 +4,7 @@ import static com.hethongdata.taichinh.config.SecurityConfiguration.currentActor
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hethongdata.taichinh.repository.jdbc.admin.AdminAuditJdbcRepository;
+import com.hethongdata.taichinh.repository.jpa.admin.AdminAuditJpaRepository;
 import com.hethongdata.taichinh.repository.jdbc.llm.PromptTemplateJdbcRepository;
 import com.hethongdata.taichinh.service.ingestion.ChecksumService;
 import java.util.*;
@@ -16,12 +16,12 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class PromptAdminService {
   private final PromptTemplateJdbcRepository repository;
-  private final AdminAuditJdbcRepository auditRepository;
+  private final AdminAuditJpaRepository auditRepository;
   private final ObjectMapper json;
   private final ChecksumService hashes;
 
   public PromptAdminService(PromptTemplateJdbcRepository repository,
-      AdminAuditJdbcRepository auditRepository,
+      AdminAuditJpaRepository auditRepository,
       ObjectMapper json,
       ChecksumService hashes) {
     this.repository = repository;

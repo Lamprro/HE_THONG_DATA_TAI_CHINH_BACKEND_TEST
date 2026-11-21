@@ -1,6 +1,6 @@
 package com.hethongdata.taichinh.config;
 
-import com.hethongdata.taichinh.repository.jdbc.admin.AdminAuditJdbcRepository;
+import com.hethongdata.taichinh.repository.jpa.admin.AdminAuditJpaRepository;
 import jakarta.servlet.http.*;
 import java.util.*;
 import org.springframework.context.annotation.Configuration;
@@ -11,9 +11,9 @@ import org.springframework.web.servlet.config.annotation.*;
 /** HTTP audit complements domain runs. Never captures tokens, headers, bodies or URL query strings. */
 @Configuration
 public class AdminOperationAuditConfiguration implements WebMvcConfigurer {
-  private final AdminAuditJdbcRepository auditRepository;
+  private final AdminAuditJpaRepository auditRepository;
 
-  public AdminOperationAuditConfiguration(AdminAuditJdbcRepository auditRepository) {
+  public AdminOperationAuditConfiguration(AdminAuditJpaRepository auditRepository) {
     this.auditRepository = auditRepository;
   }
 

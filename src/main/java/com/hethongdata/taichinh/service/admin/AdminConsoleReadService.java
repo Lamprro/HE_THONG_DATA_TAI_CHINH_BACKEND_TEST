@@ -2,7 +2,9 @@ package com.hethongdata.taichinh.service.admin;
 
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.node.*;
-import com.hethongdata.taichinh.repository.jdbc.admin.AdminConsoleQueryRepository;
+import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.*;
+import com.hethongdata.taichinh.repository.jpa.admin.AdminAuditJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.admin.AdminConsoleQueryRepository;
 import java.util.*;
 import org.springframework.stereotype.Service;
 
@@ -26,28 +28,27 @@ public class AdminConsoleReadService {
     return result;
   }
   private final AdminConsoleQueryRepository repository;
+  private final AdminAuditJpaRepository audit;
   private final ObjectMapper json;
 
-  public AdminConsoleReadService(javax.sql.DataSource source, ObjectMapper json) {
-    this(new AdminConsoleQueryRepository(source), json);
-  }
-
-  @org.springframework.beans.factory.annotation.Autowired
-  public AdminConsoleReadService(AdminConsoleQueryRepository repository, ObjectMapper json) {
+  public AdminConsoleReadService(AdminConsoleQueryRepository repository, AdminAuditJpaRepository audit, ObjectMapper json) {
     this.repository = repository;
+    this.audit = audit;
     this.json = json.copy().enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
         .enable(DeserializationFeature.USE_BIG_INTEGER_FOR_INTS);
   }
   /** Whole-database counts for the overview; never a sample of recent rows. */
-  public Map<String, Object> summary() {
+  public Summary summary() {
     return repository.summary();
   }
   /** Titles for article ids, preserving the caller's order. */
-  public List<Map<String, Object>> articleTitles(List<UUID> ids) {
+  public List<NewsCandidate> articleTitles(List<UUID> ids) {
     return repository.articleTitles(ids);
   }
-  public List<Map<String, Object>> issueReviews(UUID validationResultId) {
-    return repository.issueReviews(validationResultId);
+  public List<IssueReview> issueReviews(UUID validationResultId) {
+    return audit.findByTargetIdOrderByCreatedAtDescIdDesc(validationResultId).stream()
+        .map(row -> new IssueReview(row.getId(), row.getEventType(), row.getReason(), row.getPrincipal(), row.getCreatedAt()))
+        .toList();
   }
   public boolean databaseUp() {
     return repository.databaseUp();

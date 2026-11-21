@@ -9,7 +9,7 @@ services:
     env_file:
       - /home/mai-van-nam/app-config/.env
     environment:
-      FINANCIAL_ADMIN_API_TOKEN: ${FINANCIAL_ADMIN_API_TOKEN:?Dedicated admin credential is required for deployment}
+      FINANCIAL_JWT_SECRET: ${FINANCIAL_JWT_SECRET:?JWT signing key is required for deployment}
     mem_limit: 768m
     mem_reservation: 256m
     cpus: "1.50"

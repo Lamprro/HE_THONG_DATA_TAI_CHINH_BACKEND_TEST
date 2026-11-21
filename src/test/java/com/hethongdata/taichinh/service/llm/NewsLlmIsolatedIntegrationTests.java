@@ -1,5 +1,7 @@
 package com.hethongdata.taichinh.service.llm;
 
+import com.hethongdata.taichinh.support.TestJwt;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.*;
@@ -24,7 +26,7 @@ import static org.mockito.Mockito.*;
 /** Opt-in only. Copies real source data into an isolated schema; all synthetic responses stay there. */
 @SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,properties={
         "financial.llm.catalog.seed-enabled=true","financial.llm.scheduler.enabled=false",
-        "financial.admin.api-token=llm-isolated-admin-token-not-a-real-secret",
+        TestJwt.PROPERTY,
         "financial.ingestion.scheduler.enabled=false","financial.validation.scheduler.enabled=false"})
 @EnabledIfEnvironmentVariable(named="LLM_TEST_DB",matches="1")
 class NewsLlmIsolatedIntegrationTests {
@@ -77,7 +79,7 @@ class NewsLlmIsolatedIntegrationTests {
     UUID article;
     @BeforeEach void setup() throws Exception {
         http.getRestTemplate().setInterceptors(java.util.List.of((request,body,execution)->{
-            request.getHeaders().setBearerAuth("llm-isolated-admin-token-not-a-real-secret");
+            request.getHeaders().setBearerAuth(TestJwt.admin());
             return execution.execute(request,body);
         }));
         db.update("DELETE FROM validation_results");db.update("DELETE FROM llm_results"); db.update("DELETE FROM llm_runs");

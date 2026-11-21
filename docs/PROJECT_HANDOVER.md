@@ -1,3 +1,28 @@
+# 21/11/2026 — Đăng nhập bằng tài khoản và JWT
+
+- `POST /api/auth/login` nhận `username` và `password`. `AccountSecurityService` đọc `accounts` và `roles` qua JPA, xác thực hash BCrypt bằng Spring Security. Chỉ tài khoản `ACTIVE` có username duy nhất được đăng nhập. `ADMIN` hoặc `ROLE_ADMIN` trong DB cho quyền Admin.
+- `JwtService` phát JWT 15 phút. `security/SecurityConfiguration` xác minh chữ ký, issuer, audience và hạn dùng ở API bảo vệ. Token tĩnh cũ bị từ chối. API dữ liệu công khai dưới `/api/v1/**` vẫn dùng được như trước. Audit Admin ghi username, worker nền ghi `SYSTEM_WORKER`.
+- FE Admin và Swagger đều đăng nhập bằng tài khoản. JWT của FE giữ trong bộ nhớ. Hết phiên thì đăng nhập lại. Thay đổi vai trò hoặc trạng thái tài khoản áp dụng cho lần đăng nhập tiếp theo. JWT đã cấp có hiệu lực tối đa đến thời điểm hết hạn.
+- Trước khi deploy đồng bộ BE và FE Admin, kiểm tra tài khoản trong DB theo mục đăng nhập ở [README](../README.md). Cấu hình GitHub Actions secrets `FINANCIAL_JWT_SECRET`, `FINANCIAL_ADMIN_SMOKE_USERNAME` và `FINANCIAL_ADMIN_SMOKE_PASSWORD` cho workflow deploy. Bản local tự tạo khóa theo tiến trình nếu bỏ trống, production yêu cầu khóa cố định. Tính năng dùng bảng sẵn có.
+- Java đóng gói thành công, 260 test đạt trong lần chạy chung. Có 122 test theo điều kiện bị bỏ qua ở lần này và hai suite dùng DB chung được loại khỏi lệnh chạy. Chạy riêng 17 test trên PostgreSQL 17.12 tạm. Java đóng gói gọi HTTP thành công qua login, session và OpenAPI bằng bản ghi tài khoản trong PostgreSQL loopback. Mật khẩu sai và token tĩnh bị từ chối, tài khoản USER nhận 403 tại API Admin. FE build thành công, 34 test đơn vị và ba bộ trình duyệt Admin đạt với fixture.
+
+# 21/11/2026 — Admin dùng JPA và DTO
+
+- Ba bảng `admin_commands`, `admin_schedule_policy` và `admin_operation_events` có entity và Spring Data JPA repository. Các truy vấn tổng hợp, metadata và duyệt bảng Admin dùng JPA EntityManager. Các API commands, summary và schedule có DTO trong `AdminConsoleDtos`; tên trường JSON phía FE giữ nguyên. Dữ liệu xem theo cột động vẫn theo danh sách bảng và bộ lọc cho phép.
+- Worker khóa hàng chờ bằng PostgreSQL `FOR UPDATE SKIP LOCKED` rồi chuyển sang RUNNING trong cùng transaction. Lệnh trùng dựa vào các ràng buộc unique hiện có. Lease và kết quả vẫn kiểm tra chủ sở hữu. Lịch vẫn cập nhật theo version. Khóa advisory theo phiên kết nối của job được giữ ở lớp dùng chung.
+- Java đóng gói thành công; 259 test đạt và 121 test theo điều kiện được bỏ qua trong lần chạy chung, ngoài hai suite mặc định trỏ DB dùng chung đã loại riêng. Chạy thêm 16 test Admin trên PostgreSQL 17.12 tạm qua loopback, tất cả đạt. Các bài kiểm tra xác nhận hai transaction lấy hai lệnh khác nhau, gửi cùng idempotency key chỉ ghi một lệnh và một audit, retry kế thừa run, replay giữ nguồn, kiểm tra version lịch và số liệu tổng hợp. Các service gọi provider dùng mock, DB và transaction dùng PostgreSQL thật.
+- Chạy lại suite Admin bằng `DATA_ENRICHMENT_TEST_DB=1` và `mvn -Dtest=AdminCommandIsolatedIntegrationTests -Dfinancial.test.config=<file-test-properties> test`. Dùng cấu hình PostgreSQL dành riêng cho kiểm thử; suite tạo và dọn schema riêng. Bản thay đổi dùng các bảng và migration hiện có.
+
+# 21/11/2026 — Bảo mật và tổ chức lại luồng Admin
+
+- Request Admin đi qua `SecurityConfiguration` → controller → service nghiệp vụ → repository. API health và API User dưới `/api/v1/**` vẫn công khai. CORS được xử lý trong Spring Security. Các route Admin cũ, kể cả route ngoài `/api/admin`, vẫn yêu cầu quyền `ROLE_ADMIN`.
+- Giữ cấu hình `FINANCIAL_ADMIN_API_TOKEN` với tên audit `DEDICATED_ADMIN_TOKEN`. Có thể cấp token theo định danh `financial.admin.credentials.<tên>` với `token`, `roles=ADMIN` và `email` tùy chọn. Xem file cấu hình mẫu. Quyền `AUDITOR` chưa được cấp route. Session và audit dùng danh tính của thông tin xác thực. Worker nền dùng `SYSTEM_WORKER`.
+- `AdminConsoleController` trả DTO cho `/session` và `/runtime`. `AdminRuntimeService` đọc trạng thái DB, cấu hình lịch và worker. Cờ bật cho biết cấu hình được bật. Nhịp chạy và lịch sử thực tế vẫn xem ở luồng lịch và log.
+- Mở `/admin-api-docs/index.html` trên origin Java để dùng Swagger. Đặc tả `/v3/api-docs/admin` cần token Admin. Swagger trên trình duyệt cho thử GET. Các thao tác ghi thường dùng có màn hình riêng trong FE. Catalog reflection `/api/admin/console/catalog` đã được gỡ.
+- Nạp danh mục từ **Hệ thống → Danh mục & tài liệu API** hoặc POST API tương ứng khi cần. Đã bỏ năm tác vụ seed lúc khởi động. Bộ SQL hiện có dưới `db/manual/` vẫn dùng theo quy trình hiện tại. Còn thiếu một baseline tái dựng schema hoàn chỉnh và đã kiểm thử trước khi đưa SQL nền sang Flyway hoặc Liquibase.
+- Java đã đóng gói thành công. Bản chạy cuối có 258 test đạt và 117 test cần điều kiện riêng bị bỏ qua. Hai suite trỏ DB dùng chung được loại khỏi lần chạy cuối. Kiểm thử Spring MVC đã xác nhận token theo định danh, từ chối auditor, Swagger, endpoint nạp và tham số audit với service/repository giả lập. Chưa nghiệm thu các thao tác ghi mới trên PostgreSQL riêng.
+- FE Admin và User build thành công. Có 19 test đơn vị và ba bộ browser Admin đạt với fixture. Nhánh cả hai repo là `clean-admin-architecture`. Khi phát hành, cần đồng bộ thay đổi FE Admin với backend mới. Không có thay đổi Python, dự án huấn luyện Local AI hay dữ liệu production trong bản này.
+
 # Ranh giới backend
 
 Local AI chạy ở dự án huấn luyện riêng. Backend Java giữ API tài chính, vận hành và LLM news/forecast. Gỡ script huấn luyện, mô hình Suite, API Admin/User, cấu hình và migration riêng của Local AI khỏi source. Việc gỡ file trong Git không chạy SQL xóa bảng. Các mục lịch sử bên dưới mô tả phiên bản trước thay đổi này.

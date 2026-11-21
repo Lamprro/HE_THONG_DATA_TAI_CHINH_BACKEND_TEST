@@ -1,61 +1,64 @@
-package com.hethongdata.taichinh.repository.jdbc.admin;
+package com.hethongdata.taichinh.repository.jpa.admin;
+
+import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.*;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
 
 import java.util.*;
-import javax.sql.DataSource;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 @Repository
 public class AdminConsoleQueryRepository {
   public record BrowseResult(List<String> rawRows, long total) {}
 
-  private final NamedParameterJdbcTemplate db;
+  private final EntityManager entities;
 
-  public AdminConsoleQueryRepository(DataSource source) {
-    var jdbc = new JdbcTemplate(source);
-    jdbc.setQueryTimeout(15);
-    this.db = new NamedParameterJdbcTemplate(jdbc);
+  public AdminConsoleQueryRepository(EntityManager entities) {
+    this.entities = entities;
   }
 
-  public Map<String, Object> summary() {
-    var jdbc = db.getJdbcTemplate();
-    return Map.of(
-        "jobs", jdbc.queryForList("select is_active,count(*) as count from ingestion_jobs group by is_active"),
-        "commands", jdbc.queryForList("select status,count(*) as count from admin_commands group by status"),
-        "runs", jdbc.queryForList("select status,count(*) as count from ingestion_runs group by status"),
-        "versions", jdbc.queryForList("select data_domain,status,count(*) as count from data_versions group by data_domain,status"),
-        "validation", jdbc.queryForList("select validation_target,result_status,count(*) as count from validation_results group by validation_target,result_status"));
+  public Summary summary() {
+    var jobs = rows("select is_active,count(*) from ingestion_jobs group by is_active", Object[].class, Map.of())
+        .stream().map(row -> new JobCount((Boolean) row[0], count(row[1]))).toList();
+    var versions = rows("select data_domain,status,count(*) from data_versions group by data_domain,status",
+        Object[].class, Map.of()).stream()
+        .map(row -> new VersionCount((String) row[0], (String) row[1], count(row[2]))).toList();
+    var validation = rows("""
+        select validation_target,result_status,count(*) from validation_results group by validation_target,result_status
+        """, Object[].class, Map.of()).stream()
+        .map(row -> new ValidationCount((String) row[0], (String) row[1], count(row[2]))).toList();
+    return new Summary(jobs,
+        statusCounts("select status,count(*) from admin_commands group by status"),
+        statusCounts("select status,count(*) from ingestion_runs group by status"),
+        versions, validation);
   }
 
-  public List<Map<String, Object>> articleTitles(List<UUID> ids) {
+  private List<StatusCount> statusCounts(String sql) {
+    return rows(sql, Object[].class, Map.of()).stream()
+        .map(row -> new StatusCount((String) row[0], count(row[1]))).toList();
+  }
+
+  public List<NewsCandidate> articleTitles(List<UUID> ids) {
     if (ids.isEmpty()) return List.of();
-    var rows = new ArrayList<>(db.queryForList(
-        "select id as \"articleId\",title,published_at from news_articles where id in (:ids)", Map.of("ids", ids)));
-    rows.sort(Comparator.comparingInt(row -> ids.indexOf(row.get("articleId"))));
-    return rows;
-  }
-
-  public List<Map<String, Object>> issueReviews(UUID validationResultId) {
-    return db.getJdbcTemplate().queryForList(
-        "select id,event_type,reason,principal,created_at from admin_operation_events "
-            + "where target_id=? order by created_at desc,id desc", validationResultId);
+    return rows("select id,title,cast(extract(epoch from published_at)*1000000 as bigint) from news_articles where id in (:ids)", Object[].class, Map.of("ids", ids))
+        .stream().map(row -> new NewsCandidate((UUID) row[0], (String) row[1],
+            row[2] == null ? null : java.time.Instant.EPOCH.plus(count(row[2]), java.time.temporal.ChronoUnit.MICROS)))
+        .sorted(Comparator.comparingInt(row -> ids.indexOf(row.articleId()))).toList();
   }
 
   public boolean databaseUp() {
-    Integer one = db.getJdbcTemplate().queryForObject("select 1", Integer.class);
-    return one != null && one == 1;
+    return count(query("select 1", Integer.class, Map.of()).getSingleResult()) == 1;
   }
 
   public List<String> columns(String table) {
-    return db.queryForList("select column_name from information_schema.columns where table_schema=current_schema() "
-        + "and table_name=:name order by ordinal_position", Map.of("name", table), String.class);
+    return rows("select column_name from information_schema.columns where table_schema=current_schema() "
+        + "and table_name=:name order by ordinal_position", String.class, Map.of("name", table));
   }
 
   public List<String> searchableColumns(String table, List<String> visible) {
-    return db.queryForList("select column_name from information_schema.columns where table_schema=current_schema() "
+    return rows("select column_name from information_schema.columns where table_schema=current_schema() "
         + "and table_name=:table and data_type not in ('json','jsonb','bytea','ARRAY','USER-DEFINED') order by ordinal_position",
-        Map.of("table", table), String.class).stream().filter(visible::contains).toList();
+        String.class, Map.of("table", table)).stream().filter(visible::contains).toList();
   }
 
   public BrowseResult browse(String table, List<String> cols, List<String> visible, List<String> searchable,
@@ -84,12 +87,12 @@ public class AdminConsoleQueryRepository {
 
     if (search != null && !search.isBlank()) {
       var searches = new ArrayList<String>();
-      searchable.forEach(c -> searches.add("cast(t.\"" + c + "\" as text) ilike :q escape '\\'"));
-      if (cols.contains("security_id")) searches.add("t.security_id in (select s.id from securities s where s.symbol ilike :q escape '\\')");
-      if (cols.contains("financial_statement_id")) searches.add("t.financial_statement_id in (select f.id from financial_statements f join securities s on s.id=f.security_id where s.symbol ilike :q escape '\\')");
-      if (cols.contains("metric_definition_id")) searches.add("t.metric_definition_id in (select d.id from metric_definitions d where d.code ilike :q escape '\\')");
+      searchable.forEach(c -> searches.add("cast(t.\"" + c + "\" as text) ilike :q escape chr(92)"));
+      if (cols.contains("security_id")) searches.add("t.security_id in (select s.id from securities s where s.symbol ilike :q escape chr(92))");
+      if (cols.contains("financial_statement_id")) searches.add("t.financial_statement_id in (select f.id from financial_statements f join securities s on s.id=f.security_id where s.symbol ilike :q escape chr(92))");
+      if (cols.contains("metric_definition_id")) searches.add("t.metric_definition_id in (select d.id from metric_definitions d where d.code ilike :q escape chr(92))");
       filters.add(searches.isEmpty() ? "false" : "(" + String.join(" or ", searches) + ")");
-      params.put("q", "%" + search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%");
+      if (!searches.isEmpty()) params.put("q", "%" + search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%");
     }
 
     if (runId != null && !runId.isBlank()) {
@@ -107,7 +110,7 @@ public class AdminConsoleQueryRepository {
           keys.add(":" + k);
           params.put(k, parts.get(i));
         }
-        filters.add("cast(t." + column + " as text) in (" + String.join(",", keys) + ")");
+        filters.add(keys.isEmpty() ? "false" : "cast(t." + column + " as text) in (" + String.join(",", keys) + ")");
       } else {
         filters.add("cast(t." + column + " as text)=:status");
         params.put("status", status);
@@ -116,8 +119,7 @@ public class AdminConsoleQueryRepository {
 
     String where = filters.isEmpty() ? "" : " where " + String.join(" and ", filters);
     String source = " from " + table + " t" + where;
-    Long totalCount = db.queryForObject("select count(*)" + source, params, Long.class);
-    long total = totalCount == null ? 0L : totalCount;
+    long total = count(query("select count(*)" + source, Long.class, params).getSingleResult());
 
     String projection = "jsonb_build_object(" + visible.stream()
         .map(c -> "'" + c + "',t.\"" + c + "\"").collect(java.util.stream.Collectors.joining(",")) + ")";
@@ -133,9 +135,25 @@ public class AdminConsoleQueryRepository {
     params.put("limit", size);
     params.put("offset", (long) page * size);
 
-    var rows = db.query("select cast(" + projection + " as text)" + source + " order by " + order + " limit :limit offset :offset",
-        params, (rs, n) -> rs.getString(1));
+    var rows = rows("select cast(" + projection + " as text)" + source + " order by " + order + " limit :limit offset :offset",
+        String.class, params);
 
     return new BrowseResult(rows, total);
+  }
+
+  private <T> List<T> rows(String sql, Class<T> type, Map<String, ?> parameters) {
+    List<?> results = query(sql, type, parameters).getResultList();
+    return results.stream().map(type::cast).toList();
+  }
+
+  private Query query(String sql, Class<?> type, Map<String, ?> parameters) {
+    var query = entities.createNativeQuery(sql, type);
+    query.setHint("jakarta.persistence.query.timeout", 15_000);
+    parameters.forEach(query::setParameter);
+    return query;
+  }
+
+  private long count(Object value) {
+    return ((Number) value).longValue();
   }
 }

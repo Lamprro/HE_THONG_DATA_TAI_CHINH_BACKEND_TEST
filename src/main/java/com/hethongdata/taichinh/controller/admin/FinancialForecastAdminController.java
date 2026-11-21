@@ -6,7 +6,6 @@ import com.hethongdata.taichinh.service.forecast.*;
 import com.hethongdata.taichinh.service.llm.*;
 import jakarta.validation.Valid;
 import java.util.*;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -17,21 +16,18 @@ public class FinancialForecastAdminController {
   private final ForecastRunStore store;
   private final ForecastPromptService prompts;
   private final LlmGateway gateway;
-  private final String adminToken;
 
   public FinancialForecastAdminController(
       FinancialForecastService service,
       ForecastContextService contexts,
       ForecastRunStore store,
       ForecastPromptService prompts,
-      LlmGateway gateway,
-      @Value("${financial.admin.api-token:}") String adminToken) {
+      LlmGateway gateway) {
     this.service = service;
     this.contexts = contexts;
     this.store = store;
     this.prompts = prompts;
     this.gateway = gateway;
-    this.adminToken = adminToken;
   }
 
   @GetMapping("/configuration")
@@ -43,7 +39,7 @@ public class FinancialForecastAdminController {
       version = "NOT_SEEDED_OR_DISABLED";
     }
     return new Configuration(
-        adminToken.length() >= 32,
+        true,
         gateway.configured(),
         false,
         EnumSet.allOf(ForecastRequest.Target.class),

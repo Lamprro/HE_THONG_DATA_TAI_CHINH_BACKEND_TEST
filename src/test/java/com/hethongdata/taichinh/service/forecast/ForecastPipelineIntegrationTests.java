@@ -1,5 +1,7 @@
 package com.hethongdata.taichinh.service.forecast;
 
+import com.hethongdata.taichinh.support.TestJwt;
+
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -25,7 +27,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {
-      "financial.admin.api-token=isolated-test-admin-credential-not-production",
+      TestJwt.PROPERTY,
       "financial.admin.commands.enabled=false",
       "financial.admin.schedule.enabled=false",
       "financial.llm.catalog.seed-enabled=false",
@@ -742,9 +744,9 @@ class ForecastPipelineIntegrationTests {
   @Test
   void adminAuthenticationAndDtosAreEnforced() {
     var noAuth = http.postForEntity("/api/admin/forecasts/preview", request, String.class);
-    assertThat(noAuth.getStatusCode().value()).isEqualTo(403);
+    assertThat(noAuth.getStatusCode().value()).isEqualTo(401);
     var headers = new HttpHeaders();
-    headers.setBearerAuth("isolated-test-admin-credential-not-production");
+    headers.setBearerAuth(TestJwt.admin());
     var response =
         http.exchange(
             "/api/admin/forecasts/preview",
@@ -782,7 +784,7 @@ class ForecastPipelineIntegrationTests {
             http.postForEntity("/api/admin/forecasts/preview", request, String.class)
                 .getStatusCode()
                 .value())
-        .isEqualTo(403);
+        .isEqualTo(401);
   }
 
   @Test
@@ -913,7 +915,7 @@ class ForecastPipelineIntegrationTests {
   @Test
   void apiAcceptsSixTargetsAndPublishesPriceAlongsideFinancials() {
     var headers = new HttpHeaders();
-    headers.setBearerAuth("isolated-test-admin-credential-not-production");
+    headers.setBearerAuth(TestJwt.admin());
     var all =
         new ForecastRequest(
             request.securityId(),
@@ -1088,7 +1090,7 @@ class ForecastPipelineIntegrationTests {
         .extracting(ForecastDtos.Result::forecastPeriodEnd)
         .containsExactlyInAnyOrder(LocalDate.of(2027,3,31), LocalDate.of(2027,6,30));
     var headers = new HttpHeaders();
-    headers.setBearerAuth("isolated-test-admin-credential-not-production");
+    headers.setBearerAuth(TestJwt.admin());
     var filtered = http.exchange(
         "/api/admin/forecasts/securities/" + price.securityId()
             + "/results?forecastPeriodEnd=2027-06-30",
@@ -1227,7 +1229,7 @@ class ForecastPipelineIntegrationTests {
     var outcome = service.execute(priceRequest());
     var firstRound = store.run(outcome.runId()).validationRoundId();
     var headers = new HttpHeaders();
-    headers.setBearerAuth("isolated-test-admin-credential-not-production");
+    headers.setBearerAuth(TestJwt.admin());
     var revalidate =
         http.exchange(
             "/api/admin/forecasts/runs/" + outcome.runId() + "/revalidate",

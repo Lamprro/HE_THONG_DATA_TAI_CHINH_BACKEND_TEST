@@ -1,5 +1,6 @@
 package com.hethongdata.taichinh.config;
 
+import com.hethongdata.taichinh.jwt.JwtService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -8,12 +9,12 @@ import org.springframework.context.annotation.Profile;
 @Configuration
 @Profile("production")
 public class ProductionConfiguration {
-    public ProductionConfiguration(@Value("${financial.admin.api-token:}") String token,
+    public ProductionConfiguration(JwtService tokens,
                                    @Value("${app.cors.allowed-origins:}") String origins) {
-        validate(token, origins);
+        validate(tokens.persistentKeyConfigured(), origins);
     }
-    static void validate(String token, String origins) {
-        if (token == null || token.length()<32) throw new IllegalStateException("Production requires FINANCIAL_ADMIN_API_TOKEN (at least 32 characters)");
+    static void validate(boolean persistentKey, String origins) {
+        if (!persistentKey) throw new IllegalStateException("Production requires FINANCIAL_JWT_SECRET");
         if (origins.contains("*")) throw new IllegalStateException("Production CORS requires exact origins");
         for (String origin: origins.split(",")) {
             if (origin.isBlank()) continue;

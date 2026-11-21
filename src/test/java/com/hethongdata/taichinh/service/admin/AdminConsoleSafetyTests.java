@@ -3,11 +3,13 @@ package com.hethongdata.taichinh.service.admin;
 import static org.assertj.core.api.Assertions.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import com.hethongdata.taichinh.repository.jpa.admin.AdminAuditJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.admin.AdminConsoleQueryRepository;
+import static org.mockito.Mockito.mock;
 
 class AdminConsoleSafetyTests {
   @Test void deniesNonAllowlistedIdentifiersBeforeOpeningDatabase() {
-    var service=new AdminConsoleReadService(new DriverManagerDataSource(),new ObjectMapper());
+    var service=new AdminConsoleReadService(mock(AdminConsoleQueryRepository.class),mock(AdminAuditJpaRepository.class),new ObjectMapper());
     for(String table:java.util.List.of("accounts","system_settings","market_prices;drop table companies","public.market_prices"))
       assertThatThrownBy(()->service.browse(table,0,25,null,null,null)).isInstanceOf(IllegalArgumentException.class);
     assertThatThrownBy(()->service.browse("market_prices",-1,25,null,null,null)).isInstanceOf(IllegalArgumentException.class);

@@ -20,13 +20,21 @@ jobs:
 
       - name: Deploy with Docker Compose
         env:
-          FINANCIAL_ADMIN_API_TOKEN: ${{ secrets.FINANCIAL_ADMIN_API_TOKEN }}
+          FINANCIAL_JWT_SECRET: ${{ secrets.FINANCIAL_JWT_SECRET }}
+          FINANCIAL_ADMIN_SMOKE_USERNAME: ${{ secrets.FINANCIAL_ADMIN_SMOKE_USERNAME }}
+          FINANCIAL_ADMIN_SMOKE_PASSWORD: ${{ secrets.FINANCIAL_ADMIN_SMOKE_PASSWORD }}
         run: |
           set -euo pipefail
-          if [ "${#FINANCIAL_ADMIN_API_TOKEN}" -lt 32 ]; then
-            echo "Dedicated admin credential must be configured in deployment secrets."
-            exit 1
-          fi
+          python3 - <<'PY'
+          import base64, binascii, os
+          try:
+              key = base64.b64decode(os.environ["FINANCIAL_JWT_SECRET"], validate=True)
+          except (ValueError, binascii.Error):
+              key = b""
+          if len(key) < 32 or not all(os.environ.get(name) for name in
+                  ("FINANCIAL_ADMIN_SMOKE_USERNAME", "FINANCIAL_ADMIN_SMOKE_PASSWORD")):
+              raise SystemExit("Configure JWT signing key and Admin smoke account secrets.")
+          PY
           # Keep the server's Docker/Maven cache between deployments.
           # The changed service is recreated by compose without taking the
           # whole project down first.
@@ -46,9 +54,26 @@ jobs:
             sleep 2
           done
 
-          curl --fail --silent --show-error --max-time 20 --output /dev/null \
-            --header "Authorization: Bearer ${FINANCIAL_ADMIN_API_TOKEN}" \
-            http://127.0.0.1:8080/api/admin/financial-data/quality/coverage
+          python3 - <<'PY'
+          import json, os
+          from urllib.request import Request, urlopen
+          from urllib.error import URLError
+          base = "http://127.0.0.1:8080"
+          credentials = json.dumps({
+              "username": os.environ["FINANCIAL_ADMIN_SMOKE_USERNAME"],
+              "password": os.environ["FINANCIAL_ADMIN_SMOKE_PASSWORD"],
+          }).encode()
+          try:
+              login = Request(base + "/api/auth/login", data=credentials, headers={"Content-Type": "application/json"})
+              with urlopen(login, timeout=15) as response:
+                  token = json.load(response)["accessToken"]
+              coverage = Request(base + "/api/admin/financial-data/quality/coverage",
+                  headers={"Authorization": "Bearer " + token})
+              with urlopen(coverage, timeout=20):
+                  print("Admin JWT smoke check passed.")
+          except (URLError, ValueError, KeyError):
+              raise SystemExit("Admin JWT smoke check failed. Verify the DB account and role.")
+          PY
 
           # Remove only dangling layers; keep tagged images for rollback.
           docker image prune --force
@@ -56,5 +81,5 @@ jobs:
       - name: Show deployed containers
         if: always()
         env:
-          FINANCIAL_ADMIN_API_TOKEN: ${{ secrets.FINANCIAL_ADMIN_API_TOKEN }}
+          FINANCIAL_JWT_SECRET: ${{ secrets.FINANCIAL_JWT_SECRET }}
         run: docker compose ps

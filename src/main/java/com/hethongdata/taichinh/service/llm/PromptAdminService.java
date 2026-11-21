@@ -1,6 +1,6 @@
 package com.hethongdata.taichinh.service.llm;
 
-import static com.hethongdata.taichinh.config.SecurityConfiguration.currentActor;
+import static com.hethongdata.taichinh.security.SecurityConfiguration.currentActor;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

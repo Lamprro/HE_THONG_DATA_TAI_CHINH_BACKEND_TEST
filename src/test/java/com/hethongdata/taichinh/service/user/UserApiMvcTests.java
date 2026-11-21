@@ -1,9 +1,11 @@
 package com.hethongdata.taichinh.service.user;
+
+import com.hethongdata.taichinh.support.TestJwt;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hethongdata.taichinh.config.SecurityConfiguration;
+import com.hethongdata.taichinh.security.SecurityConfiguration;
 import com.hethongdata.taichinh.controller.exception.ApiExceptionHandler;
 import com.hethongdata.taichinh.controller.user.*;
 import org.junit.jupiter.api.Test;
@@ -30,7 +32,7 @@ class UserApiMvcTests {
   }
   @Test void chartDateParametersBindAsIsoDatesAndBadRangesAreNotSilentlyCoerced() throws Exception {
     try(var context=new AnnotationConfigWebApplicationContext()) {
-      context.setServletContext(new MockServletContext());context.register(Config.class);org.springframework.test.context.support.TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context, "financial.admin.api-token=" + "fixture-token-at-least-32-characters");
+      context.setServletContext(new MockServletContext());context.register(Config.class);org.springframework.test.context.support.TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context, TestJwt.PROPERTY);
       context.refresh();var mvc=MockMvcBuilders.webAppContextSetup(context)
           .addFilters(context.getBean("springSecurityFilterChain", jakarta.servlet.Filter.class)).build();
       mvc.perform(get("/api/v1/securities/FPT/prices").param("from","2016-10-01").param("to","2026-10-01")).andExpect(status().isOk());
@@ -45,7 +47,7 @@ class UserApiMvcTests {
   @Test void publishedContractMatchesSupportedRoutes() throws Exception {
     try(var context=new AnnotationConfigWebApplicationContext();
         var snapshot=getClass().getResourceAsStream("/contracts/user-api.json")) {
-      context.setServletContext(new MockServletContext());context.register(Config.class);org.springframework.test.context.support.TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context, "financial.admin.api-token=" + "fixture-token-at-least-32-characters");
+      context.setServletContext(new MockServletContext());context.register(Config.class);org.springframework.test.context.support.TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context, TestJwt.PROPERTY);
       context.refresh();
       var mvc=MockMvcBuilders.webAppContextSetup(context)
           .addFilters(context.getBean("springSecurityFilterChain", jakarta.servlet.Filter.class)).build();
@@ -61,20 +63,20 @@ class UserApiMvcTests {
     try(var context=new AnnotationConfigWebApplicationContext()) {
       context.setServletContext(new MockServletContext());context.register(Config.class);
 
-      org.springframework.test.context.support.TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context, "financial.admin.api-token=" + "fixture-token-at-least-32-characters");
+      org.springframework.test.context.support.TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context, TestJwt.PROPERTY);
       context.refresh();var mvc=MockMvcBuilders.webAppContextSetup(context)
           .addFilters(context.getBean("springSecurityFilterChain", jakarta.servlet.Filter.class)).build();
       mvc.perform(get("/api/v1/securities")).andExpect(status().isOk());
       mvc.perform(get("/api/v1/openapi.json")).andExpect(status().isOk());
       mvc.perform(post("/api/v1/securities")).andExpect(status().isMethodNotAllowed());
       for(String path:java.util.List.of("/api/admin/probe","/api/ingestion-jobs","/api/raw-payloads","/api/validation","/api/securities"))
-        mvc.perform(get(path)).andExpect(status().isForbidden());
+        mvc.perform(get(path)).andExpect(status().isUnauthorized());
     }
   }
   @RestController static class Probe {@GetMapping({"/api/admin/probe","/api/ingestion-jobs","/api/raw-payloads","/api/validation","/api/securities"}) String admin() {return "private";}}
   @Test void contractDescribesOnlyPublicGetRoutesAndRequiredParameters() throws Exception {
     try(var context=new AnnotationConfigWebApplicationContext()){
-      context.setServletContext(new MockServletContext());context.register(Config.class);org.springframework.test.context.support.TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context, "financial.admin.api-token=" + "fixture-token-at-least-32-characters");
+      context.setServletContext(new MockServletContext());context.register(Config.class);org.springframework.test.context.support.TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context, TestJwt.PROPERTY);
       context.refresh();var mvc=MockMvcBuilders.webAppContextSetup(context)
           .addFilters(context.getBean("springSecurityFilterChain", jakarta.servlet.Filter.class)).build();
       String body=mvc.perform(get("/api/v1/openapi.json")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
@@ -87,12 +89,12 @@ class UserApiMvcTests {
   }
   @Test void publicReadsDoNotRequireAdminTokenAndWritesAreNotAvailable() throws Exception {
     try(var context=new AnnotationConfigWebApplicationContext()) {
-      context.setServletContext(new MockServletContext());context.register(Config.class);org.springframework.test.context.support.TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context, "financial.admin.api-token=" + "fixture-token-at-least-32-characters");
+      context.setServletContext(new MockServletContext());context.register(Config.class);org.springframework.test.context.support.TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context, TestJwt.PROPERTY);
       context.refresh();
       var mvc=MockMvcBuilders.webAppContextSetup(context)
           .addFilters(context.getBean("springSecurityFilterChain", jakarta.servlet.Filter.class)).build();
       mvc.perform(get("/api/v1/securities")).andExpect(status().isOk());
-      mvc.perform(get("/api/admin/probe")).andExpect(status().isForbidden());
+      mvc.perform(get("/api/admin/probe")).andExpect(status().isUnauthorized());
       mvc.perform(post("/api/v1/securities").contentType("application/json").content("{}"))
           .andExpect(status().isMethodNotAllowed()).andExpect(header().string("Allow",org.hamcrest.Matchers.containsString("GET")));
       mvc.perform(get("/api/v1/securities").param("size","oops")).andExpect(status().isBadRequest());

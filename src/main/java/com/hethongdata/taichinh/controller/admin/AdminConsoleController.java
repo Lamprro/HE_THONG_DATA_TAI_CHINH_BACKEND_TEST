@@ -7,7 +7,7 @@ import java.util.*;
 import org.springframework.http.*;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.oauth2.core.OAuth2AuthenticatedPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -30,8 +30,8 @@ public class AdminConsoleController {
 
   @GetMapping("/session")
   public Session session(Authentication authentication) {
-    String email = authentication.getPrincipal() instanceof OAuth2AuthenticatedPrincipal principal
-        ? principal.getAttribute("email") : null;
+    String email = authentication.getPrincipal() instanceof Jwt principal
+        ? principal.getClaimAsString("email") : null;
     return new Session(authentication.isAuthenticated(), authentication.getName(), email,
         authentication.getAuthorities().stream().map(GrantedAuthority::getAuthority).sorted().toList());
   }

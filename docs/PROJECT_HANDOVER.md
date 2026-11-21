@@ -1,3 +1,11 @@
+# 21/11/2026 — Đăng nhập bằng tài khoản và JWT
+
+- `POST /api/auth/login` nhận `username` và `password`. `AccountSecurityService` đọc `accounts` và `roles` qua JPA, xác thực hash BCrypt bằng Spring Security. Chỉ tài khoản `ACTIVE` có username duy nhất được đăng nhập. `ADMIN` hoặc `ROLE_ADMIN` trong DB cho quyền Admin.
+- `JwtService` phát JWT 15 phút. `security/SecurityConfiguration` xác minh chữ ký, issuer, audience và hạn dùng ở API bảo vệ. Token tĩnh cũ bị từ chối. API dữ liệu công khai dưới `/api/v1/**` vẫn dùng được như trước. Audit Admin ghi username, worker nền ghi `SYSTEM_WORKER`.
+- FE Admin và Swagger đều đăng nhập bằng tài khoản. JWT của FE giữ trong bộ nhớ. Hết phiên thì đăng nhập lại. Thay đổi vai trò hoặc trạng thái tài khoản áp dụng cho lần đăng nhập tiếp theo. JWT đã cấp có hiệu lực tối đa đến thời điểm hết hạn.
+- Trước khi deploy đồng bộ BE và FE Admin, kiểm tra tài khoản trong DB theo mục đăng nhập ở [README](../README.md). Cấu hình GitHub Actions secrets `FINANCIAL_JWT_SECRET`, `FINANCIAL_ADMIN_SMOKE_USERNAME` và `FINANCIAL_ADMIN_SMOKE_PASSWORD` cho workflow deploy. Bản local tự tạo khóa theo tiến trình nếu bỏ trống, production yêu cầu khóa cố định. Tính năng dùng bảng sẵn có.
+- Java đóng gói thành công, 260 test đạt trong lần chạy chung. Có 122 test theo điều kiện bị bỏ qua ở lần này và hai suite dùng DB chung được loại khỏi lệnh chạy. Chạy riêng 17 test trên PostgreSQL 17.12 tạm. Java đóng gói gọi HTTP thành công qua login, session và OpenAPI bằng bản ghi tài khoản trong PostgreSQL loopback. Mật khẩu sai và token tĩnh bị từ chối, tài khoản USER nhận 403 tại API Admin. FE build thành công, 34 test đơn vị và ba bộ trình duyệt Admin đạt với fixture.
+
 # 21/11/2026 — Admin dùng JPA và DTO
 
 - Ba bảng `admin_commands`, `admin_schedule_policy` và `admin_operation_events` có entity và Spring Data JPA repository. Các truy vấn tổng hợp, metadata và duyệt bảng Admin dùng JPA EntityManager. Các API commands, summary và schedule có DTO trong `AdminConsoleDtos`; tên trường JSON phía FE giữ nguyên. Dữ liệu xem theo cột động vẫn theo danh sách bảng và bộ lọc cho phép.

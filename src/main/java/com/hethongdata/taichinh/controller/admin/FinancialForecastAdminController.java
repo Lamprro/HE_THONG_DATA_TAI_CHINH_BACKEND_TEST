@@ -1,6 +1,5 @@
 package com.hethongdata.taichinh.controller.admin;
 
-import com.hethongdata.taichinh.config.SecurityConfiguration.AdminCredentials;
 import com.hethongdata.taichinh.dto.forecast.*;
 import com.hethongdata.taichinh.dto.forecast.ForecastDtos.*;
 import com.hethongdata.taichinh.service.forecast.*;
@@ -17,21 +16,18 @@ public class FinancialForecastAdminController {
   private final ForecastRunStore store;
   private final ForecastPromptService prompts;
   private final LlmGateway gateway;
-  private final AdminCredentials adminCredentials;
 
   public FinancialForecastAdminController(
       FinancialForecastService service,
       ForecastContextService contexts,
       ForecastRunStore store,
       ForecastPromptService prompts,
-      LlmGateway gateway,
-      AdminCredentials adminCredentials) {
+      LlmGateway gateway) {
     this.service = service;
     this.contexts = contexts;
     this.store = store;
     this.prompts = prompts;
     this.gateway = gateway;
-    this.adminCredentials = adminCredentials;
   }
 
   @GetMapping("/configuration")
@@ -43,7 +39,7 @@ public class FinancialForecastAdminController {
       version = "NOT_SEEDED_OR_DISABLED";
     }
     return new Configuration(
-        adminCredentials.adminConfigured(),
+        true,
         gateway.configured(),
         false,
         EnumSet.allOf(ForecastRequest.Target.class),

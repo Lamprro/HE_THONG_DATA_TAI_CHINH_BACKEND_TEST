@@ -10,7 +10,8 @@
 </head>
 <body>
   <form id="connect-docs">
-    <label>Token quản trị <input id="admin-token" type="password" minlength="32" autocomplete="off" required></label>
+    <label>Tên đăng nhập <input id="admin-username" autocomplete="username" required maxlength="100"></label>
+    <label>Mật khẩu <input id="admin-password" type="password" autocomplete="current-password" required maxlength="72"></label>
     <button type="submit">Mở tài liệu API</button>
     <button id="clear-docs" type="button">Ngắt kết nối</button>
   </form>

@@ -9,6 +9,9 @@ import com.hethongdata.taichinh.dto.ingestion.IngestionExecutionResponse;
 import com.hethongdata.taichinh.service.ingestion.*;
 import com.hethongdata.taichinh.service.validation.ValidationJobService;
 import com.hethongdata.taichinh.repository.jpa.admin.*;
+import com.hethongdata.taichinh.repository.jpa.account.AccountJpaRepository;
+import com.hethongdata.taichinh.security.AccountSecurityService;
+import com.hethongdata.taichinh.jwt.JwtService;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.validation.Validation;
 import javax.sql.DataSource;
@@ -39,13 +42,13 @@ class AdminCommandIsolatedIntegrationTests {
   static JpaTransactionManager transactions;
 
   @Configuration(proxyBeanMethods = false)
-  @EnableJpaRepositories(basePackageClasses = AdminCommandJpaRepository.class)
+  @EnableJpaRepositories(basePackageClasses = {AdminCommandJpaRepository.class, AccountJpaRepository.class})
   @EnableTransactionManagement
   static class JpaConfig {
     @Bean LocalContainerEntityManagerFactoryBean entityManagerFactory(DataSource source) {
       var factory = new LocalContainerEntityManagerFactoryBean();
       factory.setDataSource(source);
-      factory.setPackagesToScan("com.hethongdata.taichinh.entity.admin");
+      factory.setPackagesToScan("com.hethongdata.taichinh.entity.admin", "com.hethongdata.taichinh.entity.account");
       factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
       return factory;
     }
@@ -79,6 +82,9 @@ class AdminCommandIsolatedIntegrationTests {
           description text, system_prompt text, request_schema jsonb, response_schema jsonb, checksum text,
           enabled boolean not null, created_at timestamptz not null default now(), unique (task_code,version)
         );
+        create table roles (id bigint primary key, code varchar(50) not null unique);
+        create table accounts (id uuid primary key, username varchar(100), email varchar(255) not null,
+          password_hash varchar(255) not null, role_id bigint references roles(id), status varchar(30) not null);
         create table ingestion_jobs (is_active boolean);
         create table data_versions (data_domain text, status text);
         create table validation_results (id uuid primary key, validation_target text, result_status text);
@@ -100,7 +106,7 @@ class AdminCommandIsolatedIntegrationTests {
     if (admin != null && SCHEMA.matches("admin_console_test_[a-f0-9]{32}")) admin.execute("drop schema if exists "+SCHEMA+" cascade");
   }
   @BeforeEach void setup() {
-    db.execute("truncate admin_operation_events,admin_commands,ingestion_runs,securities,metric_definitions,financial_periods,financial_metrics,llm_prompt_templates,ingestion_jobs,data_versions,validation_results,news_articles,data_sources");
+    db.execute("truncate admin_operation_events,admin_commands,ingestion_runs,securities,metric_definitions,financial_periods,financial_metrics,llm_prompt_templates,ingestion_jobs,data_versions,validation_results,news_articles,data_sources,accounts,roles");
     service=new AdminCommandService(commands,audit,json,jobs,mock(IngestionService.class),mock(ValidationJobService.class),
         Validation.buildDefaultValidatorFactory().getValidator(),transactions,mock(AdminPipelineService.class),mock(AdminAiActionService.class));
   }
@@ -303,6 +309,24 @@ class AdminCommandIsolatedIntegrationTests {
     assertThatThrownBy(() -> service.submit(manual))
         .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
         .hasMessageContaining("409");
+  }
+
+  @Test void accountLoginReadsTheDatabaseRoleAndPasswordHash() {
+    var passwords = new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
+    db.update("insert into roles values (1,'ADMIN')");
+    db.update("insert into accounts values (?,?,?,?,1,'ACTIVE')",
+        UUID.randomUUID(), "fixture-operator", "fixture@example.test", passwords.encode("test-password"));
+    var accounts = new AccountSecurityService(context.getBean(AccountJpaRepository.class), passwords);
+    var auth = accounts.authenticate("fixture-operator", "test-password");
+    var tokens = new JwtService("");
+    var jwt = tokens.decode(tokens.issue(auth, accounts.authenticatedEmail(auth)).getTokenValue());
+    assertThat(jwt.getSubject()).isEqualTo("fixture-operator");
+    assertThat(jwt.getClaimAsStringList("roles")).containsExactly("ROLE_ADMIN");
+    assertThatThrownBy(() -> accounts.authenticate("fixture-operator", "wrong-password"))
+        .isInstanceOf(org.springframework.security.authentication.BadCredentialsException.class);
+    db.update("update accounts set status='LOCKED'");
+    assertThatThrownBy(() -> accounts.authenticate("fixture-operator", "test-password"))
+        .isInstanceOf(org.springframework.security.authentication.BadCredentialsException.class);
   }
 
   @Test void summaryCountsAndReviewsUseTheSameRowsAsTheSqlLedger() {

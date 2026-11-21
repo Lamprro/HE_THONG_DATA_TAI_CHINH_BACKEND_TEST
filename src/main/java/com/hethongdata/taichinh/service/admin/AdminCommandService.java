@@ -1,6 +1,6 @@
 package com.hethongdata.taichinh.service.admin;
 
-import static com.hethongdata.taichinh.config.SecurityConfiguration.currentActor;
+import static com.hethongdata.taichinh.security.SecurityConfiguration.currentActor;
 
 import com.fasterxml.jackson.databind.*;
 import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.Command;

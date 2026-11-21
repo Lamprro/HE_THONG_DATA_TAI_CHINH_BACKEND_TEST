@@ -1,5 +1,7 @@
 package com.hethongdata.taichinh.service.news.recovery;
 
+import com.hethongdata.taichinh.support.TestJwt;
+
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -33,7 +35,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
           "financial.validation.catalog.seed-enabled=false",
       "financial.ingestion.catalog.seed-enabled=false",
           "financial.documents.cloudinary.enabled=false",
-      "financial.admin.api-token=recovery-integration-admin-token-not-a-real-secret"
+      TestJwt.PROPERTY
     })
 @EnabledIfEnvironmentVariable(named = "RECOVERY_TEST_DB", matches = "1")
 class NewsRecoveryIsolatedIntegrationTests {
@@ -189,7 +191,7 @@ class NewsRecoveryIsolatedIntegrationTests {
 
   HttpHeaders headers() {
     var h = new HttpHeaders();
-    h.setBearerAuth("recovery-integration-admin-token-not-a-real-secret");
+    h.setBearerAuth(TestJwt.admin());
     return h;
   }
 
@@ -214,7 +216,7 @@ class NewsRecoveryIsolatedIntegrationTests {
             http.getForEntity("/api/admin/news-recovery/configuration", String.class)
                 .getStatusCode()
                 .value())
-        .isEqualTo(403);
+        .isEqualTo(401);
     db.update("UPDATE news_articles SET content_text=NULL,content_hash=NULL WHERE id=?", article);
     UUID run = execute();
     assertThat(store.article(article).path("content_text").isNull()).isTrue();

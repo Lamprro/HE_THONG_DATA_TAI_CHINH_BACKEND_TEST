@@ -16,7 +16,7 @@ public class OpenApiConfiguration {
     @Bean
     GroupedOpenApi adminApi() {
         return GroupedOpenApi.builder().group("admin")
-                .pathsToMatch("/api/**").pathsToExclude("/api/v1/**", "/api/health/**")
+                .pathsToMatch("/api/**").pathsToExclude("/api/v1/**", "/api/health/**", "/api/auth/**")
                 .addOpenApiCustomizer(api -> api.addSecurityItem(new SecurityRequirement().addList("adminBearer")))
                 .build();
     }
@@ -27,6 +27,6 @@ public class OpenApiConfiguration {
                 .info(new Info().title("Financial Data API").version("1"))
                 .servers(List.of(new Server().url("/")))
                 .components(new Components().addSecuritySchemes("adminBearer",
-                        new SecurityScheme().type(SecurityScheme.Type.HTTP).scheme("bearer")));
+                        new SecurityScheme().type(SecurityScheme.Type.HTTP).scheme("bearer").bearerFormat("JWT")));
     }
 }

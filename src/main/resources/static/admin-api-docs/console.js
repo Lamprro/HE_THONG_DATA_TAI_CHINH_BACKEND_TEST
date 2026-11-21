@@ -1,12 +1,13 @@
 const form = document.getElementById('connect-docs');
-const field = document.getElementById('admin-token');
+const username = document.getElementById('admin-username');
+const password = document.getElementById('admin-password');
 const panel = document.getElementById('swagger-ui');
 const statusLine = document.getElementById('docs-status');
 let connection;
 
 document.getElementById('clear-docs').addEventListener('click', () => {
   connection?.abort();
-  field.value = '';
+  password.value = '';
   panel.replaceChildren();
   statusLine.textContent = 'Đã ngắt kết nối.';
   window.location.reload();
@@ -16,12 +17,19 @@ form.addEventListener('submit', async event => {
   event.preventDefault();
   connection?.abort();
   panel.replaceChildren();
-  const token = field.value.trim();
-  field.value = '';
+  const credentials = JSON.stringify({ username: username.value.trim(), password: password.value });
+  password.value = '';
   const attempt = new AbortController();
   connection = attempt;
   statusLine.textContent = 'Đang tải OpenAPI…';
   try {
+    const login = await fetch('/api/auth/login', {
+      method: 'POST', body: credentials, credentials: 'omit', redirect: 'error', signal: attempt.signal,
+      headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+    });
+    if (!login.ok) throw new Error(login.status === 401 ? 'Tên đăng nhập hoặc mật khẩu không đúng.'
+      : 'Không thể đăng nhập (HTTP ' + login.status + ').');
+    const { accessToken: token } = await login.json();
     const response = await fetch('/v3/api-docs/admin', {
       headers: { Authorization: 'Bearer ' + token, 'ngrok-skip-browser-warning': 'true' },
       credentials: 'omit', redirect: 'error', signal: attempt.signal

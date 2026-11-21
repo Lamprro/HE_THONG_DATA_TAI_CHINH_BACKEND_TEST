@@ -1,9 +1,11 @@
 package com.hethongdata.taichinh.service.admin;
 
+import com.hethongdata.taichinh.support.TestJwt;
+
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hethongdata.taichinh.config.SecurityConfiguration;
+import com.hethongdata.taichinh.security.SecurityConfiguration;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.*;
 import org.springframework.mock.web.MockServletContext;
@@ -13,7 +15,7 @@ import org.springframework.web.context.support.AnnotationConfigWebApplicationCon
 import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 
 class AdminAccessMvcTests {
-  static final String TOKEN="isolated-admin-access-test-32-characters";
+
   @Configuration @EnableWebMvc @Import(SecurityConfiguration.class) static class Config {
     @Bean ObjectMapper securityJson() { return new ObjectMapper().findAndRegisterModules(); }
     @Bean Probe probe() { return new Probe(); }
@@ -40,7 +42,7 @@ class AdminAccessMvcTests {
   }
   @Test void allManagementFamiliesRequireCredentialWhilePublicHealthStaysAvailable() throws Exception {
     try(var context=new AnnotationConfigWebApplicationContext()) {
-      context.setServletContext(new MockServletContext()); context.register(Config.class); org.springframework.test.context.support.TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context, "financial.admin.api-token=" + TOKEN);
+      context.setServletContext(new MockServletContext()); context.register(Config.class); org.springframework.test.context.support.TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context, TestJwt.PROPERTY);
       context.refresh();
       var mvc=MockMvcBuilders.webAppContextSetup(context)
           .addFilters(context.getBean("springSecurityFilterChain", jakarta.servlet.Filter.class)).build();
@@ -48,14 +50,14 @@ class AdminAccessMvcTests {
           "/api/admin/forecasts/configuration","/api/admin/news-recovery/configuration","/api/companies","/api/securities",
           "/api/ingestion-jobs","/api/ingestions","/api/data-sources","/api/raw-payloads",
           "/api/security-job-reconciliation/run","/api/external-financial-data/fetch")) {
-        mvc.perform(get(path)).andExpect(status().isForbidden());
-        mvc.perform(get(path).header("Authorization","Bearer wrong")).andExpect(status().isForbidden());
-        mvc.perform(get(path).header("Authorization","Bearer "+TOKEN)).andExpect(status().isOk());
+        mvc.perform(get(path)).andExpect(status().isUnauthorized());
+        mvc.perform(get(path).header("Authorization","Bearer wrong")).andExpect(status().isUnauthorized());
+        mvc.perform(get(path).header("Authorization","Bearer " + TestJwt.admin())).andExpect(status().isOk());
       }
       mvc.perform(get("/api/health")).andExpect(status().isOk());
       mvc.perform(get("/api/v1/public-probe").header("Authorization", "Bearer invalid")).andExpect(status().isOk());
-      mvc.perform(get("/v3/api-docs/admin")).andExpect(status().isForbidden());
-      mvc.perform(get("/v3/api-docs/admin").header("Authorization", "Bearer " + TOKEN)).andExpect(status().isOk());
+      mvc.perform(get("/v3/api-docs/admin")).andExpect(status().isUnauthorized());
+      mvc.perform(get("/v3/api-docs/admin").header("Authorization", "Bearer " + TestJwt.admin())).andExpect(status().isOk());
       mvc.perform(options("/api/admin/example/" + java.util.UUID.randomUUID())
               .header("Origin", "http://localhost:5173").header("Access-Control-Request-Method", "POST")
               .header("Access-Control-Request-Headers", "authorization,content-type"))

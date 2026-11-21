@@ -1,6 +1,7 @@
 package com.hethongdata.taichinh.config;
 
 import com.hethongdata.taichinh.repository.jpa.admin.AdminAuditJpaRepository;
+import com.hethongdata.taichinh.security.SecurityConfiguration;
 import jakarta.servlet.http.*;
 import java.util.*;
 import org.springframework.context.annotation.Configuration;

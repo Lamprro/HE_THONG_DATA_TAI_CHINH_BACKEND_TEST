@@ -34,6 +34,7 @@ public class AdminConsoleReadService {
     this(new AdminConsoleQueryRepository(source), json);
   }
 
+  @org.springframework.beans.factory.annotation.Autowired
   public AdminConsoleReadService(AdminConsoleQueryRepository repository, ObjectMapper json) {
     this.repository = repository;
     this.json = json.copy().enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)

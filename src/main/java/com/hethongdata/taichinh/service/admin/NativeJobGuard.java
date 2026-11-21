@@ -16,6 +16,7 @@ public class NativeJobGuard {
     this(new AdvisoryLockRepository(source));
   }
 
+  @org.springframework.beans.factory.annotation.Autowired
   public NativeJobGuard(AdvisoryLockRepository lockRepository) {
     this.lockRepository = lockRepository;
   }

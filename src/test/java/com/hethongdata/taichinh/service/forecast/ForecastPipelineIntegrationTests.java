@@ -467,7 +467,7 @@ class ForecastPipelineIntegrationTests {
       UUID article=db.queryForObject("SELECT id FROM news_articles WHERE canonical_url='https://cafef.vn/isolated-metadata-flow.chn'",UUID.class);
       assertThat(db.queryForObject("SELECT content_text FROM news_articles WHERE id=?",String.class,article)).isNull();
       assertThat(db.queryForObject("SELECT count(*) FROM news_article_companies WHERE news_article_id=?",Integer.class,article)).isEqualTo(1);
-      assertThat(new NewsLlmContext(db,json,new com.hethongdata.taichinh.service.ingestion.ChecksumService())
+      assertThat(new NewsLlmContext(new com.hethongdata.taichinh.repository.jdbc.news.NewsLlmQueryRepository(db),json,new com.hethongdata.taichinh.service.ingestion.ChecksumService())
           .build(article,"NEWS_SUMMARY").issues()).contains("BODY_MISSING_OR_TOO_SHORT");
       assertThat(db.queryForObject("SELECT count(*) FROM validation_results WHERE raw_payload_id=? AND result_status='FAIL' AND severity='ERROR'",Integer.class,fetched)).isZero();
       reset(external);

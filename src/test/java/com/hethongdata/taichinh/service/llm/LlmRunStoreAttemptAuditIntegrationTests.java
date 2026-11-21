@@ -12,6 +12,7 @@ import java.sql.*;
 import java.util.*;
 import java.util.concurrent.*;
 import static org.assertj.core.api.Assertions.*;
+import com.hethongdata.taichinh.repository.jdbc.llm.LlmRunJdbcRepository;
 
 /** Actual PostgreSQL migration and append tests; no writes to public business tables. */
 @EnabledIfEnvironmentVariable(named="LLM_TEST_DB", matches="1")
@@ -64,10 +65,10 @@ class LlmRunStoreAttemptAuditIntegrationTests {
         var before=db.query("SELECT to_jsonb(a)::text FROM llm_run_attempts a ORDER BY attempt_no",
             (rs,n)->json.read(rs.getString(1)));
         migrate();
-        assertThat(LlmRunStore.readAttempts(db,json,run)).containsExactlyElementsOf(before);
+        assertThat(LlmRunJdbcRepository.readAttempts(db,json,run)).containsExactlyElementsOf(before);
         assertThat(db.queryForObject("SELECT to_regclass(?) IS NULL",Boolean.class,schema+".llm_run_attempts")).isTrue();
         migrate();
-        assertThat(LlmRunStore.readAttempts(db,json,run)).containsExactlyElementsOf(before);
+        assertThat(LlmRunJdbcRepository.readAttempts(db,json,run)).containsExactlyElementsOf(before);
     }
 
     @Test void refusesRunningWorkWithoutLosingHistory() {
@@ -92,23 +93,23 @@ class LlmRunStoreAttemptAuditIntegrationTests {
             var futures=new ArrayList<Future<?>>();
             for(int i=1;i<=8;i++) {
                 final int number=i;
-                futures.add(pool.submit(()->LlmRunStore.appendAttempt(db,json,run,
+                futures.add(pool.submit(()->LlmRunJdbcRepository.appendAttempt(db,json,run,
                     json.read("{\"request\":"+number+"}"),
                     new LlmGateway.Attempt(number,"model-"+number,200,null,"{}","{}",10,20,30))));
             }
             for(var f:futures) f.get(30,TimeUnit.SECONDS);
         } finally {pool.shutdownNow();}
-        var entries=LlmRunStore.readAttempts(db,json,run);
+        var entries=LlmRunJdbcRepository.readAttempts(db,json,run);
         assertThat(entries).hasSize(8);
         for(int i=0;i<8;i++) {
             assertThat(entries.get(i).path("attempt_no").asInt()).isEqualTo(i+1);
             assertThat(entries.get(i).path("request_payload").path("request").asInt()).isEqualTo(i+1);
         }
-        assertThatThrownBy(()->LlmRunStore.appendAttempt(db,json,run,json.read("{}"),
+        assertThatThrownBy(()->LlmRunJdbcRepository.appendAttempt(db,json,run,json.read("{}"),
             new LlmGateway.Attempt(1,"duplicate",200,null,"{}","{}",1,2,3)))
             .isInstanceOf(IllegalStateException.class);
-        assertThat(LlmRunStore.readAttempts(db,json,run)).hasSize(8);
-        assertThatThrownBy(()->LlmRunStore.appendAttempt(db,json,UUID.randomUUID(),json.read("{}"),
+        assertThat(LlmRunJdbcRepository.readAttempts(db,json,run)).hasSize(8);
+        assertThatThrownBy(()->LlmRunJdbcRepository.appendAttempt(db,json,UUID.randomUUID(),json.read("{}"),
             new LlmGateway.Attempt(1,"missing",200,null,"{}","{}",1,2,3)))
             .isInstanceOf(IllegalStateException.class);
     }

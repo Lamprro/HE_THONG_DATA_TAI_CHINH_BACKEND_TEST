@@ -26,8 +26,9 @@ public class DatabaseHealthService {
     this(new DatabaseProbeRepository(dataSource), timeout);
   }
 
+  @org.springframework.beans.factory.annotation.Autowired
   public DatabaseHealthService(DatabaseProbeRepository probeRepository,
-      Duration timeout) {
+      @Value("${financial.health.database-timeout:2s}") Duration timeout) {
     if (timeout.isNegative() || timeout.isZero() || timeout.compareTo(Duration.ofSeconds(10)) > 0)
       throw new IllegalArgumentException("Database health timeout must be positive and at most 10 seconds");
     this.probeRepository = probeRepository;

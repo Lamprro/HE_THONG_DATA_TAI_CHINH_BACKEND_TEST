@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.web.bind.annotation.*;
 
-/** Financial statement quality, disclosures, bindings and metric recalculation. Access is enforced by AdminAccessConfiguration. */
+/** Financial statement quality, disclosures, bindings and metric recalculation. Access is enforced by SecurityConfiguration. */
 @RestController
 @RequestMapping("/api/admin/financial-data")
 public class FinancialDataAdminController {

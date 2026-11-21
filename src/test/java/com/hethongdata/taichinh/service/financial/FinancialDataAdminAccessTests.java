@@ -1,6 +1,6 @@
 package com.hethongdata.taichinh.service.financial;
 import com.hethongdata.taichinh.controller.admin.FinancialDataAdminController;
-import com.hethongdata.taichinh.config.AdminAccessConfiguration;
+import com.hethongdata.taichinh.config.SecurityConfiguration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -12,7 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.mockito.Mockito.*;
 
 @WebMvcTest(controllers=FinancialDataAdminController.class,properties="financial.admin.api-token=isolated-fixture-admin-token-long-enough")
-@Import(AdminAccessConfiguration.class)
+@Import(SecurityConfiguration.class)
 class FinancialDataAdminAccessTests {
  @Autowired MockMvc mvc;
  @MockitoBean com.hethongdata.taichinh.repository.jdbc.admin.AdminAuditJdbcRepository auditDatabase;

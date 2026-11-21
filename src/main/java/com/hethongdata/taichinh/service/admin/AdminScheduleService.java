@@ -1,5 +1,7 @@
 package com.hethongdata.taichinh.service.admin;
 
+import static com.hethongdata.taichinh.config.SecurityConfiguration.currentActor;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hethongdata.taichinh.repository.jdbc.admin.AdminAuditJdbcRepository;
 import com.hethongdata.taichinh.repository.jdbc.admin.AdminScheduleJdbcRepository;
@@ -71,7 +73,7 @@ public class AdminScheduleService {
     }
     int count=repository.updatePolicy(request.enabled(),json.valueToTree(codes).toString(),request.reason(),request.version());
     if(count!=1) throw new ResponseStatusException(HttpStatus.CONFLICT,"Schedule changed; reload before updating");
-    auditRepository.recordEvent(UUID.randomUUID(),"SCHEDULE_UPDATED",null,request.reason());
+    auditRepository.recordEvent(UUID.randomUUID(),"SCHEDULE_UPDATED",null,request.reason(),currentActor());
     return status();
   }
 

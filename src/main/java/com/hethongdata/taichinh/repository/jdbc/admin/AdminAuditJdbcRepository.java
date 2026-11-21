@@ -12,15 +12,15 @@ public class AdminAuditJdbcRepository {
     this.db = db;
   }
 
-  public void recordHttpMutation(UUID id, String method, String requestUri, int status) {
+  public void recordHttpMutation(UUID id, String method, String requestUri, int status, String principal) {
     db.update(
-        "insert into admin_operation_events(id,event_type,http_method,request_path,http_status) values (?,'HTTP_MUTATION',?,?,?)",
-        id, method, requestUri, status);
+        "insert into admin_operation_events(id,event_type,http_method,request_path,http_status,principal) values (?,'HTTP_MUTATION',?,?,?,?)",
+        id, method, requestUri, status, principal);
   }
 
-  public void recordEvent(UUID id, String eventType, UUID targetId, String reason) {
+  public void recordEvent(UUID id, String eventType, UUID targetId, String reason, String principal) {
     db.update(
-        "insert into admin_operation_events(id,event_type,target_id,reason) values (?,?,?,?)",
-        id, eventType, targetId, reason);
+        "insert into admin_operation_events(id,event_type,target_id,reason,principal) values (?,?,?,?,?)",
+        id, eventType, targetId, reason, principal);
   }
 }

@@ -17,10 +17,10 @@ public class AdminCommandJdbcRepository {
   }
 
   public void insertQueued(UUID id, UUID idempotencyKey, String hash, String action, String resource,
-      String reason, String inputJson, UUID parent) {
-    db.update("insert into admin_commands(id,idempotency_key,request_hash,action,resource_key,reason,status,request_json,parent_command_id) "
-        + "values (?,?,?,?,?,?,'QUEUED',cast(? as jsonb),?)",
-        id, idempotencyKey, hash, action, resource, reason, inputJson, parent);
+      String reason, String inputJson, UUID parent, String principal) {
+    db.update("insert into admin_commands(id,idempotency_key,request_hash,action,resource_key,reason,status,request_json,parent_command_id,principal) "
+        + "values (?,?,?,?,?,?,'QUEUED',cast(? as jsonb),?,?)",
+        id, idempotencyKey, hash, action, resource, reason, inputJson, parent, principal);
   }
 
   public List<Map<String, Object>> getReplayParams(UUID runId) {
@@ -78,7 +78,7 @@ public class AdminCommandJdbcRepository {
         + "where status='RUNNING' and lease_until<now()");
   }
 
-  public void recordEvent(UUID id, String type, UUID commandId, String reason) {
-    db.update("insert into admin_operation_events(id,event_type,command_id,reason) values (?,?,?,?)", id, type, commandId, reason);
+  public void recordEvent(UUID id, String type, UUID commandId, String reason, String principal) {
+    db.update("insert into admin_operation_events(id,event_type,command_id,reason,principal) values (?,?,?,?,?)", id, type, commandId, reason, principal);
   }
 }

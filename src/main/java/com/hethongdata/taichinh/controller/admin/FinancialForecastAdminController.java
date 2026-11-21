@@ -1,12 +1,12 @@
 package com.hethongdata.taichinh.controller.admin;
 
+import com.hethongdata.taichinh.config.SecurityConfiguration.AdminCredentials;
 import com.hethongdata.taichinh.dto.forecast.*;
 import com.hethongdata.taichinh.dto.forecast.ForecastDtos.*;
 import com.hethongdata.taichinh.service.forecast.*;
 import com.hethongdata.taichinh.service.llm.*;
 import jakarta.validation.Valid;
 import java.util.*;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -17,7 +17,7 @@ public class FinancialForecastAdminController {
   private final ForecastRunStore store;
   private final ForecastPromptService prompts;
   private final LlmGateway gateway;
-  private final String adminToken;
+  private final AdminCredentials adminCredentials;
 
   public FinancialForecastAdminController(
       FinancialForecastService service,
@@ -25,13 +25,13 @@ public class FinancialForecastAdminController {
       ForecastRunStore store,
       ForecastPromptService prompts,
       LlmGateway gateway,
-      @Value("${financial.admin.api-token:}") String adminToken) {
+      AdminCredentials adminCredentials) {
     this.service = service;
     this.contexts = contexts;
     this.store = store;
     this.prompts = prompts;
     this.gateway = gateway;
-    this.adminToken = adminToken;
+    this.adminCredentials = adminCredentials;
   }
 
   @GetMapping("/configuration")
@@ -43,7 +43,7 @@ public class FinancialForecastAdminController {
       version = "NOT_SEEDED_OR_DISABLED";
     }
     return new Configuration(
-        adminToken.length() >= 32,
+        adminCredentials.adminConfigured(),
         gateway.configured(),
         false,
         EnumSet.allOf(ForecastRequest.Target.class),

@@ -1,5 +1,7 @@
 package com.hethongdata.taichinh.service.admin;
 
+import static com.hethongdata.taichinh.config.SecurityConfiguration.currentActor;
+
 import com.fasterxml.jackson.databind.*;
 import com.hethongdata.taichinh.dto.ingestion.ManualIngestionRequest;
 import com.hethongdata.taichinh.repository.jdbc.admin.AdminAuditJdbcRepository;
@@ -86,7 +88,7 @@ public class AdminCommandService {
     UUID id=UUID.randomUUID();
     try {
       tx.executeWithoutResult(s -> {
-        repository.insertQueued(id, request.idempotencyKey(), hash, request.action(), resource, request.reason(), request.input().toString(), parent);
+        repository.insertQueued(id, request.idempotencyKey(), hash, request.action(), resource, request.reason(), request.input().toString(), parent, currentActor());
         event("SUBMITTED",id,request.reason());
         if(parent!=null) event("RETRIED",id,request.reason());
       });
@@ -191,12 +193,12 @@ public class AdminCommandService {
     if(!repository.validationResultExists(validationResultId))
       throw new IllegalArgumentException("Validation result not found");
     UUID reviewId=UUID.randomUUID();
-    auditRepository.recordEvent(reviewId,"ISSUE_REVIEWED",validationResultId,reason);
+    auditRepository.recordEvent(reviewId,"ISSUE_REVIEWED",validationResultId,reason,currentActor());
     return Map.of("id",reviewId,"validationResultId",validationResultId,"validationStatusChanged",false);
   }
   private void requireReason(String reason) { if(reason==null || reason.isBlank() || reason.length()>2000) throw new IllegalArgumentException("A reason (1..2000) is required"); }
   private void event(String type,UUID id,String reason) {
-    repository.recordEvent(UUID.randomUUID(),type,id,reason);
+    repository.recordEvent(UUID.randomUUID(),type,id,reason,currentActor());
   }
   private void work() {
     if(!enabled) return;

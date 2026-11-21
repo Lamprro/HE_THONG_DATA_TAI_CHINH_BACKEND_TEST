@@ -1,5 +1,7 @@
 package com.hethongdata.taichinh.service.llm;
 
+import static com.hethongdata.taichinh.config.SecurityConfiguration.currentActor;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hethongdata.taichinh.repository.jdbc.admin.AdminAuditJdbcRepository;
@@ -61,7 +63,7 @@ public class PromptAdminService {
     if (n != 1) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "Prompt version already exists; existing versions are immutable");
     }
-    auditRepository.recordEvent(UUID.randomUUID(), "PROMPT_CREATED", id, reason);
+    auditRepository.recordEvent(UUID.randomUUID(), "PROMPT_CREATED", id, reason,currentActor());
     return Map.of("id", id, "version", version, "enabled", false, "checksum", checksum);
   }
 
@@ -73,7 +75,7 @@ public class PromptAdminService {
       repository.disableTaskPrompts(task);
     }
     repository.setEnabled(id, enabled);
-    auditRepository.recordEvent(UUID.randomUUID(), enabled ? "PROMPT_ENABLED" : "PROMPT_DISABLED", id, reason);
+    auditRepository.recordEvent(UUID.randomUUID(), enabled ? "PROMPT_ENABLED" : "PROMPT_DISABLED", id, reason,currentActor());
     return Map.of("id", id, "enabled", enabled);
   }
 }

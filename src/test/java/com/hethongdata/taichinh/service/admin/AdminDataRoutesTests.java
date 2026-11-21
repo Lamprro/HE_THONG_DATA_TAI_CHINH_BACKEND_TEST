@@ -4,7 +4,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hethongdata.taichinh.config.AdminAccessConfiguration;
+import com.hethongdata.taichinh.config.SecurityConfiguration;
 import com.hethongdata.taichinh.controller.admin.*;
 import com.hethongdata.taichinh.service.market.*;
 import com.hethongdata.taichinh.service.financial.HistoricalFinancialMetricService;
@@ -22,7 +22,7 @@ import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 /** Characterizes the existing ten URLs across the consolidated controllers. No DB/provider calls. */
 class AdminDataRoutesTests {
     static final String TOKEN="isolated-admin-routes-token-at-least-32";
-    @Configuration @EnableWebMvc static class Config {
+    @Configuration @EnableWebMvc @Import(SecurityConfiguration.class) static class Config {
         @Bean MarketDataReadService reads(){return mock(MarketDataReadService.class);}
         @Bean IndexJobProvisioningService indexJobs(){return mock(IndexJobProvisioningService.class);}
         @Bean MacroJobCatalogService macroJobs(){return mock(MacroJobCatalogService.class);}
@@ -33,12 +33,14 @@ class AdminDataRoutesTests {
         @Bean FinancialDataAdminController financial(HistoricalFinancialMetricService m,TrainingDataQualityService q){
             return new FinancialDataAdminController(m,q,mock(com.hethongdata.taichinh.service.financial.FinancialDataQualityService.class),
                 mock(com.hethongdata.taichinh.service.financial.FinancialDisclosureDocumentStore.class));}
-        @Bean AdminAccessConfiguration access(){return new AdminAccessConfiguration(TOKEN,new ObjectMapper().findAndRegisterModules());}
+        @Bean ObjectMapper securityJson() { return new ObjectMapper().findAndRegisterModules(); }
     }
     @Test void originalRoutesKeepAuthPagingStatusAndNativeDispatch() throws Exception {
         try(var context=new AnnotationConfigWebApplicationContext()) {
-            context.setServletContext(new MockServletContext());context.register(Config.class);context.refresh();
-            var mvc=MockMvcBuilders.webAppContextSetup(context).build();
+            context.setServletContext(new MockServletContext());context.register(Config.class);org.springframework.test.context.support.TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context, "financial.admin.api-token=" + TOKEN);
+      context.refresh();
+            var mvc=MockMvcBuilders.webAppContextSetup(context)
+          .addFilters(context.getBean("springSecurityFilterChain", jakarta.servlet.Filter.class)).build();
             var reads=context.getBean(MarketDataReadService.class);
             var indexJobs=context.getBean(IndexJobProvisioningService.class);var macro=context.getBean(MacroJobCatalogService.class);
             var metrics=context.getBean(HistoricalFinancialMetricService.class);var quality=context.getBean(TrainingDataQualityService.class);

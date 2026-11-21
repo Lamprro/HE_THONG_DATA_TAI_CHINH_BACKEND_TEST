@@ -3,7 +3,7 @@ package com.hethongdata.taichinh.service.admin;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hethongdata.taichinh.config.AdminAccessConfiguration;
+import com.hethongdata.taichinh.config.SecurityConfiguration;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.*;
 import org.springframework.mock.web.MockServletContext;
@@ -14,8 +14,8 @@ import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 
 class AdminAccessMvcTests {
   static final String TOKEN="isolated-admin-access-test-32-characters";
-  @Configuration @EnableWebMvc static class Config {
-    @Bean AdminAccessConfiguration access() { return new AdminAccessConfiguration(TOKEN,new ObjectMapper().findAndRegisterModules()); }
+  @Configuration @EnableWebMvc @Import(SecurityConfiguration.class) static class Config {
+    @Bean ObjectMapper securityJson() { return new ObjectMapper().findAndRegisterModules(); }
     @Bean Probe probe() { return new Probe(); }
   }
   @RestController static class Probe {
@@ -24,6 +24,8 @@ class AdminAccessMvcTests {
       "/api/securities","/api/ingestion-jobs","/api/ingestions","/api/data-sources","/api/raw-payloads",
       "/api/security-job-reconciliation/run","/api/external-financial-data/fetch"})
     String protectedRead() { return "ok"; }
+    @GetMapping("/v3/api-docs/admin") String docs() { return "api"; }
+    @GetMapping("/api/v1/public-probe") String publicRead() { return "ok"; }
     @GetMapping("/api/health") String health() { return "UP"; }
     @PostMapping("/api/admin/example/{id}") String typed(@PathVariable java.util.UUID id,@RequestBody com.hethongdata.taichinh.dto.forecast.ForecastRequest body) { return "ok"; }
   }
@@ -38,8 +40,10 @@ class AdminAccessMvcTests {
   }
   @Test void allManagementFamiliesRequireCredentialWhilePublicHealthStaysAvailable() throws Exception {
     try(var context=new AnnotationConfigWebApplicationContext()) {
-      context.setServletContext(new MockServletContext()); context.register(Config.class); context.refresh();
-      var mvc=MockMvcBuilders.webAppContextSetup(context).build();
+      context.setServletContext(new MockServletContext()); context.register(Config.class); org.springframework.test.context.support.TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context, "financial.admin.api-token=" + TOKEN);
+      context.refresh();
+      var mvc=MockMvcBuilders.webAppContextSetup(context)
+          .addFilters(context.getBean("springSecurityFilterChain", jakarta.servlet.Filter.class)).build();
       for(String path:java.util.List.of("/api/admin/console/session","/api/admin/validation/rules","/api/admin/llm/templates",
           "/api/admin/forecasts/configuration","/api/admin/news-recovery/configuration","/api/companies","/api/securities",
           "/api/ingestion-jobs","/api/ingestions","/api/data-sources","/api/raw-payloads",
@@ -49,6 +53,16 @@ class AdminAccessMvcTests {
         mvc.perform(get(path).header("Authorization","Bearer "+TOKEN)).andExpect(status().isOk());
       }
       mvc.perform(get("/api/health")).andExpect(status().isOk());
+      mvc.perform(get("/api/v1/public-probe").header("Authorization", "Bearer invalid")).andExpect(status().isOk());
+      mvc.perform(get("/v3/api-docs/admin")).andExpect(status().isForbidden());
+      mvc.perform(get("/v3/api-docs/admin").header("Authorization", "Bearer " + TOKEN)).andExpect(status().isOk());
+      mvc.perform(options("/api/admin/example/" + java.util.UUID.randomUUID())
+              .header("Origin", "http://localhost:5173").header("Access-Control-Request-Method", "POST")
+              .header("Access-Control-Request-Headers", "authorization,content-type"))
+          .andExpect(status().isOk()).andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"));
+      mvc.perform(options("/api/admin/example/" + java.util.UUID.randomUUID())
+              .header("Origin", "https://invalid.invalid").header("Access-Control-Request-Method", "POST"))
+          .andExpect(status().isForbidden());
     }
   }
 }

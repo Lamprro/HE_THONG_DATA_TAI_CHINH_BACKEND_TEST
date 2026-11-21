@@ -10,7 +10,7 @@ import com.hethongdata.taichinh.entity.ingestion.IngestionJobEntity;
 import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
 import com.hethongdata.taichinh.repository.jpa.ingestion.IngestionRunJpaRepository;
 
-import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,13 +26,11 @@ public class IngestionRunRepository {
 
     private final IngestionRunJpaRepository ingestionRuns;
     private final ObjectMapper objectMapper;
-    private final JdbcTemplate jdbc;
 
     public IngestionRunRepository(
-            IngestionRunJpaRepository ingestionRuns, ObjectMapper objectMapper, JdbcTemplate jdbc) {
+            IngestionRunJpaRepository ingestionRuns, ObjectMapper objectMapper) {
         this.ingestionRuns = ingestionRuns;
         this.objectMapper = objectMapper;
-        this.jdbc = jdbc;
     }
 
     @Transactional
@@ -143,46 +141,7 @@ public class IngestionRunRepository {
      * snapshots and bodies can be megabytes per run and must not be loaded for a list view.
      */
     public List<IngestionRunResponse> findLatestSummaries(int limit) {
-        return jdbc.query("""
-                select id, ingestion_job_id, data_source_id, trigger_type, status, started_at, finished_at,
-                       request_query_params::text as request_query_params, fetched_count, inserted_count,
-                       updated_count, rejected_count, error_count, error_message, metadata::text as metadata,
-                       request_method, request_url, response_http_status, response_content_type, created_at
-                from ingestion_runs order by started_at desc limit ?""",
-                (row, index) -> new IngestionRunResponse(
-                        row.getObject("id", UUID.class),
-                        row.getObject("ingestion_job_id", UUID.class),
-                        row.getLong("data_source_id"),
-                        row.getString("trigger_type"),
-                        row.getString("status"),
-                        instant(row.getTimestamp("started_at")),
-                        instant(row.getTimestamp("finished_at")),
-                        json(row.getString("request_query_params")),
-                        row.getInt("fetched_count"),
-                        row.getInt("inserted_count"),
-                        row.getInt("updated_count"),
-                        row.getInt("rejected_count"),
-                        row.getInt("error_count"),
-                        row.getString("error_message"),
-                        json(row.getString("metadata")),
-                        row.getString("request_method"),
-                        row.getString("request_url"),
-                        (Integer) row.getObject("response_http_status"),
-                        row.getString("response_content_type"),
-                        instant(row.getTimestamp("created_at"))),
-                limit);
-    }
-
-    private static Instant instant(java.sql.Timestamp value) {
-        return value == null ? null : value.toInstant();
-    }
-
-    private JsonNode json(String value) {
-        try {
-            return value == null ? null : objectMapper.readTree(value);
-        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-            throw new IllegalStateException("Invalid JSON stored for ingestion run", e);
-        }
+        return ingestionRuns.findLatestSummaries(PageRequest.of(0, limit));
     }
 
     private static String abbreviate(String value, int maxLength) {

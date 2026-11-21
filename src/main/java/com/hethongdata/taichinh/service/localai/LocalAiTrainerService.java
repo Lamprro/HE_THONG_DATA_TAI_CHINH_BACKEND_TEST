@@ -1,12 +1,11 @@
 package com.hethongdata.taichinh.service.localai;
 
 import com.fasterxml.jackson.databind.*;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.hethongdata.taichinh.repository.jdbc.localai.LocalAiTrainingQueryRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -27,7 +26,7 @@ public class LocalAiTrainerService {
     private static final String PROTOCOL_VERSION = "rank-v3";
     private static final String RESEARCH_DISCLAIMER = "Mô hình nghiên cứu tham khảo (RESEARCH_ONLY), chưa kiểm chứng trong tương lai, không phải khuyến nghị đầu tư.";
 
-    private final JdbcTemplate db;
+    private final LocalAiTrainingQueryRepository repo;
     private final ObjectMapper json;
     private final TransactionTemplate tx;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
@@ -39,8 +38,8 @@ public class LocalAiTrainerService {
     @Value("${financial.local-ai.python-path:python}")
     private String pythonPath;
 
-    public LocalAiTrainerService(JdbcTemplate db, ObjectMapper json, PlatformTransactionManager txManager) {
-        this.db = db;
+    public LocalAiTrainerService(LocalAiTrainingQueryRepository repo, ObjectMapper json, PlatformTransactionManager txManager) {
+        this.repo = repo;
         this.json = json;
         this.tx = new TransactionTemplate(txManager);
     }
@@ -49,37 +48,24 @@ public class LocalAiTrainerService {
     public Map<String, Object> getReadiness() {
         Map<String, Object> report = new LinkedHashMap<>();
         try {
-            Integer totalStocks = db.queryForObject("SELECT count(*) FROM securities WHERE is_active = true", Integer.class);
-            Integer stocksWithPrices = db.queryForObject("SELECT count(DISTINCT security_id) FROM market_prices WHERE is_canonical = true", Integer.class);
+            Integer totalStocks = repo.countActiveSecurities();
+            Integer stocksWithPrices = repo.countStocksWithCanonicalPrices();
             
             // Check continuous coverage (stocks with prices across years 2021..present)
-            Integer eligibleStocks = db.queryForObject(
-                "SELECT count(DISTINCT p.security_id) FROM market_prices p " +
-                "WHERE p.is_canonical = true AND p.interval_code = '1d' AND p.price_date >= '2021-01-01'",
-                Integer.class);
+            Integer eligibleStocks = repo.countEligibleStocks();
             if (eligibleStocks == null) eligibleStocks = 0;
             if (eligibleStocks > 100) eligibleStocks = 100; // Capped to verified 100-stock universe
 
-            Integer badOhlc = db.queryForObject(
-                "SELECT count(*) FROM market_prices " +
-                "WHERE is_canonical = true AND interval_code = '1d' AND " +
-                "(low_price > 0 AND low_price <= high_price " +
-                " AND open_price BETWEEN low_price AND high_price " +
-                " AND close_price BETWEEN low_price AND high_price) IS NOT TRUE",
-                Integer.class);
+            Integer badOhlc = repo.countBadOhlc();
             if (badOhlc == null) badOhlc = 0;
 
-            String maxPriceDate = db.queryForObject(
-                "SELECT max(price_date)::text FROM market_prices WHERE is_canonical = true", String.class);
-            String maxStatementDate = db.queryForObject(
-                "SELECT max(p.end_date)::text FROM financial_statements s JOIN financial_periods p ON p.id = s.financial_period_id WHERE s.is_current = true", String.class);
+            String maxPriceDate = repo.findMaxPriceDate();
+            String maxStatementDate = repo.findMaxStatementDate();
 
             // Index price coverage
             Map<String, Object> indexes = new LinkedHashMap<>();
             for (String code : List.of("VNINDEX", "VN30")) {
-                Integer idxDays = db.queryForObject(
-                    "SELECT count(*) FROM index_prices p JOIN market_indices i ON i.id = p.market_index_id " +
-                    "WHERE p.is_canonical = true AND p.interval_code = '1d' AND i.code = ?", Integer.class, code);
+                Integer idxDays = repo.countIndexDays(code);
                 boolean idxReady = idxDays != null && idxDays > 1000;
                 indexes.put(code, Map.of("ready", idxReady, "valid_days", idxDays != null ? idxDays : 0, "coverage", 1.0));
             }
@@ -118,16 +104,14 @@ public class LocalAiTrainerService {
 
         // 1. Check idempotency
         if (idempotencyKey != null) {
-            var existing = db.queryForList("SELECT id, status, trigger, reason, requested_by, idempotency_key, " +
-                "started_at, finished_at, error, selected_model FROM local_ai_training_runs WHERE idempotency_key = ?", idempotencyKey);
+            var existing = repo.findRunByIdempotencyKey(idempotencyKey);
             if (!existing.isEmpty()) {
                 return formatRun(existing.getFirst());
             }
         }
 
         // 2. Prevent concurrent training runs
-        Integer runningCount = db.queryForObject(
-            "SELECT count(*) FROM local_ai_training_runs WHERE status IN ('QUEUED', 'RUNNING')", Integer.class);
+        Integer runningCount = repo.countActiveTrainingRuns();
         if (runningCount != null && runningCount > 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Another training run is already in progress");
         }
@@ -137,18 +121,12 @@ public class LocalAiTrainerService {
         String readinessSha = (String) readiness.get("readiness_sha256");
 
         if (!Boolean.TRUE.equals(readiness.get("ready_to_train"))) {
-            db.update("INSERT INTO local_ai_training_runs (id, trigger, reason, requested_by, idempotency_key, " +
-                "status, readiness_sha256, protocol_version, error, started_at, finished_at) " +
-                "VALUES (?, ?, ?, ?, ?, 'BLOCKED', ?, ?, 'BLOCKED_DATA_NOT_READY', now(), now())",
-                runId, trigger, requestedBy, idempotencyKey, readinessSha, PROTOCOL_VERSION);
+            repo.insertBlockedRun(runId, trigger, requestedBy, idempotencyKey, readinessSha, PROTOCOL_VERSION);
             return getTrainingRun(runId);
         }
 
         // 3. Insert QUEUED run
-        db.update("INSERT INTO local_ai_training_runs (id, trigger, reason, requested_by, idempotency_key, " +
-            "status, readiness_sha256, protocol_version, started_at) " +
-            "VALUES (?, ?, ?, ?, ?, 'QUEUED', ?, ?, now())",
-            runId, trigger, requestedBy, idempotencyKey, readinessSha, PROTOCOL_VERSION);
+        repo.insertQueuedRun(runId, trigger, reason, requestedBy, idempotencyKey, readinessSha, PROTOCOL_VERSION);
 
         // 4. Launch async worker
         final int workerCount = workers;
@@ -160,37 +138,29 @@ public class LocalAiTrainerService {
     private void executeTrainingPipeline(UUID runId, Map<String, Object> readiness, int workers) {
         Path runDir = Path.of("target/local-ai-runs/" + runId);
         try {
-            db.update("UPDATE local_ai_training_runs SET status = 'RUNNING' WHERE id = ?", runId);
+            repo.updateRunStatus(runId, "RUNNING");
             Files.createDirectories(runDir);
 
             // Save readiness JSON
             Path readinessFile = runDir.resolve("readiness.json");
             Files.writeString(readinessFile, json.writerWithDefaultPrettyPrinter().writeValueAsString(readiness), StandardCharsets.UTF_8);
 
-            // Execute train_rank.py or generate verified snapshot summary
-            // Check if Python scripts exist
-            Path scriptsDir = Path.of("scripts/local_ai_suite");
-            if (!Files.exists(scriptsDir)) {
-                scriptsDir = Path.of("D:/HeThong_PhanTichTaiChinh/HE_THONG_DATA_TAI_CHINH_BACKEND_JAVA/scripts/local_ai_suite");
-            }
-
             Map<String, Object> summary = generateTrainingSummary(runDir, readiness);
             Map<String, Object> gate = (Map<String, Object>) summary.get("gate_evaluation");
             String selectedModel = (String) summary.get("selected_model");
 
-            db.update("UPDATE local_ai_training_runs SET status = 'SUCCEEDED', output_path = ?, " +
-                "summary = ?::jsonb, gate = ?::jsonb, selected_model = ?, finished_at = now() WHERE id = ?",
+            repo.updateRunSucceeded(
+                runId,
                 runDir.toAbsolutePath().toString(),
                 json.writeValueAsString(summary),
                 json.writeValueAsString(gate),
-                selectedModel,
-                runId);
+                selectedModel);
             LOG.info("Local AI training run {} SUCCEEDED with model: {}", runId, selectedModel);
         } catch (Exception e) {
             LOG.error("Local AI training run {} FAILED: {}", runId, e.getMessage(), e);
-            db.update("UPDATE local_ai_training_runs SET status = 'FAILED', error = ?, finished_at = now() WHERE id = ?",
-                e.getMessage() != null ? e.getMessage().substring(0, Math.min(2000, e.getMessage().length())) : e.getClass().getSimpleName(),
-                runId);
+            repo.updateRunFailed(
+                runId,
+                e.getMessage() != null ? e.getMessage().substring(0, Math.min(2000, e.getMessage().length())) : e.getClass().getSimpleName());
         }
     }
 
@@ -288,11 +258,7 @@ public class LocalAiTrainerService {
     /** List recent training runs. */
     public List<Map<String, Object>> listTrainingRuns(int limit) {
         if (limit < 1 || limit > 100) limit = 50;
-        var rows = db.queryForList(
-            "SELECT id, trigger, reason, requested_by, idempotency_key, status, " +
-            "readiness_sha256, snapshot_sha256, protocol_version, output_path, " +
-            "selected_model, summary::text, gate::text, started_at, finished_at, error " +
-            "FROM local_ai_training_runs ORDER BY started_at DESC LIMIT ?", limit);
+        var rows = repo.listTrainingRuns(limit);
         List<Map<String, Object>> result = new ArrayList<>();
         for (var row : rows) {
             result.add(formatRun(row));
@@ -302,11 +268,7 @@ public class LocalAiTrainerService {
 
     /** Get detailed training run. */
     public Map<String, Object> getTrainingRun(UUID id) {
-        var rows = db.queryForList(
-            "SELECT id, trigger, reason, requested_by, idempotency_key, status, " +
-            "readiness_sha256, snapshot_sha256, protocol_version, output_path, " +
-            "selected_model, summary::text, gate::text, started_at, finished_at, error " +
-            "FROM local_ai_training_runs WHERE id = ?", id);
+        var rows = repo.findTrainingRun(id);
         if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Training run not found");
         return formatRun(rows.getFirst());
     }
@@ -350,19 +312,7 @@ public class LocalAiTrainerService {
         String manifestSha = sha256(manifestContent);
 
         return tx.execute(status -> {
-            // Demote any current ACTIVE packages to SUPERSEDED
-            db.update("UPDATE local_ai_packages SET status = 'SUPERSEDED' WHERE status = 'ACTIVE'");
-
-            // Insert new ACTIVE package
-            db.update("INSERT INTO local_ai_packages (id, manifest_sha256, manifest, status, registered_at) " +
-                "VALUES (?, ?, ?::jsonb, 'ACTIVE', now())",
-                packageId, manifestSha, manifestContent);
-
-            // Insert audit event
-            db.update("INSERT INTO admin_operation_events (id, event_type, target_id, reason) " +
-                "VALUES (?, 'LOCAL_AI_PACKAGE_PUBLISHED', ?, ?)",
-                UUID.randomUUID(), packageId, reason);
-
+            repo.publishPackage(packageId, manifestSha, manifestContent, reason);
             return Map.of(
                 "packageId", packageId,
                 "manifestSha256", manifestSha,
@@ -380,27 +330,19 @@ public class LocalAiTrainerService {
         if (reason == null || reason.isBlank()) throw new IllegalArgumentException("Rollback reason is required");
 
         return tx.execute(status -> {
-            var activeRows = db.queryForList("SELECT id FROM local_ai_packages WHERE status = 'ACTIVE'");
+            var activeRows = repo.findActivePackageIds();
             if (activeRows.isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "No active package found to rollback");
             }
             UUID currentActive = (UUID) activeRows.getFirst().get("id");
 
-            var prevRows = db.queryForList(
-                "SELECT id FROM local_ai_packages WHERE status = 'SUPERSEDED' ORDER BY registered_at DESC LIMIT 1");
+            var prevRows = repo.findLatestSupersededPackageIds();
             if (prevRows.isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "No prior superseded package available for rollback");
             }
             UUID prevPackage = (UUID) prevRows.getFirst().get("id");
 
-            // Demote active to ROLLED_BACK
-            db.update("UPDATE local_ai_packages SET status = 'ROLLED_BACK' WHERE id = ?", currentActive);
-            // Promote previous to ACTIVE
-            db.update("UPDATE local_ai_packages SET status = 'ACTIVE' WHERE id = ?", prevPackage);
-
-            db.update("INSERT INTO admin_operation_events (id, event_type, target_id, reason) " +
-                "VALUES (?, 'LOCAL_AI_PACKAGE_ROLLED_BACK', ?, ?)",
-                UUID.randomUUID(), currentActive, reason);
+            repo.rollbackPackage(currentActive, prevPackage, reason);
 
             return Map.of(
                 "rolledBackPackageId", currentActive,

@@ -11,10 +11,7 @@ import org.junit.jupiter.api.Test;
 
 class LayeringRulesTests {
   // Allowlist: file còn được phép có SQL — xóa dần sau mỗi đợt, cuối cùng phải rỗng
-  static final Set<String> ALLOW = Set.of(
-    "service/localai/LocalAiTrainerService.java",
-    "service/localai/LocalAiSuiteService.java"
-  );
+  static final Set<String> ALLOW = Set.of();
 
   @Test
   void noSqlOutsideRepository() throws Exception {

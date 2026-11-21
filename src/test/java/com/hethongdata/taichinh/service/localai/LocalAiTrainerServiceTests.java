@@ -1,6 +1,7 @@
 package com.hethongdata.taichinh.service.localai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hethongdata.taichinh.repository.jdbc.localai.LocalAiTrainingQueryRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -25,7 +26,8 @@ class LocalAiTrainerServiceTests {
         db = mock(JdbcTemplate.class);
         json = new ObjectMapper();
         txManager = mock(PlatformTransactionManager.class);
-        service = new LocalAiTrainerService(db, json, txManager);
+        var repo = new LocalAiTrainingQueryRepository(db);
+        service = new LocalAiTrainerService(repo, json, txManager);
     }
 
     @Test

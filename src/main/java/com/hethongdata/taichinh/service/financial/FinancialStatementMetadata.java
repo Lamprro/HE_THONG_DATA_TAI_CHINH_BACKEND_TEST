@@ -88,6 +88,16 @@ public record FinancialStatementMetadata(String reportScope, String periodBasis,
         provenance.put("metadata_completeness", missing.isEmpty() ? "COMPLETE_REQUIRES_SOURCE_REVIEW" : "INCOMPLETE");
         // Completeness is not proof that a current vendor value existed at publication.
         provenance.put("automatically_certifies_historical_vintage", false);
+        boolean inferredVndirect = (metadata.get("currency") == null || metadata.get("unit_scale") == null)
+                && "vndirect".equalsIgnoreCase(metadata.path("provider").asText(root.path("provider").asText()));
+        if (inferredVndirect) {
+            var repair = provenance.putObject("repair");
+            repair.put("inferred", true);
+            repair.put("currency", currency);
+            repair.put("unit_scale", scale);
+            repair.put("reason", "VNDIRECT statement lacks explicit currency/scale; defaulted to VND and unit_scale=1 based on historical audit");
+            repair.put("receipt", "RECEIPT_FINANCIAL_METADATA_REPAIR_20261121.json");
+        }
         return new FinancialStatementMetadata(scope, basis, currency, scale, published, provenance);
     }
 

@@ -6,6 +6,7 @@ import com.hethongdata.taichinh.dto.news.NewsRecoveryDtos.*;
 import com.hethongdata.taichinh.service.financial.HistoricalFinancialMetricService;
 import com.hethongdata.taichinh.service.forecast.*;
 import com.hethongdata.taichinh.service.llm.*;
+import com.hethongdata.taichinh.service.localai.LocalAiTrainerService;
 import com.hethongdata.taichinh.service.news.recovery.*;
 import jakarta.validation.Validator;
 import java.util.*;
@@ -16,16 +17,17 @@ import org.springframework.stereotype.Service;
 public class AdminAiActionService {
   public static final Set<String> ACTIONS=Set.of("NEWS_EXECUTE","NEWS_REVALIDATE","NEWS_VALIDATE_PENDING",
       "FORECAST_PREVIEW","FORECAST_EXECUTE","FORECAST_METRICS","FORECAST_REVALIDATE","FORECAST_VALIDATE_PENDING",
-      "RECOVERY_EXECUTE","RECOVERY_APPROVE","RECOVERY_REJECT","RECOVERY_ANALYZE","HISTORICAL_METRICS");
+      "RECOVERY_EXECUTE","RECOVERY_APPROVE","RECOVERY_REJECT","RECOVERY_ANALYZE","HISTORICAL_METRICS",
+      "LOCAL_AI_RETRAIN","LOCAL_AI_PUBLISH","LOCAL_AI_ROLLBACK");
   private final NewsLlmService news; private final LlmRunStore newsRuns;
   private final FinancialForecastService forecast; private final ForecastContextService forecastContexts; private final ForecastRunStore forecastRuns;
   private final NewsRecoveryService recovery; private final NewsRecoveryStore recoveryRuns;
-  private final HistoricalFinancialMetricService metrics; private final ObjectMapper json; private final Validator validator;
+  private final HistoricalFinancialMetricService metrics; private final LocalAiTrainerService trainer; private final ObjectMapper json; private final Validator validator;
   public AdminAiActionService(NewsLlmService news,LlmRunStore newsRuns,FinancialForecastService forecast,
       ForecastContextService forecastContexts,ForecastRunStore forecastRuns,NewsRecoveryService recovery,
-      NewsRecoveryStore recoveryRuns,HistoricalFinancialMetricService metrics,ObjectMapper json,Validator validator) {
+      NewsRecoveryStore recoveryRuns,HistoricalFinancialMetricService metrics,LocalAiTrainerService trainer,ObjectMapper json,Validator validator) {
     this.news=news;this.newsRuns=newsRuns;this.forecast=forecast;this.forecastContexts=forecastContexts;this.forecastRuns=forecastRuns;
-    this.recovery=recovery;this.recoveryRuns=recoveryRuns;this.metrics=metrics;this.json=json;this.validator=validator;
+    this.recovery=recovery;this.recoveryRuns=recoveryRuns;this.metrics=metrics;this.trainer=trainer;this.json=json;this.validator=validator;
   }
   private UUID id(JsonNode input,String key) { return UUID.fromString(input.path(key).asText()); }
   private <T> T body(JsonNode input,Class<T> type) {
@@ -48,6 +50,9 @@ public class AdminAiActionService {
     }
     if(action.equals("RECOVERY_EXECUTE")) { body(in.path("request"),ExecuteRequest.class);return "article:"+id(in,"articleId"); }
     if(action.equals("RECOVERY_APPROVE") || action.equals("RECOVERY_REJECT")) body(in.path("request"),ReviewRequest.class);
+    if(action.equals("LOCAL_AI_RETRAIN")) return "local-ai:training";
+    if(action.equals("LOCAL_AI_PUBLISH")) return "local-ai:publish:"+(in.hasNonNull("trainingRunId")?in.path("trainingRunId").asText():in.path("runId").asText(""));
+    if(action.equals("LOCAL_AI_ROLLBACK")) return "local-ai:rollback";
     return "ai-run:"+id(in,"runId");
   }
   public Object execute(String action,JsonNode in) {
@@ -65,6 +70,18 @@ public class AdminAiActionService {
       case "RECOVERY_REJECT" -> recoveryRuns.reject(id(in,"runId"),body(in.path("request"),ReviewRequest.class));
       case "RECOVERY_ANALYZE" -> recovery.analyzeApproved(id(in,"runId"));
       case "HISTORICAL_METRICS" -> metrics.calculate(body(in,HistoricalFinancialMetricService.Request.class));
+      case "LOCAL_AI_RETRAIN" -> trainer.retrain(
+          in.hasNonNull("idempotencyKey")?id(in,"idempotencyKey"):UUID.randomUUID(),
+          in.path("trigger").asText("MANUAL"),
+          in.path("requestedBy").asText("admin"),
+          in.path("reason").asText("Manual retrain"),
+          in.path("workers").asInt(1));
+      case "LOCAL_AI_PUBLISH" -> trainer.publish(
+          in.hasNonNull("trainingRunId")?id(in,"trainingRunId"):id(in,"runId"),
+          in.path("variant").asText("V1"),
+          in.path("reason").asText("Manual publish"));
+      case "LOCAL_AI_ROLLBACK" -> trainer.rollback(
+          in.path("reason").asText("Manual rollback"));
       default -> throw new IllegalArgumentException("Unsupported AI/admin action");
     };
   }

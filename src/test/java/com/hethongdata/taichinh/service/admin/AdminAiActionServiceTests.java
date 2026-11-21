@@ -15,8 +15,9 @@ class AdminAiActionServiceTests {
   final FinancialForecastService forecast=mock(FinancialForecastService.class);
   final NewsRecoveryService recovery=mock(NewsRecoveryService.class);
   final NewsRecoveryStore recoveryRuns=mock(NewsRecoveryStore.class);
+  final com.hethongdata.taichinh.service.localai.LocalAiTrainerService trainer=mock(com.hethongdata.taichinh.service.localai.LocalAiTrainerService.class);
   final AdminAiActionService service=new AdminAiActionService(news,mock(LlmRunStore.class),forecast,mock(ForecastContextService.class),
-      mock(ForecastRunStore.class),recovery,recoveryRuns,mock(HistoricalFinancialMetricService.class),json,
+      mock(ForecastRunStore.class),recovery,recoveryRuns,mock(HistoricalFinancialMetricService.class),trainer,json,
       jakarta.validation.Validation.buildDefaultValidatorFactory().getValidator());
   @Test void forecastConstraintsAreValidatedBeforeNativeExecution() throws Exception {
     var in=json.readTree("{\"securityId\":\""+UUID.randomUUID()+"\",\"asOfDate\":\"2026-10-16\",\"horizonQuarters\":0,\"targets\":[\"STOCK_PRICE\"]}");
@@ -36,5 +37,22 @@ class AdminAiActionServiceTests {
     assertThatThrownBy(()->service.resource("NEWS_EXECUTE",json.readTree("{\"articleId\":\""+UUID.randomUUID()+"\",\"task\":\"INVENT_CONTENT\"}"))).isInstanceOf(IllegalArgumentException.class);
     assertThatThrownBy(()->service.resource("RECOVERY_REJECT",json.readTree("{\"runId\":\""+UUID.randomUUID()+"\",\"request\":{\"reviewer\":\"\",\"reason\":\"\"}}"))).isInstanceOf(IllegalArgumentException.class);
     verifyNoInteractions(news,recovery,recoveryRuns);
+  }
+  @Test void localAiActionsDispatchToTrainer() throws Exception {
+    var retrainInput=json.readTree("{\"reason\":\"Scheduled quarterly refresh\",\"workers\":2}");
+    assertThat(service.resource("LOCAL_AI_RETRAIN",retrainInput)).isEqualTo("local-ai:training");
+    service.execute("LOCAL_AI_RETRAIN",retrainInput);
+    verify(trainer).retrain(any(),eq("MANUAL"),eq("admin"),eq("Scheduled quarterly refresh"),eq(2));
+
+    UUID runId=UUID.randomUUID();
+    var publishInput=json.readTree("{\"trainingRunId\":\""+runId+"\",\"variant\":\"V1\",\"reason\":\"Manual acceptance passed\"}");
+    assertThat(service.resource("LOCAL_AI_PUBLISH",publishInput)).isEqualTo("local-ai:publish:"+runId);
+    service.execute("LOCAL_AI_PUBLISH",publishInput);
+    verify(trainer).publish(eq(runId),eq("V1"),eq("Manual acceptance passed"));
+
+    var rollbackInput=json.readTree("{\"reason\":\"Rollback to superseded\"}");
+    assertThat(service.resource("LOCAL_AI_ROLLBACK",rollbackInput)).isEqualTo("local-ai:rollback");
+    service.execute("LOCAL_AI_ROLLBACK",rollbackInput);
+    verify(trainer).rollback(eq("Rollback to superseded"));
   }
 }

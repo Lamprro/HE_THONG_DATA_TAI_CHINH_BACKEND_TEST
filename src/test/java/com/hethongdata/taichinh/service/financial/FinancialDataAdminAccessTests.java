@@ -29,6 +29,9 @@ class FinancialDataAdminAccessTests {
  }
  @Test void authenticatedReadUsesService()throws Exception {
   when(service.status("FPT")).thenReturn(java.util.Map.of("symbol","FPT"));
+  when(service.gaps("FPT","PRICE",null,null)).thenReturn(java.util.Map.of("symbol","FPT","missingCount",0));
   mvc.perform(get("/api/admin/financial-data/status?symbol=FPT").header("Authorization","Bearer isolated-fixture-admin-token-long-enough")).andExpect(status().isOk()).andExpect(jsonPath("$.symbol").value("FPT"));
+  mvc.perform(get("/api/admin/financial-data/gaps?symbol=FPT").header("Authorization","Bearer isolated-fixture-admin-token-long-enough")).andExpect(status().isOk()).andExpect(jsonPath("$.missingCount").value(0));
+  mvc.perform(get("/api/admin/financial-data/gaps?symbol=FPT")).andExpect(status().isForbidden());
  }
 }

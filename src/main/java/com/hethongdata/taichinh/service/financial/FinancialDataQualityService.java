@@ -67,6 +67,129 @@ public class FinancialDataQualityService {
   return result;
  }
 
+ public Map<String, Object> gaps(String symbol, String type, LocalDate from, LocalDate to) {
+  validateSymbol(symbol);
+  String gapType = (type == null || type.isBlank()) ? "PRICE" : type.trim().toUpperCase();
+  LocalDate end = (to != null) ? to : LocalDate.now();
+  LocalDate start = (from != null) ? from : end.minusYears(1);
+
+  List<UUID> securityIds = jdbc.queryForList("SELECT id FROM securities WHERE symbol=?", UUID.class, symbol);
+  if (securityIds.isEmpty()) throw new IllegalArgumentException("Symbol not found: " + symbol);
+  UUID securityId = securityIds.getFirst();
+
+  if ("PRICE".equals(gapType)) {
+   List<LocalDate> calendar = jdbc.queryForList("""
+    SELECT DISTINCT price_timestamp::date AS d
+    FROM market_prices m
+    JOIN securities s ON s.id = m.security_id
+    WHERE s.symbol = 'VNINDEX' AND m.interval_code = '1d'
+      AND price_timestamp::date BETWEEN ? AND ?
+    ORDER BY d
+    """, java.sql.Date.valueOf(start), java.sql.Date.valueOf(end))
+    .stream().map(row -> ((java.sql.Date) row.get("d")).toLocalDate()).toList();
+
+   if (calendar.isEmpty()) {
+    calendar = jdbc.queryForList("""
+     SELECT price_timestamp::date AS d
+     FROM market_prices
+     WHERE interval_code = '1d' AND is_canonical
+       AND price_timestamp::date BETWEEN ? AND ?
+     GROUP BY price_timestamp::date
+     HAVING count(DISTINCT security_id) >= 2
+     ORDER BY d
+     """, java.sql.Date.valueOf(start), java.sql.Date.valueOf(end))
+     .stream().map(row -> ((java.sql.Date) row.get("d")).toLocalDate()).toList();
+   }
+
+   Set<LocalDate> existing = new HashSet<>(jdbc.queryForList("""
+    SELECT DISTINCT price_timestamp::date AS d
+    FROM market_prices
+    WHERE security_id = ? AND interval_code = '1d' AND is_canonical
+      AND price_timestamp::date BETWEEN ? AND ?
+    """, securityId, java.sql.Date.valueOf(start), java.sql.Date.valueOf(end))
+    .stream().map(row -> ((java.sql.Date) row.get("d")).toLocalDate()).toList());
+
+   List<String> missingDates = new ArrayList<>();
+   List<Map<String, Object>> gapList = new ArrayList<>();
+   for (LocalDate d : calendar) {
+    if (!existing.contains(d)) {
+     missingDates.add(d.toString());
+     gapList.add(Map.of("date", d.toString(), "reason", "MISSING_CANONICAL_DAILY_PRICE"));
+    }
+   }
+
+   return Map.of(
+    "symbol", symbol,
+    "type", "PRICE",
+    "from", start.toString(),
+    "to", end.toString(),
+    "totalCalendarDays", calendar.size(),
+    "presentDays", existing.size(),
+    "missingCount", missingDates.size(),
+    "missingDates", missingDates,
+    "gaps", gapList
+   );
+  } else if ("STATEMENT".equals(gapType)) {
+   List<Map<String, Object>> periodRows = jdbc.queryForList("""
+    SELECT p.id, p.fiscal_year, p.period_type, p.end_date
+    FROM financial_periods p
+    WHERE (p.period_type IN ('Q1','Q2','Q3','Q4') OR p.period_type = 'QUARTER')
+      AND p.end_date BETWEEN ? AND ?
+    ORDER BY p.end_date
+    """, java.sql.Date.valueOf(start), java.sql.Date.valueOf(end));
+
+   Set<UUID> presentPeriodIds = new HashSet<>(jdbc.queryForList("""
+    SELECT DISTINCT s.financial_period_id
+    FROM financial_statements s
+    WHERE s.security_id = ? AND s.is_canonical AND s.is_current
+    """, UUID.class, securityId));
+
+   List<Map<String, Object>> gapList = new ArrayList<>();
+   for (var row : periodRows) {
+    UUID pid = (UUID) row.get("id");
+    if (!presentPeriodIds.contains(pid)) {
+     gapList.add(Map.of(
+      "periodId", pid.toString(),
+      "fiscalYear", row.get("fiscal_year"),
+      "periodType", row.get("period_type"),
+      "endDate", row.get("end_date").toString(),
+      "reason", "MISSING_CANONICAL_STATEMENT"
+     ));
+    }
+   }
+
+   return Map.of(
+    "symbol", symbol,
+    "type", "STATEMENT",
+    "from", start.toString(),
+    "to", end.toString(),
+    "totalPeriods", periodRows.size(),
+    "missingCount", gapList.size(),
+    "gaps", gapList
+   );
+  } else {
+   var metricRows = jdbc.queryForList("""
+    SELECT p.id, p.fiscal_year, p.period_type, p.end_date, count(m.id) as metric_count
+    FROM financial_periods p
+    JOIN financial_statements s ON s.financial_period_id = p.id AND s.security_id = ? AND s.is_canonical AND s.is_current
+    LEFT JOIN financial_statement_items m ON m.financial_statement_id = s.id
+    WHERE p.end_date BETWEEN ? AND ?
+    GROUP BY p.id, p.fiscal_year, p.period_type, p.end_date
+    HAVING count(m.id) = 0
+    ORDER BY p.end_date
+    """, securityId, java.sql.Date.valueOf(start), java.sql.Date.valueOf(end));
+
+   return Map.of(
+    "symbol", symbol,
+    "type", "METRIC",
+    "from", start.toString(),
+    "to", end.toString(),
+    "missingCount", metricRows.size(),
+    "gaps", metricRows
+   );
+  }
+ }
+
     // ---- Reviewed field-value bindings ----
     @Transactional
     public Map<String,Object> reconcileBindings(String symbol) {

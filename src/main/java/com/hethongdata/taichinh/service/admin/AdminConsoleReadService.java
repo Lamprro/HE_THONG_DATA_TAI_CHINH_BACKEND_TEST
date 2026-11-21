@@ -125,7 +125,18 @@ public class AdminConsoleReadService {
     if (status != null && !status.isBlank()) {
       String column = cols.contains("result_status") ? "result_status" : "status";
       if (!cols.contains(column)) throw new IllegalArgumentException("Dataset has no status filter");
-      filters.add("cast(t."+column+" as text)=:status"); params.put("status", status);
+      if (status.contains(",")) {
+        var parts = Arrays.stream(status.split(",")).map(String::trim).filter(s -> !s.isBlank()).toList();
+        var keys = new ArrayList<String>();
+        for (int i = 0; i < parts.size(); i++) {
+          String k = "status" + i;
+          keys.add(":" + k);
+          params.put(k, parts.get(i));
+        }
+        filters.add("cast(t." + column + " as text) in (" + String.join(",", keys) + ")");
+      } else {
+        filters.add("cast(t."+column+" as text)=:status"); params.put("status", status);
+      }
     }
     String where = filters.isEmpty() ? "" : " where " + String.join(" and ", filters);
     String source = " from " + table + " t" + where;

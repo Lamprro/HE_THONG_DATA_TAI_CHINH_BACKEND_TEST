@@ -68,46 +68,69 @@ public class FinancialDataQualityService {
  }
 
  public Map<String, Object> gaps(String symbol, String type, LocalDate from, LocalDate to) {
+  return gaps(symbol, null, type, null, from, to);
+ }
+
+ public Map<String, Object> gaps(String symbol, String exchange, String type, LocalDate from, LocalDate to) {
+  return gaps(symbol, exchange, type, null, from, to);
+ }
+
+ public Map<String, Object> gaps(String symbol, String exchange, String type, String statementType, LocalDate from, LocalDate to) {
   validateSymbol(symbol);
   String gapType = (type == null || type.isBlank()) ? "PRICE" : type.trim().toUpperCase();
-  LocalDate end = (to != null) ? to : LocalDate.now();
+  if (gapType.startsWith("STATEMENT:") && (statementType == null || statementType.isBlank())) {
+   statementType = gapType.substring("STATEMENT:".length()).trim();
+   gapType = "STATEMENT";
+  }
+  ZoneId vnZone = ZoneId.of("Asia/Ho_Chi_Minh");
+  LocalDate end = (to != null) ? to : LocalDate.now(vnZone);
   LocalDate start = (from != null) ? from : end.minusYears(1);
 
-  List<UUID> securityIds = jdbc.queryForList("SELECT id FROM securities WHERE symbol=?", UUID.class, symbol);
-  if (securityIds.isEmpty()) throw new IllegalArgumentException("Symbol not found: " + symbol);
+  List<UUID> securityIds;
+  if (exchange != null && !exchange.isBlank()) {
+   securityIds = jdbc.queryForList(
+     "SELECT id FROM securities WHERE upper(symbol)=upper(?) AND upper(exchange)=upper(?) ORDER BY CASE WHEN is_active THEN 0 ELSE 1 END, id",
+     UUID.class, symbol, exchange.trim());
+  } else {
+   securityIds = jdbc.queryForList(
+     "SELECT id FROM securities WHERE upper(symbol)=upper(?) ORDER BY CASE WHEN is_active THEN 0 ELSE 1 END, id",
+     UUID.class, symbol);
+  }
+  if (securityIds.isEmpty()) throw new IllegalArgumentException("Symbol not found: " + symbol + (exchange != null ? " on " + exchange : ""));
   UUID securityId = securityIds.getFirst();
 
   if ("PRICE".equals(gapType)) {
    List<LocalDate> calendar = jdbc.queryForList("""
-    SELECT DISTINCT price_timestamp::date AS d
-    FROM market_prices m
-    JOIN securities s ON s.id = m.security_id
-    WHERE s.symbol = 'VNINDEX' AND m.interval_code = '1d'
-      AND price_timestamp::date BETWEEN ? AND ?
+    SELECT DISTINCT (p.price_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS d
+    FROM index_prices p
+    JOIN market_indices i ON i.id = p.market_index_id
+    WHERE i.code = 'VNINDEX' AND p.interval_code = '1d' AND p.is_canonical
+      AND (p.price_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')::date BETWEEN ? AND ?
     ORDER BY d
     """, java.sql.Date.valueOf(start), java.sql.Date.valueOf(end))
-    .stream().map(row -> ((java.sql.Date) row.get("d")).toLocalDate()).toList();
+    .stream().map(row -> toLocalDate(row.get("d"))).toList();
 
    if (calendar.isEmpty()) {
     calendar = jdbc.queryForList("""
-     SELECT price_timestamp::date AS d
+     SELECT (price_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS d
      FROM market_prices
      WHERE interval_code = '1d' AND is_canonical
-       AND price_timestamp::date BETWEEN ? AND ?
-     GROUP BY price_timestamp::date
+       AND (price_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')::date BETWEEN ? AND ?
+     GROUP BY (price_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
      HAVING count(DISTINCT security_id) >= 2
      ORDER BY d
      """, java.sql.Date.valueOf(start), java.sql.Date.valueOf(end))
-     .stream().map(row -> ((java.sql.Date) row.get("d")).toLocalDate()).toList();
+     .stream().map(row -> toLocalDate(row.get("d"))).toList();
    }
 
    Set<LocalDate> existing = new HashSet<>(jdbc.queryForList("""
-    SELECT DISTINCT price_timestamp::date AS d
+    SELECT DISTINCT (price_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS d
     FROM market_prices
     WHERE security_id = ? AND interval_code = '1d' AND is_canonical
-      AND price_timestamp::date BETWEEN ? AND ?
+      AND (price_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')::date BETWEEN ? AND ?
+    ORDER BY d
     """, securityId, java.sql.Date.valueOf(start), java.sql.Date.valueOf(end))
-    .stream().map(row -> ((java.sql.Date) row.get("d")).toLocalDate()).toList());
+    .stream().map(row -> toLocalDate(row.get("d"))).toList());
 
    List<String> missingDates = new ArrayList<>();
    List<Map<String, Object>> gapList = new ArrayList<>();
@@ -118,18 +141,32 @@ public class FinancialDataQualityService {
     }
    }
 
-   return Map.of(
-    "symbol", symbol,
-    "type", "PRICE",
-    "from", start.toString(),
-    "to", end.toString(),
-    "totalCalendarDays", calendar.size(),
-    "presentDays", existing.size(),
-    "missingCount", missingDates.size(),
-    "missingDates", missingDates,
-    "gaps", gapList
-   );
+   Map<String, Object> resp = new LinkedHashMap<>();
+   resp.put("symbol", symbol);
+   if (exchange != null && !exchange.isBlank()) resp.put("exchange", exchange.trim().toUpperCase());
+   resp.put("type", "PRICE");
+   resp.put("from", start.toString());
+   resp.put("to", end.toString());
+   resp.put("totalCalendarDays", calendar.size());
+   resp.put("presentDays", existing.size());
+   resp.put("missingCount", missingDates.size());
+   resp.put("missingDates", missingDates);
+   resp.put("gaps", gapList);
+   return resp;
   } else if ("STATEMENT".equals(gapType)) {
+   String stmtFilter = (statementType != null && !statementType.isBlank()) ? " AND s.statement_type = ?" : "";
+   List<Object> stmtParams = new ArrayList<>();
+   stmtParams.add(securityId);
+   if (statementType != null && !statementType.isBlank()) {
+    stmtParams.add(statementType.trim().toUpperCase());
+   }
+
+   Set<UUID> presentPeriodIds = new HashSet<>(jdbc.queryForList("""
+    SELECT DISTINCT s.financial_period_id
+    FROM financial_statements s
+    WHERE s.security_id = ? AND s.is_canonical AND s.is_current""" + stmtFilter,
+    UUID.class, stmtParams.toArray()));
+
    List<Map<String, Object>> periodRows = jdbc.queryForList("""
     SELECT p.id, p.fiscal_year, p.period_type, p.end_date
     FROM financial_periods p
@@ -138,56 +175,70 @@ public class FinancialDataQualityService {
     ORDER BY p.end_date
     """, java.sql.Date.valueOf(start), java.sql.Date.valueOf(end));
 
-   Set<UUID> presentPeriodIds = new HashSet<>(jdbc.queryForList("""
-    SELECT DISTINCT s.financial_period_id
-    FROM financial_statements s
-    WHERE s.security_id = ? AND s.is_canonical AND s.is_current
-    """, UUID.class, securityId));
-
    List<Map<String, Object>> gapList = new ArrayList<>();
    for (var row : periodRows) {
     UUID pid = (UUID) row.get("id");
     if (!presentPeriodIds.contains(pid)) {
-     gapList.add(Map.of(
-      "periodId", pid.toString(),
-      "fiscalYear", row.get("fiscal_year"),
-      "periodType", row.get("period_type"),
-      "endDate", row.get("end_date").toString(),
-      "reason", "MISSING_CANONICAL_STATEMENT"
-     ));
+     Map<String, Object> gap = new LinkedHashMap<>();
+     gap.put("periodId", pid.toString());
+     gap.put("fiscalYear", row.get("fiscal_year"));
+     gap.put("periodType", row.get("period_type"));
+     gap.put("endDate", row.get("end_date").toString());
+     gap.put("reason", statementType != null && !statementType.isBlank()
+         ? "MISSING_CANONICAL_" + statementType.trim().toUpperCase()
+         : "MISSING_CANONICAL_STATEMENT");
+     gapList.add(gap);
     }
    }
 
-   return Map.of(
-    "symbol", symbol,
-    "type", "STATEMENT",
-    "from", start.toString(),
-    "to", end.toString(),
-    "totalPeriods", periodRows.size(),
-    "missingCount", gapList.size(),
-    "gaps", gapList
-   );
+   Map<String, Object> resp = new LinkedHashMap<>();
+   resp.put("symbol", symbol);
+   if (exchange != null && !exchange.isBlank()) resp.put("exchange", exchange.trim().toUpperCase());
+   resp.put("type", "STATEMENT");
+   if (statementType != null && !statementType.isBlank()) resp.put("statementType", statementType.trim().toUpperCase());
+   resp.put("from", start.toString());
+   resp.put("to", end.toString());
+   resp.put("totalPeriods", periodRows.size());
+   resp.put("missingCount", gapList.size());
+   resp.put("gaps", gapList);
+   return resp;
   } else {
-   var metricRows = jdbc.queryForList("""
-    SELECT p.id, p.fiscal_year, p.period_type, p.end_date, count(m.id) as metric_count
+   List<Map<String, Object>> metricRows = jdbc.queryForList("""
+    SELECT p.id as "periodId", p.fiscal_year as "fiscalYear", p.period_type as "periodType",
+           p.end_date::text as "endDate", 'MISSING_FINANCIAL_METRICS' as "reason"
     FROM financial_periods p
-    JOIN financial_statements s ON s.financial_period_id = p.id AND s.security_id = ? AND s.is_canonical AND s.is_current
-    LEFT JOIN financial_statement_items m ON m.financial_statement_id = s.id
-    WHERE p.end_date BETWEEN ? AND ?
-    GROUP BY p.id, p.fiscal_year, p.period_type, p.end_date
-    HAVING count(m.id) = 0
+    WHERE (p.period_type IN ('Q1','Q2','Q3','Q4') OR p.period_type = 'QUARTER')
+      AND p.end_date BETWEEN ? AND ?
+      AND NOT EXISTS (
+        SELECT 1 FROM financial_metrics m
+        WHERE m.security_id = ? AND (m.financial_period_id = p.id OR m.as_of_date = p.end_date)
+      )
     ORDER BY p.end_date
-    """, securityId, java.sql.Date.valueOf(start), java.sql.Date.valueOf(end));
+    """, java.sql.Date.valueOf(start), java.sql.Date.valueOf(end), securityId);
 
-   return Map.of(
-    "symbol", symbol,
-    "type", "METRIC",
-    "from", start.toString(),
-    "to", end.toString(),
-    "missingCount", metricRows.size(),
-    "gaps", metricRows
-   );
+   int totalPeriods = jdbc.queryForObject("""
+    SELECT count(*) FROM financial_periods p
+    WHERE (p.period_type IN ('Q1','Q2','Q3','Q4') OR p.period_type = 'QUARTER')
+      AND p.end_date BETWEEN ? AND ?
+    """, Integer.class, java.sql.Date.valueOf(start), java.sql.Date.valueOf(end));
+
+   Map<String, Object> resp = new LinkedHashMap<>();
+   resp.put("symbol", symbol);
+   if (exchange != null && !exchange.isBlank()) resp.put("exchange", exchange.trim().toUpperCase());
+   resp.put("type", "METRIC");
+   resp.put("from", start.toString());
+   resp.put("to", end.toString());
+   resp.put("totalPeriods", totalPeriods);
+   resp.put("missingCount", metricRows.size());
+   resp.put("gaps", metricRows);
+   return resp;
   }
+ }
+
+ private static LocalDate toLocalDate(Object obj) {
+  if (obj instanceof java.sql.Date d) return d.toLocalDate();
+  if (obj instanceof LocalDate ld) return ld;
+  return LocalDate.parse(obj.toString());
  }
 
     // ---- Reviewed field-value bindings ----

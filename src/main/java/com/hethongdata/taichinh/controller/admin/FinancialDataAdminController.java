@@ -61,10 +61,12 @@ public class FinancialDataAdminController {
     @GetMapping("/gaps")
     public Map<String, Object> gaps(
             @RequestParam String symbol,
+            @RequestParam(required = false) String exchange,
             @RequestParam(required = false, defaultValue = "PRICE") String type,
+            @RequestParam(required = false) String statementType,
             @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate to) {
-        return quality.gaps(symbol, type, from, to);
+        return quality.gaps(symbol, exchange, type, statementType, from, to);
     }
 
     @GetMapping("/reconciliation")

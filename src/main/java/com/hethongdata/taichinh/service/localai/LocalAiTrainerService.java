@@ -4,21 +4,13 @@ import com.fasterxml.jackson.databind.*;
 import com.hethongdata.taichinh.repository.jdbc.localai.LocalAiTrainingQueryRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.io.File;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
 import java.security.MessageDigest;
-import java.time.Instant;
-import java.time.LocalDate;
 import java.util.*;
-import java.util.concurrent.*;
 
 @Service
 public class LocalAiTrainerService {
@@ -28,20 +20,9 @@ public class LocalAiTrainerService {
 
     private final LocalAiTrainingQueryRepository repo;
     private final ObjectMapper json;
-    private final TransactionTemplate tx;
-    private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "local-ai-trainer-worker");
-        t.setDaemon(true);
-        return t;
-    });
-
-    @Value("${financial.local-ai.python-path:python}")
-    private String pythonPath;
-
-    public LocalAiTrainerService(LocalAiTrainingQueryRepository repo, ObjectMapper json, PlatformTransactionManager txManager) {
+    public LocalAiTrainerService(LocalAiTrainingQueryRepository repo, ObjectMapper json) {
         this.repo = repo;
         this.json = json;
-        this.tx = new TransactionTemplate(txManager);
     }
 
     /** Returns current market readiness for ranking model training. */
@@ -96,10 +77,9 @@ public class LocalAiTrainerService {
         return report;
     }
 
-    /** Triggers a training run via async pipeline with idempotency protection. */
+    /** Records readiness blocks while the verified trainer is unavailable. */
     public Map<String, Object> retrain(UUID idempotencyKey, String trigger, String requestedBy, String reason, int workers) {
         if (reason == null || reason.isBlank()) throw new IllegalArgumentException("Reason is required");
-        if (workers < 1 || workers > 4) workers = 1;
         if (trigger == null || (!trigger.equals("MANUAL") && !trigger.equals("AUTO"))) trigger = "MANUAL";
 
         // 1. Check idempotency
@@ -121,138 +101,11 @@ public class LocalAiTrainerService {
         String readinessSha = (String) readiness.get("readiness_sha256");
 
         if (!Boolean.TRUE.equals(readiness.get("ready_to_train"))) {
-            repo.insertBlockedRun(runId, trigger, requestedBy, idempotencyKey, readinessSha, PROTOCOL_VERSION);
+            repo.insertBlockedRun(runId, trigger, reason, requestedBy, idempotencyKey, readinessSha, PROTOCOL_VERSION);
             return getTrainingRun(runId);
         }
 
-        // 3. Insert QUEUED run
-        repo.insertQueuedRun(runId, trigger, reason, requestedBy, idempotencyKey, readinessSha, PROTOCOL_VERSION);
-
-        // 4. Launch async worker
-        final int workerCount = workers;
-        executor.submit(() -> executeTrainingPipeline(runId, readiness, workerCount));
-
-        return getTrainingRun(runId);
-    }
-
-    private void executeTrainingPipeline(UUID runId, Map<String, Object> readiness, int workers) {
-        Path runDir = Path.of("target/local-ai-runs/" + runId);
-        try {
-            repo.updateRunStatus(runId, "RUNNING");
-            Files.createDirectories(runDir);
-
-            // Save readiness JSON
-            Path readinessFile = runDir.resolve("readiness.json");
-            Files.writeString(readinessFile, json.writerWithDefaultPrettyPrinter().writeValueAsString(readiness), StandardCharsets.UTF_8);
-
-            Map<String, Object> summary = generateTrainingSummary(runDir, readiness);
-            Map<String, Object> gate = (Map<String, Object>) summary.get("gate_evaluation");
-            String selectedModel = (String) summary.get("selected_model");
-
-            repo.updateRunSucceeded(
-                runId,
-                runDir.toAbsolutePath().toString(),
-                json.writeValueAsString(summary),
-                json.writeValueAsString(gate),
-                selectedModel);
-            LOG.info("Local AI training run {} SUCCEEDED with model: {}", runId, selectedModel);
-        } catch (Exception e) {
-            LOG.error("Local AI training run {} FAILED: {}", runId, e.getMessage(), e);
-            repo.updateRunFailed(
-                runId,
-                e.getMessage() != null ? e.getMessage().substring(0, Math.min(2000, e.getMessage().length())) : e.getClass().getSimpleName());
-        }
-    }
-
-    private Map<String, Object> generateTrainingSummary(Path runDir, Map<String, Object> readiness) throws Exception {
-        Map<String, Object> summary = new LinkedHashMap<>();
-        
-        // Variants comparison (V0, V1, V2, V3) per PROTOCOL rank-v3
-        Map<String, Object> variants = new LinkedHashMap<>();
-        
-        // V0: Raw features, absolute return
-        Map<String, Object> v0 = new LinkedHashMap<>();
-        v0.put("status", "SUCCEEDED");
-        v0.put("frequency", "quarter");
-        v0.put("target", "label_absolute");
-        v0.put("selected_model", "FACTOR_COMPOSITE");
-        v0.put("auc_dev", 0.518);
-        v0.put("auc_retro", 0.492);
-        v0.put("ic_dev", 0.042);
-        v0.put("ic_retro", -0.015);
-        v0.put("ic_t_stat", 1.45);
-        v0.put("win_fraction", 0.52);
-        v0.put("recall", 0.48);
-        variants.put("V0", v0);
-
-        // V1: Ranked features, relative return (Default deployable quarterly ranking)
-        Map<String, Object> v1 = new LinkedHashMap<>();
-        v1.put("status", "SUCCEEDED");
-        v1.put("frequency", "quarter");
-        v1.put("target", "label_relative");
-        v1.put("selected_model", "FACTOR_COMPOSITE");
-        v1.put("auc_dev", 0.542);
-        v1.put("auc_retro", 0.508);
-        v1.put("ic_dev", 0.076);
-        v1.put("ic_retro", 0.012);
-        v1.put("ic_t_stat", 2.34);
-        v1.put("win_fraction", 0.58);
-        v1.put("recall", 0.51);
-        v1.put("top_minus_bottom_spread", 0.034);
-        variants.put("V1", v1);
-
-        // V2: Monthly relative
-        variants.put("V2", Map.of(
-            "status", "SUCCEEDED",
-            "frequency", "month",
-            "target", "label_relative",
-            "selected_model", "MOM120_RANK",
-            "auc_dev", 0.528,
-            "auc_retro", 0.501,
-            "ic_dev", 0.051,
-            "ic_retro", -0.008,
-            "ic_t_stat", 1.82,
-            "win_fraction", 0.54
-        ));
-
-        // V3: Multi-feature with audited Case B financials
-        Map<String, Object> v3 = new LinkedHashMap<>();
-        v3.put("status", "SUCCEEDED");
-        v3.put("frequency", "month");
-        v3.put("target", "label_relative");
-        v3.put("selected_model", "FACTOR_COMPOSITE");
-        v3.put("auc_dev", 0.536);
-        v3.put("auc_retro", 0.504);
-        v3.put("ic_dev", 0.065);
-        v3.put("ic_retro", 0.005);
-        v3.put("ic_t_stat", 2.08);
-        v3.put("win_fraction", 0.56);
-        v3.put("recall", 0.50);
-        variants.put("V3", v3);
-
-        // Gate evaluation on primary variant V1
-        Map<String, Object> gate = new LinkedHashMap<>();
-        gate.put("auc_gain_passed", true);
-        gate.put("auc_gain_value", 0.024);
-        gate.put("min_ic_t_passed", true);
-        gate.put("min_ic_t_value", 2.34);
-        gate.put("win_fraction_passed", true);
-        gate.put("win_fraction_value", 0.58);
-        gate.put("recall_passed", true);
-        gate.put("recall_value", 0.51);
-        gate.put("all_gates_passed", true);
-
-        summary.put("protocol_version", PROTOCOL_VERSION);
-        summary.put("selected_variant", "V1");
-        summary.put("selected_model", "FACTOR_COMPOSITE");
-        summary.put("model_role", "baseline_reference");
-        summary.put("variants", variants);
-        summary.put("gate_evaluation", gate);
-        summary.put("research_note", "Retrospective 2025-2026 metrics are reported for historical review only. Deployed model is unfitted composite prior (low vol/drawdown + momentum).");
-        summary.put("disclaimer", RESEARCH_DISCLAIMER);
-
-        Files.writeString(runDir.resolve("summary.json"), json.writerWithDefaultPrettyPrinter().writeValueAsString(summary), StandardCharsets.UTF_8);
-        return summary;
+        throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Verified Local AI trainer is not connected");
     }
 
     /** List recent training runs. */
@@ -285,130 +138,12 @@ public class LocalAiTrainerService {
         return map;
     }
 
-    /** Publish a successful training run as the ACTIVE research ranking package. */
     public Map<String, Object> publish(UUID runId, String variant, String reason) {
-        if (reason == null || reason.isBlank()) throw new IllegalArgumentException("Publish reason is required");
-        if (variant == null || !variant.equals("V1")) throw new IllegalArgumentException("Only variant V1 is supported for deployment");
-
-        var run = getTrainingRun(runId);
-        if (!"SUCCEEDED".equals(run.get("status"))) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only SUCCEEDED training runs can be published");
-        }
-
-        UUID packageId = UUID.randomUUID();
-        String manifestContent = json.createObjectNode()
-            .put("schema", "local_ai.registered.release.v1")
-            .put("package_id", packageId.toString())
-            .put("training_run_id", runId.toString())
-            .put("variant", variant)
-            .put("model", "stock_rank_h1")
-            .put("protocol_version", PROTOCOL_VERSION)
-            .put("production_eligible", false)
-            .put("replace_llm", false)
-            .put("published_at", Instant.now().toString())
-            .put("reason", reason)
-            .toString();
-
-        String manifestSha = sha256(manifestContent);
-
-        return tx.execute(status -> {
-            repo.publishPackage(packageId, manifestSha, manifestContent, reason);
-            return Map.of(
-                "packageId", packageId,
-                "manifestSha256", manifestSha,
-                "status", "ACTIVE",
-                "trainingRunId", runId,
-                "variant", variant,
-                "reason", reason,
-                "publishedAt", Instant.now().toString()
-            );
-        });
+        throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Local AI publishing requires verified training artifacts");
     }
 
-    /** Rollback current ACTIVE package to previous SUPERSEDED package. */
     public Map<String, Object> rollback(String reason) {
-        if (reason == null || reason.isBlank()) throw new IllegalArgumentException("Rollback reason is required");
-
-        return tx.execute(status -> {
-            var activeRows = repo.findActivePackageIds();
-            if (activeRows.isEmpty()) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "No active package found to rollback");
-            }
-            UUID currentActive = (UUID) activeRows.getFirst().get("id");
-
-            var prevRows = repo.findLatestSupersededPackageIds();
-            if (prevRows.isEmpty()) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "No prior superseded package available for rollback");
-            }
-            UUID prevPackage = (UUID) prevRows.getFirst().get("id");
-
-            repo.rollbackPackage(currentActive, prevPackage, reason);
-
-            return Map.of(
-                "rolledBackPackageId", currentActive,
-                "restoredPackageId", prevPackage,
-                "status", "ACTIVE",
-                "reason", reason,
-                "rolledBackAt", Instant.now().toString()
-            );
-        });
-    }
-
-    /** Public ranking view with strict RESEARCH_ONLY indicators. */
-    public Map<String, Object> getRankings(String symbol, String bucket) {
-        String targetPeriod = computeNextQuarter();
-        LocalDate now = LocalDate.now();
-
-        // Sample reference cohort from 100-stock universe
-        List<Map<String, Object>> cohort = new ArrayList<>();
-        List<String> symbols = List.of(
-            "FPT", "VNM", "HPG", "VCB", "MBB", "TCB", "ACB", "MWG", "VIC", "VHM",
-            "MSN", "GAS", "SAB", "BID", "CTG", "SSI", "VRE", "DGC", "PNJ", "REE"
-        );
-
-        for (int i = 0; i < symbols.size(); i++) {
-            String s = symbols.get(i);
-            if (symbol != null && !symbol.isBlank() && !s.equalsIgnoreCase(symbol.trim())) {
-                continue;
-            }
-            double percentile = 1.0 - (double) i / symbols.size();
-            String b = percentile >= 0.67 ? "TOP" : percentile >= 0.33 ? "MIDDLE" : "BOTTOM";
-            if (bucket != null && !bucket.isBlank() && !b.equalsIgnoreCase(bucket.trim())) {
-                continue;
-            }
-            cohort.add(Map.of(
-                "ticker", s,
-                "score", Math.round(percentile * 100.0) / 100.0,
-                "rank_percentile", Math.round(percentile * 100.0) / 100.0,
-                "bucket", b,
-                "probability_status", "UNCALIBRATED_RANK_SCORE",
-                "target_period", targetPeriod,
-                "cutoff", now.toString(),
-                "model", "FACTOR_COMPOSITE",
-                "research_only", true
-            ));
-        }
-
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("target_period", targetPeriod);
-        response.put("cutoff", now.toString());
-        response.put("model", "FACTOR_COMPOSITE");
-        response.put("protocol_version", PROTOCOL_VERSION);
-        response.put("research_only", true);
-        response.put("disclaimer", RESEARCH_DISCLAIMER);
-        response.put("count", cohort.size());
-        response.put("results", cohort);
-        return response;
-    }
-
-    private String computeNextQuarter() {
-        LocalDate now = LocalDate.now();
-        int month = now.getMonthValue();
-        int year = now.getYear();
-        int currentQ = (month - 1) / 3 + 1;
-        int nextQ = currentQ == 4 ? 1 : currentQ + 1;
-        int nextYear = currentQ == 4 ? year + 1 : year;
-        return nextYear + "Q" + nextQ;
+        throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Local AI package rollback is unavailable");
     }
 
     private String sha256(String text) {

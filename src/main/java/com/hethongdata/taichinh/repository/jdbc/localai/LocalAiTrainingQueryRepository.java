@@ -68,35 +68,12 @@ public class LocalAiTrainingQueryRepository {
         Integer.class);
   }
 
-  public void insertBlockedRun(UUID runId, String trigger, String requestedBy, UUID idempotencyKey, String readinessSha, String protocolVersion) {
+  public void insertBlockedRun(UUID runId, String trigger, String reason, String requestedBy, UUID idempotencyKey, String readinessSha, String protocolVersion) {
     db.update(
         "INSERT INTO local_ai_training_runs (id, trigger, reason, requested_by, idempotency_key, " +
         "status, readiness_sha256, protocol_version, error, started_at, finished_at) " +
         "VALUES (?, ?, ?, ?, ?, 'BLOCKED', ?, ?, 'BLOCKED_DATA_NOT_READY', now(), now())",
-        runId, trigger, requestedBy, idempotencyKey, readinessSha, protocolVersion);
-  }
-
-  public void insertQueuedRun(UUID runId, String trigger, String reason, String requestedBy, UUID idempotencyKey, String readinessSha, String protocolVersion) {
-    db.update(
-        "INSERT INTO local_ai_training_runs (id, trigger, reason, requested_by, idempotency_key, " +
-        "status, readiness_sha256, protocol_version, started_at) " +
-        "VALUES (?, ?, ?, ?, ?, 'QUEUED', ?, ?, now())",
         runId, trigger, reason, requestedBy, idempotencyKey, readinessSha, protocolVersion);
-  }
-
-  public void updateRunStatus(UUID runId, String status) {
-    db.update("UPDATE local_ai_training_runs SET status = ? WHERE id = ?", status, runId);
-  }
-
-  public void updateRunSucceeded(UUID runId, String outputPath, String summaryJson, String gateJson, String selectedModel) {
-    db.update(
-        "UPDATE local_ai_training_runs SET status = 'SUCCEEDED', output_path = ?, " +
-        "summary = ?::jsonb, gate = ?::jsonb, selected_model = ?, finished_at = now() WHERE id = ?",
-        outputPath, summaryJson, gateJson, selectedModel, runId);
-  }
-
-  public void updateRunFailed(UUID runId, String error) {
-    db.update("UPDATE local_ai_training_runs SET status = 'FAILED', error = ?, finished_at = now() WHERE id = ?", error, runId);
   }
 
   public List<Map<String, Object>> listTrainingRuns(int limit) {
@@ -115,25 +92,5 @@ public class LocalAiTrainingQueryRepository {
         "selected_model, summary::text, gate::text, started_at, finished_at, error " +
         "FROM local_ai_training_runs WHERE id = ?",
         id);
-  }
-
-  public void publishPackage(UUID packageId, String manifestSha, String manifestContent, String reason) {
-    db.update("UPDATE local_ai_packages SET status = 'SUPERSEDED' WHERE status = 'ACTIVE'");
-    db.update("INSERT INTO local_ai_packages (id, manifest_sha256, manifest, status, registered_at) VALUES (?, ?, ?::jsonb, 'ACTIVE', now())", packageId, manifestSha, manifestContent);
-    db.update("INSERT INTO admin_operation_events (id, event_type, target_id, reason) VALUES (?, 'LOCAL_AI_PACKAGE_PUBLISHED', ?, ?)", UUID.randomUUID(), packageId, reason);
-  }
-
-  public List<Map<String, Object>> findActivePackageIds() {
-    return db.queryForList("SELECT id FROM local_ai_packages WHERE status = 'ACTIVE'");
-  }
-
-  public List<Map<String, Object>> findLatestSupersededPackageIds() {
-    return db.queryForList("SELECT id FROM local_ai_packages WHERE status = 'SUPERSEDED' ORDER BY registered_at DESC LIMIT 1");
-  }
-
-  public void rollbackPackage(UUID currentActive, UUID prevPackage, String reason) {
-    db.update("UPDATE local_ai_packages SET status = 'ROLLED_BACK' WHERE id = ?", currentActive);
-    db.update("UPDATE local_ai_packages SET status = 'ACTIVE' WHERE id = ?", prevPackage);
-    db.update("INSERT INTO admin_operation_events (id, event_type, target_id, reason) VALUES (?, 'LOCAL_AI_PACKAGE_ROLLED_BACK', ?, ?)", UUID.randomUUID(), currentActive, reason);
   }
 }

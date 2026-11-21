@@ -44,7 +44,9 @@ class AdminCommandIsolatedIntegrationTests {
   @AfterAll static void cleanup() { if(admin!=null && SCHEMA.matches("admin_console_test_[a-f0-9]{32}")) admin.execute("drop schema "+SCHEMA+" cascade"); }
   @BeforeEach void setup() {
     db.execute("truncate admin_operation_events,admin_commands,ingestion_runs,securities,metric_definitions,financial_periods,financial_metrics,llm_prompt_templates");
-    service=new AdminCommandService(db,json,jobs,mock(IngestionService.class),mock(ValidationJobService.class),
+    service=new AdminCommandService(new com.hethongdata.taichinh.repository.jdbc.admin.AdminCommandJdbcRepository(db),
+        new com.hethongdata.taichinh.repository.jdbc.admin.AdminAuditJdbcRepository(db),
+        json,jobs,mock(IngestionService.class),mock(ValidationJobService.class),
         Validation.buildDefaultValidatorFactory().getValidator(),new DataSourceTransactionManager(scoped),mock(AdminPipelineService.class),mock(AdminAiActionService.class));
   }
   @AfterEach void stop() { service.stop(); }
@@ -171,7 +173,9 @@ class AdminCommandIsolatedIntegrationTests {
   @Test void schedulerStartsDisabledAndRejectsEmptyOrStaleScope() {
     db.update("update admin_schedule_policy set enabled=false,version=0,job_codes='[]' where id='INGESTION'");
     var definitions=mock(com.hethongdata.taichinh.repository.ingestion.IngestionJobRepository.class);
-    var scheduler=new AdminScheduleService(db,json,jobs,definitions,new org.springframework.mock.env.MockEnvironment(),new NativeJobGuard(scoped));
+    var scheduler=new AdminScheduleService(new com.hethongdata.taichinh.repository.jdbc.admin.AdminScheduleJdbcRepository(db),
+        new com.hethongdata.taichinh.repository.jdbc.admin.AdminAuditJdbcRepository(db),
+        json,jobs,definitions,new org.springframework.mock.env.MockEnvironment(),new NativeJobGuard(scoped));
     try {
       assertThat(scheduler.status().get("enabled")).isEqualTo(false);
       ReflectionTestUtils.invokeMethod(scheduler,"tick");verifyNoInteractions(jobs);
@@ -184,10 +188,13 @@ class AdminCommandIsolatedIntegrationTests {
   @Test void promptVersionsRetainSchemasAndPromotionIsAtomicAndAudited() {
     UUID original=UUID.randomUUID();
     db.update("insert into llm_prompt_templates(id,task_code,version,input_domain,description,system_prompt,request_schema,response_schema,checksum,enabled) values (?,'NEWS_SUMMARY','fixture-v1','NEWS','Isolated fixture','Original fixture prompt','{\"type\":\"object\"}','{\"required\":[\"evidence\"]}',?,true)",original,"a".repeat(64));
-    var controller=new com.hethongdata.taichinh.controller.admin.LlmAdminController(null,null,null,null,db,json,new com.hethongdata.taichinh.service.ingestion.ChecksumService());
+    var promptRepo = new com.hethongdata.taichinh.repository.jdbc.llm.PromptTemplateJdbcRepository(db);
+    var auditRepo = new com.hethongdata.taichinh.repository.jdbc.admin.AdminAuditJdbcRepository(db);
+    var promptAdmin = new com.hethongdata.taichinh.service.llm.PromptAdminService(promptRepo, auditRepo, json, new com.hethongdata.taichinh.service.ingestion.ChecksumService());
+    var controller = new com.hethongdata.taichinh.controller.admin.LlmAdminController(null, null, null, null, promptAdmin);
     var tx=new org.springframework.transaction.support.TransactionTemplate(new DataSourceTransactionManager(scoped));
     var request=new com.hethongdata.taichinh.controller.admin.LlmAdminController.PromptVersionRequest(original,"fixture-v2","Updated fixture prompt","Test version lifecycle in isolated schema");
-    var created=tx.execute(s->controller.createPrompt(request));UUID id=(UUID)created.get("id");
+    java.util.Map<String,Object> created=tx.execute(s->controller.createPrompt(request));UUID id=(UUID)created.get("id");
     assertThat(created.get("enabled")).isEqualTo(false);
     assertThat(controller.prompt(original).path("system_prompt").asText()).isEqualTo("Original fixture prompt");
     assertThat(controller.prompt(id).path("response_schema").toString()).contains("evidence");

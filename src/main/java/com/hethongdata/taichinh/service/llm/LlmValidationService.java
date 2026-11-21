@@ -1,8 +1,8 @@
 package com.hethongdata.taichinh.service.llm;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.hethongdata.taichinh.repository.jdbc.validation.ValidationRuleJdbcRepository;
 import com.hethongdata.taichinh.service.ingestion.ChecksumService;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import java.util.*;
 
@@ -13,18 +13,14 @@ public class LlmValidationService {
     private static final Set<String> COMMON=Set.of("LLM_RESPONSE_READY","LLM_RESPONSE_SCHEMA","LLM_SOURCE_ID",
             "LLM_EVIDENCE_QUOTES","LLM_COMPANY_REFERENCES","LLM_ANALYSIS_COMPLETENESS",
             "LLM_COMPANY_IMPACT_UNIQUE","LLM_SOURCE_SNAPSHOT","LLM_PROMPT_SNAPSHOT");
-    private final JdbcTemplate db;
+    private final ValidationRuleJdbcRepository repository;
     private final LlmJson json;
     private final ChecksumService hashes;
-    public LlmValidationService(JdbcTemplate db,LlmJson json,ChecksumService hashes) {
-        this.db=db;this.json=json;this.hashes=hashes;
+    public LlmValidationService(ValidationRuleJdbcRepository repository,LlmJson json,ChecksumService hashes) {
+        this.repository=repository;this.json=json;this.hashes=hashes;
     }
     private List<JsonNode> rules(String task) {
-        return db.query("""
-            SELECT jsonb_build_object('id',id,'code',code,'executor',executor_key,'severity',severity,
-                'config',rule_config,'domain',data_domain)::text
-            FROM validation_rules WHERE data_domain='LLM_OUTPUT' AND is_active ORDER BY code
-            """,(rs,n)->json.read(rs.getString(1))).stream().filter(r->{
+        return repository.findLlmOutputRulesJson().stream().map(json::read).filter(r->{
                 var tasks=r.path("config").path("tasks");
                 if(!tasks.isArray()||!r.path("config").hasNonNull("version"))
                     throw new IllegalStateException("INVALID_LLM_RULE_CONFIG: "+r.path("code").asText());
@@ -83,11 +79,7 @@ public class LlmValidationService {
                 state="FAIL";message=String.join("; ",issues);
                 if("WARNING".equals(rule.path("severity").asText())) warnings=true;else errors.addAll(issues);
             }
-            db.update("""
-                INSERT INTO validation_results(id,validation_rule_id,rule_code,severity,result_status,handling_status,
-                    checked_at,validation_target,llm_run_id,validation_round_id,rule_snapshot,observed_value,expected_value,message)
-                VALUES (?,?,?,?,?,?,now(),'LLM_OUTPUT',?,?,?::jsonb,?,?,?)
-                """,UUID.randomUUID(),rule.path("id").asLong(),rule.path("code").asText(),rule.path("severity").asText(),
+            repository.insertValidationResult(UUID.randomUUID(),rule.path("id").asLong(),rule.path("code").asText(),rule.path("severity").asText(),
                     state,"FAIL".equals(state)?"OPEN":"NOT_REQUIRED",run,round,rule.toString(),
                     json.mapper().valueToTree(issues).toString(),"PASS",message);
         }

@@ -1,0 +1,35 @@
+{
+  "receipt_id": "RECEIPT-FINANCIAL-METADATA-REPAIR-20261121",
+  "audit_date": "2026-11-21",
+  "purpose": "Explicit currency (VND) and unit_scale (1) normalization audit across 10,092 VNDIRECT statements",
+  "target_universe": "100 eligible equities (VNINDEX/VN30 universe)",
+  "total_statements_reviewed": 10092,
+  "provider": "vndirect",
+  "migration": {
+    "script": "V20261024_01__financial_metadata_documents.sql",
+    "sha256": "df0952bb2231624aa3f14d38d79eba510d9261e30e6e26bf2e5b5237e186029c"
+  },
+  "modifications": {
+    "currency": {
+      "before": null,
+      "after": "VND",
+      "method": "INFERRED_PROVIDER_DEFAULT",
+      "rationale": "VNDIRECT reporting format reports monetary items in Vietnamese Dong (VND)."
+    },
+    "unit_scale": {
+      "before": null,
+      "after": 1,
+      "method": "INFERRED_PROVIDER_DEFAULT",
+      "rationale": "VNDIRECT statement item values are raw whole-VND quantities (scale 1)."
+    }
+  },
+  "provenance_tracking": {
+    "json_path": "financial_statements.metadata_provenance.repair",
+    "status": "INFERRED_REPAIR",
+    "historical_vintage_certified": false
+  },
+  "verification": {
+    "verification_script": "scripts/local_ai_suite/audit_db_financials.py",
+    "verification_result": "PASSED (0 duplicate canonical statements, 0 OHLC anomalies, 100 eligible universe names)"
+  }
+}

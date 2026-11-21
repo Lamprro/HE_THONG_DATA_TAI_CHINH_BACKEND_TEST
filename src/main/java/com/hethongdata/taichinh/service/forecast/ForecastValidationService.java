@@ -2,11 +2,11 @@ package com.hethongdata.taichinh.service.forecast;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hethongdata.taichinh.dto.forecast.ForecastDtos.SourcePoint;
+import com.hethongdata.taichinh.repository.jdbc.validation.ValidationRuleJdbcRepository;
 import com.hethongdata.taichinh.service.ingestion.ChecksumService;
 import com.hethongdata.taichinh.service.llm.*;
 import java.math.*;
 import java.util.*;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -27,24 +27,18 @@ public class ForecastValidationService {
           "FORECAST_COVERAGE",
           "FORECAST_SNAPSHOT",
           "FORECAST_PROMPT");
-  private final JdbcTemplate db;
+  private final ValidationRuleJdbcRepository repository;
   private final LlmJson json;
   private final ChecksumService hashes;
 
-  public ForecastValidationService(JdbcTemplate db, LlmJson json, ChecksumService hashes) {
-    this.db = db;
+  public ForecastValidationService(ValidationRuleJdbcRepository repository, LlmJson json, ChecksumService hashes) {
+    this.repository = repository;
     this.json = json;
     this.hashes = hashes;
   }
 
   private List<JsonNode> rules() {
-    var rules =
-        db.query(
-            "SELECT"
-                + " jsonb_build_object('id',id,'code',code,'executor',executor_key,'severity',severity,'config',rule_config)::text"
-                + " FROM validation_rules WHERE data_domain='LLM_FORECAST' AND is_active ORDER BY"
-                + " code",
-            (r, n) -> json.read(r.getString(1)));
+    var rules = repository.findLlmForecastRulesJson().stream().map(json::read).toList();
     var codes = new HashSet<String>();
     for (var r : rules) {
       var tasks = r.path("config").path("tasks");
@@ -83,10 +77,7 @@ public class ForecastValidationService {
   public boolean publicationRoundValid(UUID run, UUID round) {
     var configured = new HashMap<String, JsonNode>();
     for (var rule : rules()) configured.put(rule.path("code").asText(), rule);
-    var audits = db.queryForList("""
-        SELECT rule_code,result_status,rule_snapshot::text snapshot FROM validation_results
-        WHERE llm_run_id=? AND validation_round_id=? AND validation_target='LLM_OUTPUT'
-        """,run,round);
+    var audits = repository.findAuditsByRound(run, round);
     if (audits.size()!=configured.size()) return false;
     for (var audit : audits) {
       var rule = configured.remove(audit.get("rule_code").toString());
@@ -244,10 +235,7 @@ public class ForecastValidationService {
         if ("WARNING".equals(rule.path("severity").asText())) warnings = true;
         else errors.addAll(issues);
       }
-      db.update(
-          "INSERT INTO"
-              + " validation_results(id,validation_rule_id,rule_code,severity,result_status,handling_status,checked_at,validation_target,llm_run_id,validation_round_id,rule_snapshot,observed_value,expected_value,message)"
-              + " VALUES (?,?,?,?,?,?,now(),'LLM_OUTPUT',?,?,?::jsonb,?,'PASS',?)",
+      repository.insertValidationResult(
           UUID.randomUUID(),
           rule.path("id").asLong(),
           code,
@@ -258,6 +246,7 @@ public class ForecastValidationService {
           round,
           rule.toString(),
           json.mapper().valueToTree(issues).toString(),
+          "PASS",
           skip
               ? "Prerequisite schema/response failed"
               : issues.isEmpty() ? "Rule passed" : String.join("; ", issues));

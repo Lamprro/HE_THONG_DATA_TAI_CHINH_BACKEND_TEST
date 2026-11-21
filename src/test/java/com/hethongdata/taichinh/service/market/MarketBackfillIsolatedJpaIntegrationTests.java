@@ -69,6 +69,7 @@ class MarketBackfillIsolatedJpaIntegrationTests {
     @Autowired DataSourceRepository sources;
     @Autowired IngestionJobRepository jobs;
     @Autowired IngestionService ingestion;
+    @Autowired IngestionRunRepository runs;
     @Autowired ValidationJobService validation;
     @Autowired ValidationRuleCatalogService ruleCatalog;
     @Autowired MarketPriceWorkflowService workflow;
@@ -152,5 +153,15 @@ class MarketBackfillIsolatedJpaIntegrationTests {
         assertThat(validation.validate(ingestion.ingest(priceRequest).getRawPayloadId()).getStatus()).isEqualTo("ACCEPTED");
         assertThat(workflow.execute(job,"MANUAL").getStatus()).isEqualTo("SUCCESS");
         assertThat(db.queryForObject("SELECT count(*) FROM market_prices WHERE foreign_buy_volume=100 AND foreign_sell_volume=20 AND foreign_raw_payload_id IS NOT NULL",Integer.class)).isEqualTo(2);
+        // The lightweight JPA list must preserve all DTO fields for both manual and workflow runs.
+        var summaries = runs.findLatestSummaries(100);
+        assertThat(summaries).isNotEmpty();
+        assertThat(summaries).anyMatch(row -> row.getIngestionJobId() == null);
+        assertThat(summaries).anyMatch(row -> row.getIngestionJobId() != null);
+        for (var summary : summaries) {
+            assertThat(summary).isEqualTo(com.hethongdata.taichinh.dto.ingestion.IngestionRunResponse.from(
+                    runs.findById(summary.getId()).orElseThrow()));
+        }
+        assertThat(runs.findLatestSummaries(1)).hasSize(1);
     }
 }

@@ -1,0 +1,5 @@
+SELECT id AS source_id,security_id,symbol AS ticker,trading_date,open,high,low,close,adjusted_close,volume,trading_value,foreign_buy_volume,foreign_sell_volume,price_timestamp,interval_code,is_canonical,data_source_id,raw_payload_id,data_version_id,version_status,price_basis,price_basis_verified,system_first_seen_at
+FROM (
+ SELECT m.id,m.security_id,m.symbol,(m.trading_date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') AS price_timestamp,m.trading_date,m.open_price AS open,m.high_price AS high,m.low_price AS low,m.close_price AS close,m.adjusted_close,m.volume,m.trading_value,m.foreign_buy_volume,m.foreign_sell_volume,'1d'::text AS interval_code,m.is_canonical,m.data_source_id,m.raw_payload_id,m.data_version_id,'ACTIVATED'::text AS version_status,m.price_basis,m.price_basis_verified,m.system_first_seen_at
+ FROM vw_training_market_observations_v1 m WHERE (m.is_canonical OR (m.symbol IN ('EIB','HSG','VNM') AND m.data_source_id=12)) AND m.adjusted_close IS NOT NULL AND m.price_basis_verified
+) q ORDER BY ticker,trading_date

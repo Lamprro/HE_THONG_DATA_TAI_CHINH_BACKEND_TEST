@@ -3,28 +3,28 @@ package com.hethongdata.taichinh.service.forecast;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hethongdata.taichinh.dto.forecast.*;
 import com.hethongdata.taichinh.dto.forecast.ForecastDtos.*;
+import com.hethongdata.taichinh.repository.jdbc.forecast.ForecastRunJdbcRepository;
 import com.hethongdata.taichinh.service.llm.*;
 import java.time.LocalDate;
 import java.util.*;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class ForecastRunStore {
-  private final JdbcTemplate db;
+  private final ForecastRunJdbcRepository repo;
   private final LlmJson json;
   private final ForecastContextService contexts;
   private final ForecastValidationService validations;
   private final com.hethongdata.taichinh.service.ingestion.ChecksumService hashes;
 
   public ForecastRunStore(
-      JdbcTemplate db,
+      ForecastRunJdbcRepository repo,
       LlmJson json,
       ForecastContextService contexts,
       ForecastValidationService validations,
       com.hethongdata.taichinh.service.ingestion.ChecksumService hashes) {
-    this.db = db;
+    this.repo = repo;
     this.json = json;
     this.contexts = contexts;
     this.validations = validations;
@@ -32,7 +32,7 @@ public class ForecastRunStore {
   }
 
   private void lock(UUID security) {
-    db.queryForList("SELECT pg_advisory_xact_lock(hashtextextended(?,0))", "forecast:" + security);
+    repo.lock(security);
   }
 
   @Transactional
@@ -45,17 +45,16 @@ public class ForecastRunStore {
       String policy,
       String routingKey) {
     lock(ctx.request().securityId());
-    var cached =
-        db.queryForList(
-            "SELECT id,llm_run_id,validation_round_id FROM llm_results WHERE source_domain='FINANCIAL' AND"
-                + " security_id=? AND input_hash=? ORDER BY is_current DESC,created_at DESC LIMIT 1",
-            ctx.request().securityId(),
-            hash);
+    var cached = repo.findCached(ctx.request().securityId(), hash);
     if (!cached.isEmpty()) {
       var previous = cached.getFirst();
-      if (previous.get("validation_round_id")==null || !validations.publicationRoundValid(
-          (UUID)previous.get("llm_run_id"),(UUID)previous.get("validation_round_id")))
-        return new Outcome("REVALIDATION_REQUIRED",(UUID)previous.get("llm_run_id"),null,
+      if (previous.get("validation_round_id") == null
+          || !validations.publicationRoundValid(
+              (UUID) previous.get("llm_run_id"), (UUID) previous.get("validation_round_id")))
+        return new Outcome(
+            "REVALIDATION_REQUIRED",
+            (UUID) previous.get("llm_run_id"),
+            null,
             List.of("Cached result lacks a complete passing blocking-validation round"));
       return new Outcome(
           "CACHED",
@@ -63,25 +62,10 @@ public class ForecastRunStore {
           (UUID) cached.getFirst().get("id"),
           List.of());
     }
-    db.update(
-        "UPDATE llm_runs SET status='FAILED',finished_at=now(),error_message='RUN_LEASE_EXPIRED'"
-            + " WHERE security_id=? AND news_article_id IS NULL AND status='RUNNING' AND"
-            + " created_at<now()-interval '10 minutes'",
-        ctx.request().securityId());
-    var active =
-        db.queryForList(
-            "SELECT id FROM llm_runs WHERE security_id=? AND news_article_id IS NULL AND status IN"
-                + " ('RUNNING','PENDING_VALIDATION')",
-            UUID.class,
-            ctx.request().securityId());
+    repo.expireRunning(ctx.request().securityId());
+    var active = repo.findActiveRuns(ctx.request().securityId());
     if (!active.isEmpty()) return new Outcome("RUNNING", active.getFirst(), null, List.of());
-    if (db.queryForObject(
-            "SELECT count(*) FROM llm_runs WHERE security_id=? AND input_hash=? AND status IN"
-                + " ('FAILED','REJECTED')",
-            Integer.class,
-            ctx.request().securityId(),
-            hash)
-        >= 3)
+    if (repo.countFailed(ctx.request().securityId(), hash) >= 3)
       return new Outcome(
           "RETRY_LIMIT", null, null, List.of("Three failures for unchanged forecast input"));
     UUID run = UUID.randomUUID();
@@ -94,11 +78,7 @@ public class ForecastRunStore {
         .put("validation_policy", policy)
         .put("template_checksum", template.checksum())
         .put("routing_key", routingKey);
-    db.update(
-        "INSERT INTO"
-            + " llm_runs(id,operation_type,provider,model_name,prompt_version,status,input_hash,request_metadata,response_metadata,created_at,prompt_template_id,task_code,company_id,security_id,request_payload)"
-            + " VALUES"
-            + " (?,'FINANCIAL_EXPLAIN','GEMINI',?,?,'RUNNING',?,?::jsonb,'{}'::jsonb,now(),?,?,?,?,?::jsonb)",
+    repo.insertRunning(
         run,
         model,
         template.version(),
@@ -114,7 +94,7 @@ public class ForecastRunStore {
 
   @Transactional
   public void attempt(UUID run, JsonNode request, LlmGateway.Attempt a) {
-    com.hethongdata.taichinh.service.llm.LlmRunStore.appendAttempt(db, json, run, request, a);
+    repo.appendAttempt(json, run, request, a);
   }
 
   @Transactional
@@ -125,28 +105,20 @@ public class ForecastRunStore {
     } catch (Exception e) {
       envelope = json.mapper().createObjectNode().put("raw_body", reply.rawBody());
     }
-    return db.update(
-            "UPDATE llm_runs SET"
-                + " status='PENDING_VALIDATION',response_payload=?::jsonb,response_text=?,http_status=?,input_tokens=?,output_tokens=?,latency_ms=?,model_name=coalesce(?,model_name)"
-                + " WHERE id=? AND status='RUNNING'",
-            envelope.toString(),
-            reply.outputText(),
-            reply.httpStatus(),
-            reply.inputTokens(),
-            reply.outputTokens(),
-            latency,
-            reply.selectedModel(),
-            run)
-        == 1;
+    return repo.stage(
+        run,
+        envelope.toString(),
+        reply.outputText(),
+        reply.httpStatus(),
+        reply.inputTokens(),
+        reply.outputTokens(),
+        latency,
+        reply.selectedModel());
   }
 
   @Transactional
   public Outcome fail(UUID run, String error) {
-    db.update(
-        "UPDATE llm_runs SET status='FAILED',finished_at=now(),error_message=? WHERE id=? AND"
-            + " status='RUNNING'",
-        error,
-        run);
+    repo.fail(run, error);
     return new Outcome("FAILED", run, null, List.of(error));
   }
 
@@ -171,13 +143,11 @@ public class ForecastRunStore {
 
   @Transactional
   public Outcome validate(UUID run) {
-    var rows =
-        db.queryForList(
-            "SELECT * FROM llm_runs WHERE id=? AND task_code=?", run, ForecastPromptService.TASK);
+    var rows = repo.findForecastRunById(run, ForecastPromptService.TASK);
     if (rows.isEmpty()) throw new IllegalArgumentException("Forecast run not found");
     UUID security = (UUID) rows.getFirst().get("security_id");
     lock(security);
-    var row = db.queryForList("SELECT * FROM llm_runs WHERE id=? FOR UPDATE", run).getFirst();
+    var row = repo.findForecastRunByIdForUpdate(run).getFirst();
     if ("RUNNING".equals(row.get("status"))) return new Outcome("RUNNING", run, null, List.of());
     boolean pending = "PENDING_VALIDATION".equals(row.get("status"));
     var metadata = json.read(row.get("request_metadata").toString());
@@ -185,32 +155,11 @@ public class ForecastRunStore {
         json.mapper().convertValue(metadata.path("forecast_request"), ForecastRequest.class);
     var ctx = restore(metadata, request);
     var now = contexts.build(request);
-    var template =
-        db.query(
-                "SELECT * FROM llm_prompt_templates WHERE id=?",
-                (r, n) ->
-                    new LlmPromptCatalog.Template(
-                        r.getObject("id", UUID.class),
-                        ForecastPromptService.TASK,
-                        r.getString("version"),
-                        r.getString("system_prompt"),
-                        json.read(r.getString("request_schema")),
-                        json.read(r.getString("response_schema")),
-                        r.getString("checksum")),
-                row.get("prompt_template_id"))
-            .getFirst();
-    boolean promptActive =
-        db.queryForObject(
-                "SELECT count(*) FROM llm_prompt_templates WHERE id=? AND enabled AND checksum=?",
-                Integer.class,
-                template.id(),
-                template.checksum())
-            == 1;
+    var template = repo.findTemplateById((UUID) row.get("prompt_template_id"), ForecastPromptService.TASK, json).getFirst();
+    boolean promptActive = repo.countActiveTemplate(template.id(), template.checksum());
     String originalChecksum = metadata.path("template_checksum").asText();
     if (!originalChecksum.isEmpty()) promptActive &= originalChecksum.equals(template.checksum());
     else {
-      // Legacy run: verify its original input identity rather than silently assuming the current
-      // prompt.
       String originalHash =
           hashes.sha256(
               template.checksum()
@@ -253,29 +202,22 @@ public class ForecastRunStore {
         http < 200 || http >= 300 || evaluation.technical()
             ? "FAILED"
             : evaluation.errors().isEmpty() ? "SUCCESS" : "REJECTED";
-    var current =
-        db.queryForList(
-            "SELECT id FROM llm_results WHERE llm_run_id=? AND is_current", UUID.class, run);
+    var current = repo.findCurrentResultIds(run);
     if (pending)
-      db.update(
-          "UPDATE llm_runs SET"
-              + " status=?,finished_at=now(),validation_round_id=?,validation_errors=?::jsonb,error_message=?"
-              + " WHERE id=?",
+      repo.updatePendingValidationRun(
+          run,
           status,
           evaluation.round(),
           json.mapper().valueToTree(evaluation.errors()).toString(),
-          String.join("; ", evaluation.errors()),
-          run);
-    else db.update("UPDATE llm_runs SET validation_round_id=? WHERE id=?", evaluation.round(), run);
+          String.join("; ", evaluation.errors()));
+    else repo.updateValidationRound(run, evaluation.round());
     if (!"SUCCESS".equals(status)) {
       if (!current.isEmpty()) {
-        db.update("UPDATE llm_results SET is_current=false WHERE llm_run_id=?", run);
-        db.update(
-            "UPDATE llm_runs SET status=?,validation_errors=?::jsonb,error_message=? WHERE id=?",
+        repo.demoteResultAndFailRun(
+            run,
             status,
             json.mapper().valueToTree(evaluation.errors()).toString(),
-            String.join("; ", evaluation.errors()),
-            run);
+            String.join("; ", evaluation.errors()));
       }
       return new Outcome(status, run, null, evaluation.errors());
     }
@@ -289,49 +231,23 @@ public class ForecastRunStore {
                   + policy
                   + "\n"
                   + json.canonical(json.read(row.get("request_payload").toString())));
-      db.update(
-          "UPDATE llm_results SET validation_round_id=?,validation_policy_hash=?,input_hash=?,quality_status=? WHERE"
-              + " llm_run_id=?",
-          evaluation.round(),
-          policy,
-          hash,
-          evaluation.qualityStatus(),
-          run);
+      repo.updateResultOnSuccess(run, evaluation.round(), policy, hash, evaluation.qualityStatus());
       return new Outcome("SUCCESS", run, current.getFirst(), List.of());
     }
     LocalDate periodEnd = ctx.targetDate();
     LocalDate periodStart = ForecastContextService.periodStart(periodEnd);
     String targetScope = request.targetScope();
     if (!pending
-        && db.queryForObject(
-                "SELECT count(*) FROM llm_results WHERE llm_run_id=? OR (security_id=? AND"
-                    + " task_code=? AND forecast_period_end=? AND target_scope=? AND is_current)",
-                Integer.class,
-                run,
-                security,
-                ForecastPromptService.TASK,
-                ctx.targetDate(),
-                request.targetScope())
-            > 0)
+        && repo.countSupersededResults(run, security, ForecastPromptService.TASK, ctx.targetDate(), request.targetScope()) > 0)
       return new Outcome(
           "SUCCESS", run, null, List.of("Audit only: never reactivate a superseded result"));
     var result = validations.projections(ctx, output);
     UUID id = UUID.randomUUID();
-    // A historical request must not displace a forecast built from a newer data cutoff.
-    boolean publish = db.queryForObject(
-        "SELECT count(*) FROM llm_results WHERE source_domain='FINANCIAL' AND security_id=?"
-            + " AND task_code=? AND forecast_period_end=? AND target_scope=? AND is_current AND as_of_date>?",
-        Integer.class, security, ForecastPromptService.TASK, ctx.targetDate(), request.targetScope(), request.asOfDate()) == 0;
+    boolean publish = repo.countNewerCutoffResults(
+        security, ForecastPromptService.TASK, ctx.targetDate(), request.targetScope(), request.asOfDate()) == 0;
     if (publish)
-    db.update(
-        "UPDATE llm_results SET is_current=false WHERE source_domain='FINANCIAL' AND security_id=?"
-            + " AND task_code=? AND forecast_period_end=? AND target_scope=? AND is_current",
-        security,
-        ForecastPromptService.TASK, ctx.targetDate(), request.targetScope());
-    db.update(
-        "INSERT INTO"
-            + " llm_results(id,llm_run_id,prompt_template_id,task_code,source_domain,company_id,security_id,as_of_date,source_hash,input_hash,schema_version,overview,result_json,quality_status,validation_round_id,validation_policy_hash,forecast_period_start,forecast_period_end,target_scope,is_current)"
-            + " VALUES (?,?,?,?,'FINANCIAL',?,?,?,?,?,?,?,?::jsonb,?,?,?,?,?,?,?)",
+      repo.retireCurrentResults(security, ForecastPromptService.TASK, ctx.targetDate(), request.targetScope());
+    repo.insertResult(
         id,
         run,
         template.id(),
@@ -340,34 +256,28 @@ public class ForecastRunStore {
         security,
         request.asOfDate(),
         ctx.hash(),
-        row.get("input_hash"),
+        (String) row.get("input_hash"),
         output.path("schema_version").asText(),
         output.path("overview").asText(),
         result.toString(),
         evaluation.qualityStatus(),
         evaluation.round(),
         policy,
-        periodStart, periodEnd, targetScope, publish);
-    db.update(
-        "UPDATE llm_runs SET status='SUCCESS',validation_errors='[]'::jsonb,error_message=null"
-            + " WHERE id=?",
-        run);
+        periodStart,
+        periodEnd,
+        targetScope,
+        publish);
+    repo.updateRunSuccess(run);
     return new Outcome("SUCCESS", run, id, List.of());
   }
 
   public Run run(UUID id) {
-    var rows =
-        db.queryForList(
-            "SELECT * FROM llm_runs WHERE id=? AND task_code=?", id, ForecastPromptService.TASK);
+    var rows = repo.findForecastRunById(id, ForecastPromptService.TASK);
     if (rows.isEmpty()) throw new IllegalArgumentException("Forecast run not found");
     var r = rows.getFirst();
-    var attempts = com.hethongdata.taichinh.service.llm.LlmRunStore.readAttempts(db, json, id);
-    var audit =
-        db.query(
-            "SELECT row_to_json(v)::text FROM validation_results v WHERE llm_run_id=? ORDER BY"
-                + " checked_at,rule_code",
-            (rs, n) -> json.read(rs.getString(1)),
-            id);
+    var attempts = repo.readAttempts(json, id);
+    var audit = new ArrayList<JsonNode>();
+    for (String a : repo.findValidationResultsJson(id)) audit.add(json.read(a));
     var errors = new ArrayList<String>();
     for (var e : json.read(r.get("validation_errors").toString())) errors.add(e.asText());
     return new Run(
@@ -393,7 +303,7 @@ public class ForecastRunStore {
   }
 
   public List<Result> results(UUID security, int limit) {
-    return results(security,limit,null);
+    return results(security, limit, null);
   }
 
   public List<Result> results(UUID security, int limit, LocalDate periodEnd) {
@@ -404,27 +314,16 @@ public class ForecastRunStore {
       return List.of();
     }
     var output = new ArrayList<Result>();
-    var rows =
-        db.queryForList(
-            "SELECT r.* FROM llm_results r JOIN llm_prompt_templates t ON t.id=r.prompt_template_id"
-                + " AND t.enabled WHERE r.source_domain='FINANCIAL' AND r.security_id=? AND"
-                + " r.is_current AND r.validation_policy_hash=? AND r.validation_round_id IS NOT"
-                + " NULL AND (?::date IS NULL OR r.forecast_period_end=?::date) ORDER BY r.as_of_date DESC,r.created_at DESC LIMIT ?",
-            security,
-            policy,
-            periodEnd, periodEnd,
-            Math.max(1, Math.min(50, limit)));
+    var rows = repo.findResults(security, policy, periodEnd, limit);
     for (var r : rows) {
       UUID run = (UUID) r.get("llm_run_id");
-      var metadata =
-          db.queryForObject(
-              "SELECT request_metadata::text FROM llm_runs WHERE id=?", String.class, run);
+      var metadata = repo.findRequestMetadata(run);
       var request =
           json.mapper()
               .convertValue(json.read(metadata).path("forecast_request"), ForecastRequest.class);
       var current = contexts.build(request);
       if (!current.eligible() || !current.hash().equals(r.get("source_hash"))) continue;
-      if (!validations.publicationRoundValid(run,(UUID) r.get("validation_round_id"))) continue;
+      if (!validations.publicationRoundValid(run, (UUID) r.get("validation_round_id"))) continue;
       output.add(
           new Result(
               (UUID) r.get("id"),
@@ -442,21 +341,10 @@ public class ForecastRunStore {
   }
 
   public List<UUID> pending(int limit) {
-    return db.queryForList(
-        "SELECT id FROM llm_runs WHERE task_code=? AND status='PENDING_VALIDATION' ORDER BY"
-            + " created_at LIMIT ?",
-        UUID.class,
-        ForecastPromptService.TASK,
-        Math.max(1, Math.min(50, limit)));
+    return repo.findPendingRuns(ForecastPromptService.TASK, limit);
   }
 
   public List<UUID> runs(UUID security, int limit) {
-    return db.queryForList(
-        "SELECT id FROM llm_runs WHERE security_id=? AND task_code=? ORDER BY created_at DESC LIMIT"
-            + " ?",
-        UUID.class,
-        security,
-        ForecastPromptService.TASK,
-        Math.max(1, Math.min(50, limit)));
+    return repo.findRunsBySecurity(security, ForecastPromptService.TASK, limit);
   }
 }

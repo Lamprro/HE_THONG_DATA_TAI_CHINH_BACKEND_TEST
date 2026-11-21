@@ -2,8 +2,8 @@ package com.hethongdata.taichinh.service.llm;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.hethongdata.taichinh.repository.jdbc.news.NewsLlmQueryRepository;
 import com.hethongdata.taichinh.service.ingestion.ChecksumService;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -15,12 +15,16 @@ public class NewsLlmContext {
     public record Context(JsonNode input, String sourceHash, List<String> issues) {
         public boolean eligible() { return issues.isEmpty(); }
     }
-    private final JdbcTemplate db;
+    private final NewsLlmQueryRepository newsRepo;
     private final LlmJson json;
     private final ChecksumService hashes;
-    public NewsLlmContext(JdbcTemplate db,LlmJson json,ChecksumService hashes) { this.db=db; this.json=json; this.hashes=hashes; }
+    public NewsLlmContext(NewsLlmQueryRepository newsRepo,LlmJson json,ChecksumService hashes) {
+        this.newsRepo=newsRepo;
+        this.json=json;
+        this.hashes=hashes;
+    }
     public Context build(UUID id,String task) {
-        var rows=db.queryForList("SELECT * FROM news_articles WHERE id=?",id);
+        var rows=newsRepo.findArticleById(id);
         if(rows.isEmpty()) throw new IllegalArgumentException("News article not found: "+id);
         var row=rows.getFirst();
         var issues=new java.util.ArrayList<String>();
@@ -50,17 +54,12 @@ public class NewsLlmContext {
         if(content!=null) {int index=1;for(String text:segmentText(content))
             segments.addObject().put("id","p"+index++).put("text",text);}
         var companies=article.putArray("companies");
-        db.query("""
-            SELECT n.company_id,n.security_id,c.legal_name,s.symbol,n.match_method,n.match_evidence
-            FROM news_article_companies n JOIN companies c ON c.id=n.company_id
-            LEFT JOIN securities s ON s.id=n.security_id WHERE n.news_article_id=?
-            ORDER BY n.company_id,n.security_id NULLS FIRST,n.id
-            """,rs->{
-                var company=companies.addObject();
-                company.put("company_id",rs.getString(1)).put("security_id",rs.getString(2)).put("name",rs.getString(3))
-                        .put("symbol",rs.getString(4)).put("match_method",rs.getString(5));
-                company.set("match_evidence",rs.getString(6)==null?json.mapper().nullNode():json.read(rs.getString(6)));
-            },id);
+        newsRepo.queryContextCompanies(id, rs->{
+            var company=companies.addObject();
+            company.put("company_id",rs.getString(1)).put("security_id",rs.getString(2)).put("name",rs.getString(3))
+                    .put("symbol",rs.getString(4)).put("match_method",rs.getString(5));
+            company.set("match_evidence",rs.getString(6)==null?json.mapper().nullNode():json.read(rs.getString(6)));
+        });
         ObjectNode input=json.mapper().createObjectNode();
         input.put("schema_version","news.input.v1").put("task_code",task).set("article",article);
         return new Context(input,hashes.sha256(article.toString()),List.copyOf(issues));

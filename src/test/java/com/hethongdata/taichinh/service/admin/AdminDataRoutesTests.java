@@ -26,10 +26,10 @@ class AdminDataRoutesTests {
         @Bean MarketDataReadService reads(){return mock(MarketDataReadService.class);}
         @Bean IndexJobProvisioningService indexJobs(){return mock(IndexJobProvisioningService.class);}
         @Bean MacroJobCatalogService macroJobs(){return mock(MacroJobCatalogService.class);}
-        @Bean JdbcTemplate db(){return mock(JdbcTemplate.class);}
+        @Bean com.hethongdata.taichinh.service.macro.MacroCoverageService macroCoverage(){return mock(com.hethongdata.taichinh.service.macro.MacroCoverageService.class);}
         @Bean HistoricalFinancialMetricService metrics(){return mock(HistoricalFinancialMetricService.class);}
         @Bean TrainingDataQualityService quality(){return mock(TrainingDataQualityService.class);}
-        @Bean MarketDataAdminController market(MarketDataReadService r,IndexJobProvisioningService j,MacroJobCatalogService m,JdbcTemplate db){return new MarketDataAdminController(r,j,m,db);}
+        @Bean MarketDataAdminController market(MarketDataReadService r,IndexJobProvisioningService j,MacroJobCatalogService m,com.hethongdata.taichinh.service.macro.MacroCoverageService c){return new MarketDataAdminController(r,j,m,c);}
         @Bean FinancialDataAdminController financial(HistoricalFinancialMetricService m,TrainingDataQualityService q){
             return new FinancialDataAdminController(m,q,mock(com.hethongdata.taichinh.service.financial.FinancialDataQualityService.class),
                 mock(com.hethongdata.taichinh.service.financial.FinancialDisclosureDocumentStore.class));}

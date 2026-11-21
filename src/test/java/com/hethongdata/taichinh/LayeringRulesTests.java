@@ -12,9 +12,6 @@ import org.junit.jupiter.api.Test;
 class LayeringRulesTests {
   // Allowlist: file còn được phép có SQL — xóa dần sau mỗi đợt, cuối cùng phải rỗng
   static final Set<String> ALLOW = Set.of(
-    "controller/admin/LlmAdminController.java",
-    "controller/admin/MarketDataAdminController.java",
-    "config/AdminOperationAuditConfiguration.java",
     "service/llm/LlmRunStore.java",
     "service/news/recovery/NewsRecoveryStore.java",
     "service/forecast/ForecastRunStore.java",

@@ -2,11 +2,11 @@ package com.hethongdata.taichinh.controller.admin;
 
 import com.hethongdata.taichinh.entity.*;
 import com.hethongdata.taichinh.service.market.*;
+import com.hethongdata.taichinh.service.macro.MacroCoverageService;
 import com.hethongdata.taichinh.service.macro.MacroJobCatalogService;
 import java.util.*;
 import org.springframework.data.domain.Page;
 import org.springframework.http.*;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
 
 /** Admin entry points for stored market data and native market catalogs. */
@@ -16,14 +16,14 @@ public class MarketDataAdminController {
     private final MarketDataReadService reads;
     private final IndexJobProvisioningService indexJobs;
     private final MacroJobCatalogService macroJobs;
-    private final JdbcTemplate db;
+    private final MacroCoverageService macroCoverage;
 
     public MarketDataAdminController(MarketDataReadService reads,
-            IndexJobProvisioningService indexJobs, MacroJobCatalogService macroJobs, JdbcTemplate db) {
+            IndexJobProvisioningService indexJobs, MacroJobCatalogService macroJobs, MacroCoverageService macroCoverage) {
         this.reads = reads;
         this.indexJobs = indexJobs;
         this.macroJobs = macroJobs;
-        this.db = db;
+        this.macroCoverage = macroCoverage;
     }
 
     @GetMapping("/market-prices/{symbol}")
@@ -61,12 +61,7 @@ public class MarketDataAdminController {
 
     @GetMapping("/macro/coverage")
     public List<Map<String, Object>> coverage() {
-        return db.queryForList(
-                "SELECT s.code,s.name,s.country_code,s.frequency,s.unit,count(o.id)"
-                    + " observation_count,min(o.observation_date)"
-                    + " first_period_end,max(o.observation_date) last_period_end FROM macro_series"
-                    + " s LEFT JOIN macro_observations o ON o.macro_series_id=s.id WHERE"
-                    + " s.country_code='VNM' GROUP BY s.id ORDER BY s.code");
+        return macroCoverage.coverage();
     }
 
     private static int safePage(int page) { return Math.max(0, page); }

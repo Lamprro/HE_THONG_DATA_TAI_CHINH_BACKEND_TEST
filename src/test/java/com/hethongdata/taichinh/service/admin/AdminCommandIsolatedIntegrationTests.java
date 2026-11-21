@@ -184,10 +184,13 @@ class AdminCommandIsolatedIntegrationTests {
   @Test void promptVersionsRetainSchemasAndPromotionIsAtomicAndAudited() {
     UUID original=UUID.randomUUID();
     db.update("insert into llm_prompt_templates(id,task_code,version,input_domain,description,system_prompt,request_schema,response_schema,checksum,enabled) values (?,'NEWS_SUMMARY','fixture-v1','NEWS','Isolated fixture','Original fixture prompt','{\"type\":\"object\"}','{\"required\":[\"evidence\"]}',?,true)",original,"a".repeat(64));
-    var controller=new com.hethongdata.taichinh.controller.admin.LlmAdminController(null,null,null,null,db,json,new com.hethongdata.taichinh.service.ingestion.ChecksumService());
+    var promptRepo = new com.hethongdata.taichinh.repository.jdbc.llm.PromptTemplateJdbcRepository(db);
+    var auditRepo = new com.hethongdata.taichinh.repository.jdbc.admin.AdminAuditJdbcRepository(db);
+    var promptAdmin = new com.hethongdata.taichinh.service.llm.PromptAdminService(promptRepo, auditRepo, json, new com.hethongdata.taichinh.service.ingestion.ChecksumService());
+    var controller = new com.hethongdata.taichinh.controller.admin.LlmAdminController(null, null, null, null, promptAdmin);
     var tx=new org.springframework.transaction.support.TransactionTemplate(new DataSourceTransactionManager(scoped));
     var request=new com.hethongdata.taichinh.controller.admin.LlmAdminController.PromptVersionRequest(original,"fixture-v2","Updated fixture prompt","Test version lifecycle in isolated schema");
-    var created=tx.execute(s->controller.createPrompt(request));UUID id=(UUID)created.get("id");
+    java.util.Map<String,Object> created=tx.execute(s->controller.createPrompt(request));UUID id=(UUID)created.get("id");
     assertThat(created.get("enabled")).isEqualTo(false);
     assertThat(controller.prompt(original).path("system_prompt").asText()).isEqualTo("Original fixture prompt");
     assertThat(controller.prompt(id).path("response_schema").toString()).contains("evidence");

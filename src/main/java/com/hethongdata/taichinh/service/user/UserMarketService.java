@@ -83,7 +83,11 @@ public class UserMarketService {
     result.put("indicesTruncated", indices.size() > 100);
     result.put("indices", indices.subList(0, Math.min(100, indices.size())));
     result.put("breadth", Map.of("rising", rising, "falling", falling, "unchanged", flat, "unknownChange", unknown, "olderSession", stale, "missingPrice", missing));
-    return data(result, PRICE_NOTE, "Breadth covers tracked active listings on the latest stored session only, not the entire exchange. Changes require comparable source and price basis.", "exchange filters securities only; index cards cover the stored active index catalog, each with its own actual trading date.");
+    return data(
+        result,
+        PRICE_NOTE,
+        "Breadth covers tracked active listings on the latest stored session only, not the entire exchange. Changes require comparable source and price basis.",
+        "exchange filters securities only; index cards cover the stored active index catalog, each with its own actual trading date.");
   }
 
   public Data<Map<String,Object>> filters() {

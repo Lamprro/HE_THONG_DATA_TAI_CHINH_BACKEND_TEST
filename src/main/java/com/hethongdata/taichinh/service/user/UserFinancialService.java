@@ -129,7 +129,11 @@ public class UserFinancialService {
     result.put("series", List.copyOf(series.values()));
     result.put("hasEarlierPeriods", earlier);
     result.put("missingCodes", selected.stream().filter(c -> !found.contains(c)).toList());
-    return data(result, NOTE, "Cells are stored values; different report scope, period basis, currency and unit remain separate series. Missing cells stay absent, never zero.", "This is a current-canonical period view, not a historical-vintage backtest. Quarterly and annual series are never combined by default.");
+    return data(
+        result,
+        NOTE,
+        "Cells are stored values; different report scope, period basis, currency and unit remain separate series. Missing cells stay absent, never zero.",
+        "This is a current-canonical period view, not a historical-vintage backtest. Quarterly and annual series are never combined by default.");
   }
 
   // ---- periods and lineage ----

@@ -6,7 +6,11 @@ import java.util.*;
 
 /** Exact market15 formulas from the trained Java feature pipeline, with no future inputs. */
 public final class QuarterlyMarketFeatures {
-  public static final List<String> NAMES=List.of("return_1q","return_2q","return_4q","volatility_1q","downside_volatility_1q","log_avg_volume_1q","volume_growth_1q","price_to_ma20","price_to_ma50","price_to_ma200","max_drawdown_1q","close_range_1q","positive_day_fraction","return_last5","return_last20");
+  public static final List<String> NAMES = List.of(
+      "return_1q", "return_2q", "return_4q", "volatility_1q", "downside_volatility_1q",
+      "log_avg_volume_1q", "volume_growth_1q", "price_to_ma20", "price_to_ma50",
+      "price_to_ma200", "max_drawdown_1q", "close_range_1q", "positive_day_fraction",
+      "return_last5", "return_last20");
   public record Price(String sourceId,UUID securityId,String ticker,String provider,LocalDate date,double open,double high,double low,double rawClose,double close,double volume,String dataVersion) {}
   public record Origin(UUID securityId,String ticker,String provider,LocalDate asOf,double close,Map<String,Double> features,List<Price> lineage) {}
   public record RealizedReturn(double value,Price originOnEvaluationBasis) {}
@@ -44,7 +48,11 @@ public final class QuarterlyMarketFeatures {
       var seen=new HashSet<LocalDate>();var qs=new TreeMap<LocalDate,List<Price>>();
       for(var d:days){
         if(!seen.add(d.date()))throw new IllegalArgumentException("DUPLICATE_DAILY_SOURCE");
-        if(!(d.close()>0)||!Double.isFinite(d.close())||!(d.rawClose()>0)||!Double.isFinite(d.volume())||d.volume()<0||d.low()<=0||d.high()<Math.max(Math.max(d.open(),d.rawClose()),d.low())||d.low()>Math.min(Math.min(d.open(),d.rawClose()),d.high()))throw new IllegalArgumentException("INVALID_MARKET_SOURCE");
+        if (!(d.close() > 0) || !Double.isFinite(d.close()) || !(d.rawClose() > 0) || !Double.isFinite(d.volume()) || d.volume() < 0 || d.low() <= 0
+            || d.high() < Math.max(Math.max(d.open(), d.rawClose()), d.low())
+            || d.low() > Math.min(Math.min(d.open(), d.rawClose()), d.high())) {
+          throw new IllegalArgumentException("INVALID_MARKET_SOURCE");
+        }
         qs.computeIfAbsent(start(d.date()),k->new ArrayList<>()).add(d);
       }
       var current=qs.get(q);if(!complete(current,q,calendar))continue;

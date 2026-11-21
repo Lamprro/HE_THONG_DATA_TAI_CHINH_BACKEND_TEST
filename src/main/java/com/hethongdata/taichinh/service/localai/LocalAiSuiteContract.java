@@ -20,7 +20,10 @@ public final class LocalAiSuiteContract {
   boolean time=false;try{Instant issued=Instant.parse(out.path("issued_at").asText());time=!issued.isBefore(started.minusSeconds(2))&&!issued.isAfter(Instant.now().plusSeconds(2));}catch(Exception ignored){}c.put("issuance",time);
   String kind=spec.path("kind").asText();boolean values;
   if(kind.equals("h3")){double p=r.path("score_up").asDouble(Double.NaN),t=r.path("threshold").asDouble(Double.NaN);values=number(r.path("score_up"))&&p>=0&&p<=1&&number(r.path("threshold"))&&t>=0&&t<=1&&r.path("direction").asText().equals(p>=t?"UP":"NOT_UP");}
-  else if(kind.equals("quantile")){double a=r.path("return_p10").asDouble(Double.NaN),b=r.path("return_p50").asDouble(Double.NaN),d=r.path("return_p90").asDouble(Double.NaN);values=number(r.path("return_p10"))&&number(r.path("return_p50"))&&number(r.path("return_p90"))&&a>=-1&&a<=b&&b<=d&&r.path("return_unit").asText().equals("FRACTION");}
+  else if(kind.equals("quantile")){
+   double a=r.path("return_p10").asDouble(Double.NaN),b=r.path("return_p50").asDouble(Double.NaN),d=r.path("return_p90").asDouble(Double.NaN);
+   values=number(r.path("return_p10"))&&number(r.path("return_p50"))&&number(r.path("return_p90"))&&a>=-1&&a<=b&&b<=d&&r.path("return_unit").asText().equals("FRACTION");
+  }
   else if(kind.equals("npat")){values=number(r.path("prediction_vnd"))&&r.path("currency").asText().equals("VND")&&r.path("target").asText().equals("NET_PROFIT_AFTER_TAX")&&r.path("report_scope").asText().equals("CONSOLIDATED")&&r.path("period_basis").asText().equals("STANDALONE_QUARTER");}
   else if(kind.equals("rank")){
    double pct=r.path("rank_percentile").asDouble(Double.NaN);
@@ -37,7 +40,11 @@ public final class LocalAiSuiteContract {
     && r.path("probability_status").asText().equals("uncalibrated") && !r.has("probability_outperform")
     && validateRankRisk(r,spec);
   }
-  else{double p=r.path("prediction").asDouble(Double.NaN);String unit=kind.equals("return")?"ADJUSTED_PRICE_RETURN_FRACTION":kind.equals("volatility")?"ANNUALIZED_LOG_RETURN_VOLATILITY":"MAX_CLOSE_DRAWDOWN_FRACTION";values=number(r.path("prediction"))&&r.path("units").asText().equals(unit)&&(kind.equals("return")?p>=-1:kind.equals("volatility")?p>=0:p>=0&&p<=1);}
+  else{
+   double p=r.path("prediction").asDouble(Double.NaN);
+   String unit=kind.equals("return")?"ADJUSTED_PRICE_RETURN_FRACTION":kind.equals("volatility")?"ANNUALIZED_LOG_RETURN_VOLATILITY":"MAX_CLOSE_DRAWDOWN_FRACTION";
+   values=number(r.path("prediction"))&&r.path("units").asText().equals(unit)&&(kind.equals("return")?p>=-1:kind.equals("volatility")?p>=0:p>=0&&p<=1);
+  }
   c.put("values_and_units",values);c.put("passed",c.values().stream().allMatch(Boolean.TRUE::equals));return c;
  }
  static boolean validateRankRisk(JsonNode result,JsonNode spec){

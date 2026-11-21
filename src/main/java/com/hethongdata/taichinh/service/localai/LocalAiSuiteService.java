@@ -107,7 +107,10 @@ public class LocalAiSuiteService {
 
   public Object execute(Request req) {
     requireEnabled();
-    if (req == null || req.packageId() == null || req.requestId() == null || req.modelId() == null || !req.modelId().matches("[a-z0-9_]{2,60}") || req.ticker() == null || !req.ticker().matches("[A-Z0-9]{2,12}") || !Set.of("selected", "challenger", "baseline").contains(req.role() == null ? "" : req.role())) {
+    if (req == null || req.packageId() == null || req.requestId() == null
+        || req.modelId() == null || !req.modelId().matches("[a-z0-9_]{2,60}")
+        || req.ticker() == null || !req.ticker().matches("[A-Z0-9]{2,12}")
+        || !Set.of("selected", "challenger", "baseline").contains(req.role() == null ? "" : req.role())) {
       throw new IllegalArgumentException("INVALID_SUITE_REQUEST");
     }
     var packages = repo.findResearchPackage(req.packageId());

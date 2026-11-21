@@ -32,7 +32,11 @@ public final class RankMarketFeatures {
         var dates=new HashSet<LocalDate>();
         for(var p:data){
           if(!dates.add(p.date()))throw new IllegalArgumentException("DUPLICATE_DAILY_SOURCE");
-          if(!(p.close()>0)||!Double.isFinite(p.close())||!(p.rawClose()>0)||!(p.low()>0)||!Double.isFinite(p.open())||!Double.isFinite(p.high())||!Double.isFinite(p.volume())||p.volume()<0||p.high()<Math.max(p.open(),p.rawClose())||p.low()>Math.min(p.open(),p.rawClose()))throw new IllegalArgumentException("INVALID_MARKET_SOURCE");
+          if (!(p.close() > 0) || !Double.isFinite(p.close()) || !(p.rawClose() > 0) || !(p.low() > 0)
+              || !Double.isFinite(p.open()) || !Double.isFinite(p.high()) || !Double.isFinite(p.volume()) || p.volume() < 0
+              || p.high() < Math.max(p.open(), p.rawClose()) || p.low() > Math.min(p.open(), p.rawClose())) {
+            throw new IllegalArgumentException("INVALID_MARKET_SOURCE");
+          }
         }
         if(data.size()<253||!data.getLast().date().equals(calendar.last()))throw new IllegalArgumentException("SHORT_OR_STALE_HISTORY");
         var history=data.subList(data.size()-253,data.size());

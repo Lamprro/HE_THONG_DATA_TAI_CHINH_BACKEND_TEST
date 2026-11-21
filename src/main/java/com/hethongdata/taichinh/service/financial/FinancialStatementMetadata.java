@@ -36,12 +36,18 @@ public record FinancialStatementMetadata(String reportScope, String periodBasis,
         if (!contract && !"BALANCE_SHEET".equals(statementType)
                 && java.util.Set.of("YEAR","ANNUAL","YEARLY").contains(root.path("report_type").asText())) basis="ANNUAL";
         String currency = metadata.hasNonNull("currency") ? metadata.path("currency").asText() : null;
+        if (currency == null && "vndirect".equalsIgnoreCase(metadata.path("provider").asText(root.path("provider").asText()))) {
+            currency = "VND";
+        }
         require(currency == null || currency.matches("[A-Z]{3}"), "Invalid statement currency");
         Long scale = null;
         if (metadata.hasNonNull("unit_scale")) {
             JsonNode value = metadata.get("unit_scale");
             require(value.isIntegralNumber() && value.canConvertToLong() && value.asLong()>0, "Invalid unit scale");
             scale = value.asLong();
+        }
+        if (scale == null && "vndirect".equalsIgnoreCase(metadata.path("provider").asText(root.path("provider").asText()))) {
+            scale = 1L;
         }
         Instant published = null;
         if (metadata.hasNonNull("published_at")) {

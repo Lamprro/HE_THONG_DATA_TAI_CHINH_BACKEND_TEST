@@ -41,9 +41,6 @@ public interface AdminCommandJpaRepository extends JpaRepository<AdminCommandEnt
         """, nativeQuery = true)
     Optional<ReplayParams> getReplayParams(UUID runId);
 
-    @Query(value = "select exists (select 1 from validation_results where id=:id)", nativeQuery = true)
-    boolean validationResultExists(UUID id);
-
     @Modifying
     @Transactional
     @Query(value = """

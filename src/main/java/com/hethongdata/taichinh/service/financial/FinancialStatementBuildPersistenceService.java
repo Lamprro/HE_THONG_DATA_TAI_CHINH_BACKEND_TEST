@@ -21,6 +21,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.math.BigDecimal;
+import java.util.Set;
+import com.hethongdata.taichinh.service.validation.DataVersionLifecycleService;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -30,6 +33,8 @@ import java.util.UUID;
 /** Owns the all-or-nothing database commit for one validated financial-statement batch. */
 @Service
 public class FinancialStatementBuildPersistenceService {
+    private static final Set<String> REVIEW_ITEMS = Set.of("NET_SALES", "REVENUE", "NET_PROFIT_AFTER_TAX");
+    private static final BigDecimal REVIEW_TOLERANCE = new BigDecimal("0.001");
     private final DataVersionJpaRepository versions;
     private final IngestionRunJpaRepository ingestionRuns;
     private final FinancialPeriodJpaRepository periods;
@@ -70,6 +75,7 @@ public class FinancialStatementBuildPersistenceService {
             if (security == null || security.getCompanyId() == null) {
                 throw new IllegalStateException("No company/security mapping for financial statement symbol " + draft.symbol());
             }
+            securities.findByIdForUpdate(security.getId()).orElseThrow();
             FinancialPeriodEntity period =
                     periods
                             .findByFiscalYearAndPeriodTypeAndEndDate(
@@ -92,6 +98,7 @@ public class FinancialStatementBuildPersistenceService {
                     .isPresent()) {
                 continue;
             }
+            if (version.getReviewedAt() == null) checkSourceConflict(security.getCompanyId(), period.getId(), draft);
             var current = statements
                     .findFirstByCompanyIdAndFinancialPeriodIdAndStatementTypeAndReportScopeAndDataSourceIdAndIsCurrentTrue(
                             security.getCompanyId(), period.getId(), draft.statementType(),
@@ -136,7 +143,8 @@ public class FinancialStatementBuildPersistenceService {
                                 draft.metadata().currency()));
             }
             statements.flush();
-            reconcileCanonical(security.getCompanyId(), period.getId(), draft.statementType(), draft.reportScope());
+            reconcileCanonical(security.getCompanyId(), period.getId(), draft.statementType(), draft.reportScope(),
+                    version.getReviewedAt() != null ? statement.getId() : null);
             inserted++;
         }
         buildRun.markBatchSuccess(
@@ -153,7 +161,30 @@ public class FinancialStatementBuildPersistenceService {
         return inserted;
     }
 
-    private void reconcileCanonical(UUID companyId, UUID periodId, String statementType, String reportScope) {
+    private void checkSourceConflict(UUID company, UUID period, FinancialStatementBuildService.StatementDraft draft) {
+        if (!"INCOME_STATEMENT".equals(draft.statementType()) || draft.metadata().currency() == null
+                || "UNKNOWN".equals(draft.reportScope()) || "UNKNOWN".equals(draft.metadata().periodBasis())) return;
+        var reference = statements.findCurrentBucketForUpdate(company, period, draft.statementType(), draft.reportScope())
+                .stream().filter(row -> Boolean.TRUE.equals(row.getIsCanonical())
+                        && !row.getDataSourceId().equals(draft.rawPayload().getDataSource().getId())
+                        && draft.metadata().currency().equals(row.getCurrency())
+                        && draft.metadata().periodBasis().equals(row.getPeriodBasis()))
+                .findFirst();
+        if (reference.isEmpty()) return;
+        var baseline = items.findByFinancialStatementIdIn(List.of(reference.get().getId()));
+        for (var candidate : draft.items()) {
+            if (!REVIEW_ITEMS.contains(candidate.itemCode()) || candidate.value() == null) continue;
+            var values = baseline.stream().filter(item -> candidate.itemCode().equals(item.getItemCode())
+                    && item.getValue() != null).toList();
+            if (values.size() != 1) continue;
+            DataVersionLifecycleService.requireMatchingSource(draft.rawPayload().getId(),
+                    draft.symbol() + " " + draft.period().endDate() + " " + candidate.itemCode(),
+                    candidate.value(), values.getFirst().getValue(), REVIEW_TOLERANCE);
+        }
+    }
+
+    private void reconcileCanonical(UUID companyId, UUID periodId, String statementType, String reportScope,
+            UUID approvedStatement) {
         List<FinancialStatementEntity> bucket = statements.findCurrentBucketForUpdate(
                 companyId, periodId, statementType, reportScope);
         if (bucket.isEmpty()) throw new IllegalStateException("Không tìm thấy báo cáo tài chính vừa ghi");
@@ -163,7 +194,8 @@ public class FinancialStatementBuildPersistenceService {
                     .orElseThrow(() -> new IllegalStateException("Không tìm thấy data source: " + id)));
         }
         FinancialStatementEntity winner = bucket.stream().min(Comparator
-                .comparing((FinancialStatementEntity row) -> !sourceById.get(row.getDataSourceId()).isOfficial())
+                .comparing((FinancialStatementEntity row) -> !row.getId().equals(approvedStatement))
+                .thenComparing(row -> !sourceById.get(row.getDataSourceId()).isOfficial())
                 .thenComparing(row -> sourceById.get(row.getDataSourceId()).getPriority())
                 .thenComparing(FinancialStatementEntity::getDataSourceId)).orElseThrow();
         for (FinancialStatementEntity row : bucket) row.setCanonical(false);

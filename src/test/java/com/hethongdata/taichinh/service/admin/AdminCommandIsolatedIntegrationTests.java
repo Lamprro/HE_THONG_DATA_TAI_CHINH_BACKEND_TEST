@@ -37,8 +37,6 @@ class AdminCommandIsolatedIntegrationTests {
   static JdbcTemplate admin,db; static DriverManagerDataSource scoped;
   static AnnotationConfigApplicationContext context;
   static AdminCommandJpaRepository commands;
-  static AdminAuditJpaRepository audit;
-  static AdminScheduleJpaRepository schedules;
   static JpaTransactionManager transactions;
 
   @Configuration(proxyBeanMethods = false)
@@ -71,6 +69,7 @@ class AdminCommandIsolatedIntegrationTests {
     assertThat(db.queryForObject("select current_schema()",String.class)).isEqualTo(SCHEMA);
     db.execute(Files.readString(Path.of("src/main/resources/db/manual/V20261019_01__admin_commands.sql")));
     db.execute(Files.readString(Path.of("src/main/resources/db/manual/V20261020_01__admin_flow_controls.sql")));
+    db.execute("drop table admin_operation_events, admin_schedule_policy");
     db.execute("create table ingestion_runs(id uuid primary key,ingestion_run_id uuid,status text,created_at timestamptz,payload jsonb,value numeric)");
     db.execute("create table securities(id uuid primary key,symbol text)");
     db.execute("create table metric_definitions(id bigint primary key,code text)");
@@ -83,7 +82,7 @@ class AdminCommandIsolatedIntegrationTests {
           enabled boolean not null, created_at timestamptz not null default now(), unique (task_code,version)
         );
         create table roles (id bigint primary key, code varchar(50) not null unique);
-        create table accounts (id uuid primary key, username varchar(100), email varchar(255) not null,
+        create table accounts (id uuid primary key, user_id uuid, username varchar(100), email varchar(255) not null,
           password_hash varchar(255) not null, role_id bigint references roles(id), status varchar(30) not null);
         create table ingestion_jobs (is_active boolean);
         create table data_versions (data_domain text, status text);
@@ -97,8 +96,6 @@ class AdminCommandIsolatedIntegrationTests {
     context.register(JpaConfig.class);
     context.refresh();
     commands = context.getBean(AdminCommandJpaRepository.class);
-    audit = context.getBean(AdminAuditJpaRepository.class);
-    schedules = context.getBean(AdminScheduleJpaRepository.class);
     transactions = context.getBean(JpaTransactionManager.class);
   }
   @AfterAll static void cleanup() {
@@ -106,8 +103,8 @@ class AdminCommandIsolatedIntegrationTests {
     if (admin != null && SCHEMA.matches("admin_console_test_[a-f0-9]{32}")) admin.execute("drop schema if exists "+SCHEMA+" cascade");
   }
   @BeforeEach void setup() {
-    db.execute("truncate admin_operation_events,admin_commands,ingestion_runs,securities,metric_definitions,financial_periods,financial_metrics,llm_prompt_templates,ingestion_jobs,data_versions,validation_results,news_articles,data_sources,accounts,roles");
-    service=new AdminCommandService(commands,audit,json,jobs,mock(IngestionService.class),mock(ValidationJobService.class),
+    db.execute("truncate admin_commands,ingestion_runs,securities,metric_definitions,financial_periods,financial_metrics,llm_prompt_templates,ingestion_jobs,data_versions,validation_results,news_articles,data_sources,accounts,roles");
+    service=new AdminCommandService(commands,json,jobs,mock(IngestionService.class),mock(ValidationJobService.class),
         Validation.buildDefaultValidatorFactory().getValidator(),transactions,mock(AdminPipelineService.class),mock(AdminAiActionService.class));
   }
   @AfterEach void stop() { if (service != null) service.stop(); }
@@ -178,14 +175,13 @@ class AdminCommandIsolatedIntegrationTests {
     }
     assertThat(reads.browse("financial_metrics",0,25,"VCB",null,null).get("total")).isEqualTo(0L);
   }
-  @Test void cancellationAndRetryAreAuditedWithoutReusingOriginalCommand() {
+  @Test void cancellationAndRetryKeepTheOriginalCommand() {
     UUID job=UUID.randomUUID();var first=service.submit(request(UUID.randomUUID(),job,"Reviewed job"));UUID id=first.id();
     assertThat(service.cancel(id,"Cancelled before execution").status()).isEqualTo("CANCELLED");
     ReflectionTestUtils.invokeMethod(service,"work");verifyNoInteractions(jobs);
     UUID key=UUID.randomUUID();var retried=service.retry(id,key,"Reviewed and retry",true);
     assertThat(retried.id()).isNotEqualTo(id);assertThat(retried.parentCommandId()).isEqualTo(id);
     assertThat(service.retry(id,key,"Reviewed and retry",true).id()).isEqualTo(retried.id());
-    assertThat(db.queryForObject("select count(*) from admin_operation_events where event_type='CANCELLED'",Integer.class)).isEqualTo(1);
     assertThatThrownBy(()->service.cancel(retried.id()," ")).isInstanceOf(IllegalArgumentException.class);
   }
   @Test void reorderedJsonHasSameIdempotentIdentityAndReplaySharesSourceResource() throws Exception {
@@ -215,24 +211,11 @@ class AdminCommandIsolatedIntegrationTests {
       assertThat(one.run(job,()->"released")).isEqualTo("released");
     } finally {release.countDown();worker.shutdownNow();}
   }
-  @Test void schedulerStartsDisabledAndRejectsEmptyOrStaleScope() {
-    db.update("update admin_schedule_policy set enabled=false,version=0,job_codes='[]' where id='INGESTION'");
-    var definitions=mock(com.hethongdata.taichinh.repository.ingestion.IngestionJobRepository.class);
-    var scheduler=new AdminScheduleService(schedules,audit,json,jobs,definitions,
-        new org.springframework.mock.env.MockEnvironment(),new NativeJobGuard(scoped));
-    var tx=new TransactionTemplate(transactions);
-    try {
-      assertThat(scheduler.status().enabled()).isEqualTo(false);
-      ReflectionTestUtils.invokeMethod(scheduler,"tick");verifyNoInteractions(jobs);
-      assertThat(scheduler.status().heartbeatAt()).isNotNull();
-      assertThatThrownBy(()->scheduler.update(new ScheduleUpdate(true,Set.of(),0,"Enable without scope"))).isInstanceOf(IllegalArgumentException.class);
-      assertThat(tx.execute(status -> scheduler.update(new ScheduleUpdate(false,Set.of(),0,"Keep disabled"))).version()).isEqualTo(1L);
-      assertThatThrownBy(()->tx.execute(status -> scheduler.update(new ScheduleUpdate(false,Set.of(),0,"Stale update")))).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
-    } finally {scheduler.stop();}
-  }
   private AdminConsoleReadService reads() {
     var entities = SharedEntityManagerCreator.createSharedEntityManager(context.getBean(EntityManagerFactory.class));
-    return new AdminConsoleReadService(new AdminConsoleQueryRepository(entities), audit, json);
+    return new AdminConsoleReadService(new AdminConsoleQueryRepository(entities),
+        mock(com.hethongdata.taichinh.repository.jpa.validation.ValidationResultJpaRepository.class),
+        context.getBean(AccountJpaRepository.class), json);
   }
 
   @Test void aSecondTransactionSkipsTheLockedCommandAndCannotCompleteItAsAnotherOwner() throws Exception {
@@ -276,7 +259,7 @@ class AdminCommandIsolatedIntegrationTests {
     assertThat(service.find(first.id()).status()).isEqualTo("SUCCEEDED");
   }
 
-  @Test void concurrentSubmissionWithTheSameKeyProducesOneCommandAndOneAuditEvent() throws Exception {
+  @Test void concurrentSubmissionWithTheSameKeyProducesOneCommand() throws Exception {
     var request = request(UUID.randomUUID(), UUID.randomUUID(), "Same intent");
     var start = new CyclicBarrier(2);
     Callable<Command> submit = () -> {
@@ -289,8 +272,6 @@ class AdminCommandIsolatedIntegrationTests {
       assertThat(one.get(10, TimeUnit.SECONDS).id()).isEqualTo(two.get(10, TimeUnit.SECONDS).id());
     }
     assertThat(db.queryForObject("select count(*) from admin_commands", Long.class)).isEqualTo(1L);
-    assertThat(db.queryForObject("select count(*) from admin_operation_events where event_type='SUBMITTED'", Long.class))
-        .isEqualTo(1L);
   }
 
   @Test void replayKeepsTheOriginalSourceAndConflictsWithEquivalentManualWork() {
@@ -314,7 +295,7 @@ class AdminCommandIsolatedIntegrationTests {
   @Test void accountLoginReadsTheDatabaseRoleAndPasswordHash() {
     var passwords = new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
     db.update("insert into roles values (1,'ADMIN')");
-    db.update("insert into accounts values (?,?,?,?,1,'ACTIVE')",
+    db.update("insert into accounts (id,username,email,password_hash,role_id,status) values (?,?,?,?,1,'ACTIVE')",
         UUID.randomUUID(), "fixture-operator", "fixture@example.test", passwords.encode("test-password"));
     var accounts = new AccountSecurityService(context.getBean(AccountJpaRepository.class), passwords);
     var auth = accounts.authenticate("fixture-operator", "test-password");
@@ -329,7 +310,7 @@ class AdminCommandIsolatedIntegrationTests {
         .isInstanceOf(org.springframework.security.authentication.BadCredentialsException.class);
   }
 
-  @Test void summaryCountsAndReviewsUseTheSameRowsAsTheSqlLedger() {
+  @Test void summaryCountsUseTheSameRowsAsTheSqlLedger() {
     db.update("insert into ingestion_jobs (is_active) values (true), (true), (false)");
     db.update("insert into ingestion_runs (id,status) values (?,'SUCCEEDED')", UUID.randomUUID());
     db.update("insert into data_versions values ('MARKET_PRICE','ACTIVE')");
@@ -345,21 +326,15 @@ class AdminCommandIsolatedIntegrationTests {
     assertThat(summary.runs()).containsExactly(new StatusCount("SUCCEEDED", 1));
     assertThat(summary.versions()).containsExactly(new VersionCount("MARKET_PRICE", "ACTIVE", 1));
     assertThat(summary.validation()).containsExactly(new ValidationCount("RAW", "FAIL", 1));
-    var reviewed = service.reviewIssue(issue, "Confirmed fixture");
-    assertThat(reviewed.validationStatusChanged()).isFalse();
-    assertThat(reads.issueReviews(issue)).singleElement().satisfies(event -> {
-      assertThat(event.id()).isEqualTo(reviewed.id());
-      assertThat(event.eventType()).isEqualTo("ISSUE_REVIEWED");
-    });
     assertThat(reads.articleTitles(List.of(article))).containsExactly(
         new NewsCandidate(article, "Title", java.time.Instant.parse("2026-11-21T01:02:03.123456Z")));
   }
 
-  @Test void promptVersionsRetainSchemasAndPromotionIsAtomicAndAudited() {
+  @Test void promptVersionsRetainSchemasAndPromotionIsAtomic() {
     UUID original=UUID.randomUUID();
     db.update("insert into llm_prompt_templates(id,task_code,version,input_domain,description,system_prompt,request_schema,response_schema,checksum,enabled) values (?,'NEWS_SUMMARY','fixture-v1','NEWS','Isolated fixture','Original fixture prompt','{\"type\":\"object\"}','{\"required\":[\"evidence\"]}',?,true)",original,"a".repeat(64));
     var promptRepo = new com.hethongdata.taichinh.repository.jdbc.llm.PromptTemplateJdbcRepository(db);
-    var promptAdmin = new com.hethongdata.taichinh.service.llm.PromptAdminService(promptRepo, audit, json, new com.hethongdata.taichinh.service.ingestion.ChecksumService());
+    var promptAdmin = new com.hethongdata.taichinh.service.llm.PromptAdminService(promptRepo, json, new com.hethongdata.taichinh.service.ingestion.ChecksumService());
     var controller = new com.hethongdata.taichinh.controller.admin.LlmAdminController(null, null, null, null, promptAdmin);
     var tx=new TransactionTemplate(transactions);
     var request=new com.hethongdata.taichinh.controller.admin.LlmAdminController.PromptVersionRequest(original,"fixture-v2","Updated fixture prompt","Test version lifecycle in isolated schema");
@@ -371,6 +346,5 @@ class AdminCommandIsolatedIntegrationTests {
     assertThat(db.queryForObject("select count(*) from llm_prompt_templates where enabled",Integer.class)).isEqualTo(1);
     assertThat(controller.prompt(id).path("enabled").asBoolean()).isTrue();
     assertThatThrownBy(()->tx.execute(s->controller.createPrompt(request))).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
-    assertThat(db.queryForObject("select count(*) from admin_operation_events where event_type like 'PROMPT_%'",Integer.class)).isEqualTo(2);
   }
 }

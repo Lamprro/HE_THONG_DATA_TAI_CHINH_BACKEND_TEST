@@ -4,6 +4,7 @@ import com.hethongdata.taichinh.repository.jpa.account.AccountJpaRepository;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -27,11 +28,20 @@ public class AccountSecurityService {
             }
             var account = candidates.getFirst();
             var role = account.getRole().getCode().toUpperCase(Locale.ROOT).replaceFirst("^ROLE_", "");
-            var hash = account.getPasswordHash();
-            if (hash.startsWith("{bcrypt}")) hash = hash.substring("{bcrypt}".length());
-            return new AccountPrincipal(account.getUsername(), account.getEmail(), hash, role);
+            if (!List.of("ADMIN", "USER").contains(role)) {
+                throw new UsernameNotFoundException("Account role unavailable");
+            }
+            return new AccountPrincipal(account.getId(), account.getUsername(), account.getEmail(),
+                    account.getPasswordHash(), role);
         });
         provider.setPasswordEncoder(passwords);
+        provider.setUserDetailsPasswordService((details, hash) -> {
+            var principal = (AccountPrincipal) details;
+            if (accounts.replacePasswordHash(principal.id, principal.getPassword(), hash) != 1) {
+                throw new BadCredentialsException("Account credentials changed");
+            }
+            return new AccountPrincipal(principal.id, principal.getUsername(), principal.email(), hash, principal.role);
+        });
         this.authentication = new ProviderManager(provider);
     }
 
@@ -43,11 +53,15 @@ public class AccountSecurityService {
     }
 
     static final class AccountPrincipal extends User {
+        private final UUID id;
         private final String email;
+        private final String role;
 
-        AccountPrincipal(String username, String email, String hash, String role) {
+        AccountPrincipal(UUID id, String username, String email, String hash, String role) {
             super(username, hash, true, true, true, true, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
+            this.id = id;
             this.email = email;
+            this.role = role;
         }
 
         String email() { return email; }

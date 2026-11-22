@@ -7,6 +7,12 @@ import com.hethongdata.taichinh.entity.validation.ValidationRuleEntity;
 import com.hethongdata.taichinh.repository.jpa.validation.DataVersionJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.validation.ValidationResultJpaRepository;
 import com.hethongdata.taichinh.service.validation.ValidationJobService;
+import com.hethongdata.taichinh.service.validation.DataVersionLifecycleService;
+import com.hethongdata.taichinh.repository.jpa.account.AccountJpaRepository;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.HttpStatus;
 import com.hethongdata.taichinh.service.validation.ValidationRuleCatalogService;
 
 import org.springframework.data.domain.PageRequest;
@@ -17,6 +23,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -28,16 +36,22 @@ public class ValidationAdminController {
     private final ValidationRuleCatalogService rules;
     private final ValidationResultJpaRepository results;
     private final DataVersionJpaRepository versions;
+    private final DataVersionLifecycleService lifecycle;
+    private final AccountJpaRepository accounts;
+
+    public record SourceReview(@NotNull Boolean accept, String reason) {}
 
     public ValidationAdminController(
             ValidationJobService jobs,
             ValidationRuleCatalogService rules,
             ValidationResultJpaRepository results,
-            DataVersionJpaRepository versions) {
+            DataVersionJpaRepository versions, DataVersionLifecycleService lifecycle, AccountJpaRepository accounts) {
         this.jobs = jobs;
         this.rules = rules;
         this.results = results;
         this.versions = versions;
+        this.lifecycle = lifecycle;
+        this.accounts = accounts;
     }
 
     @PostMapping("/rules/seed")
@@ -72,6 +86,16 @@ public class ValidationAdminController {
             @RequestParam(defaultValue = "50") int limit) {
         return results.findByStatusAndHandlingStatusOrderByCheckedAtDesc(
                 "FAIL", "OPEN", PageRequest.of(0, Math.max(1, Math.min(limit, 100))));
+    }
+
+    @PostMapping("/data-versions/{versionId}/review")
+    public DataVersionEntity review(@PathVariable UUID versionId, @Valid @RequestBody SourceReview decision,
+            Authentication authentication) {
+        var matches = accounts.findTop2ByUsername(authentication.getName());
+        if (matches.size() != 1 || matches.getFirst().getUserId() == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Admin account has no unique user profile");
+        }
+        return lifecycle.reviewSourceConflict(versionId, matches.getFirst().getUserId(), decision.accept(), decision.reason());
     }
 
     @GetMapping("/data-versions")

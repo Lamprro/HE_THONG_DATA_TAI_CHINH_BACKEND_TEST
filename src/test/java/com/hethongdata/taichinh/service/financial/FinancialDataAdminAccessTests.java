@@ -16,7 +16,6 @@ import static org.mockito.Mockito.*;
 @Import(SecurityConfiguration.class)
 class FinancialDataAdminAccessTests {
  @Autowired MockMvc mvc;
- @MockitoBean com.hethongdata.taichinh.repository.jpa.admin.AdminAuditJpaRepository auditDatabase;
  @MockitoBean FinancialDataQualityService service;
  @MockitoBean FinancialDisclosureDocumentStore store;
  @MockitoBean HistoricalFinancialMetricService metrics;

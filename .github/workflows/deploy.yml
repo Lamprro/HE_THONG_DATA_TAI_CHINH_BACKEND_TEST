@@ -21,19 +21,13 @@ jobs:
       - name: Deploy with Docker Compose
         env:
           FINANCIAL_JWT_SECRET: ${{ secrets.FINANCIAL_JWT_SECRET }}
-          FINANCIAL_ADMIN_SMOKE_USERNAME: ${{ secrets.FINANCIAL_ADMIN_SMOKE_USERNAME }}
-          FINANCIAL_ADMIN_SMOKE_PASSWORD: ${{ secrets.FINANCIAL_ADMIN_SMOKE_PASSWORD }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import base64, binascii, os
-          try:
-              key = base64.b64decode(os.environ["FINANCIAL_JWT_SECRET"], validate=True)
-          except (ValueError, binascii.Error):
-              key = b""
-          if len(key) < 32 or not all(os.environ.get(name) for name in
-                  ("FINANCIAL_ADMIN_SMOKE_USERNAME", "FINANCIAL_ADMIN_SMOKE_PASSWORD")):
-              raise SystemExit("Configure JWT signing key and Admin smoke account secrets.")
+          import os
+          key = os.environ["FINANCIAL_JWT_SECRET"]
+          if not key.strip() or len(key.encode("utf-8")) < 32:
+              raise SystemExit("FINANCIAL_JWT_SECRET needs at least 32 UTF-8 bytes.")
           PY
           # Keep the server's Docker/Maven cache between deployments.
           # The changed service is recreated by compose without taking the
@@ -54,26 +48,15 @@ jobs:
             sleep 2
           done
 
-          python3 - <<'PY'
-          import json, os
-          from urllib.request import Request, urlopen
-          from urllib.error import URLError
-          base = "http://127.0.0.1:8080"
-          credentials = json.dumps({
-              "username": os.environ["FINANCIAL_ADMIN_SMOKE_USERNAME"],
-              "password": os.environ["FINANCIAL_ADMIN_SMOKE_PASSWORD"],
-          }).encode()
-          try:
-              login = Request(base + "/api/auth/login", data=credentials, headers={"Content-Type": "application/json"})
-              with urlopen(login, timeout=15) as response:
-                  token = json.load(response)["accessToken"]
-              coverage = Request(base + "/api/admin/financial-data/quality/coverage",
-                  headers={"Authorization": "Bearer " + token})
-              with urlopen(coverage, timeout=20):
-                  print("Admin JWT smoke check passed.")
-          except (URLError, ValueError, KeyError):
-              raise SystemExit("Admin JWT smoke check failed. Verify the DB account and role.")
-          PY
+          # Successful login is covered by the Backend tests workflow with fixture credentials.
+          login_status=$(curl --silent --show-error --max-time 10 --output /dev/null --write-out '%{http_code}' \
+            --header 'Content-Type: application/json' --data '{}' http://127.0.0.1:8080/api/auth/login)
+          admin_status=$(curl --silent --show-error --max-time 10 --output /dev/null --write-out '%{http_code}' \
+            http://127.0.0.1:8080/api/admin/console/session)
+          if [ "$login_status" != 400 ] || [ "$admin_status" != 401 ]; then
+            echo "Unexpected login or Admin access status."
+            exit 1
+          fi
 
           # Remove only dangling layers; keep tagged images for rollback.
           docker image prune --force

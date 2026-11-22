@@ -99,10 +99,14 @@ public class MarketPriceEntity {
     @Column(name = "price_metadata", columnDefinition = "jsonb")
     private com.fasterxml.jackson.databind.JsonNode priceMetadata = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
 
+    public static boolean hasUnadjustedClose(String provider, BigDecimal adjustedClose) {
+        return ("vndirect".equalsIgnoreCase(provider) || "cafef".equalsIgnoreCase(provider))
+                && adjustedClose != null;
+    }
+
     public void annotatePriceSource(String provider, Instant fetchedAt) {
         if (firstSeenAt == null) firstSeenAt = fetchedAt;
-        priceBasis = ("vndirect".equalsIgnoreCase(provider) || "cafef".equalsIgnoreCase(provider))
-                && adjustedClose != null ? "UNADJUSTED" : "UNKNOWN";
+        priceBasis = hasUnadjustedClose(provider, adjustedClose) ? "UNADJUSTED" : "UNKNOWN";
         priceMetadata=com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode()
                 .put("contract","price.source-observation.v1").put("provider",provider)
                 .put("sourceRawId",rawPayloadId.toString()).put("sourceObservedAt",fetchedAt.toString())

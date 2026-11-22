@@ -6,7 +6,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
 public final class TestJwt {
-    private static final String TEST_KEY = "ZmFrZS1sb2NhbC1maW5hbmNpYWwtand0LWZpeHR1cmUta2V5";
+    private static final String TEST_KEY = "fake local financial JWT fixture key only";
     public static final String PROPERTY = "financial.security.jwt-secret=" + TEST_KEY;
     private static final JwtService TOKENS = new JwtService(TEST_KEY);
 

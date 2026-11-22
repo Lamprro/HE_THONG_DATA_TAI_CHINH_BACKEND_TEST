@@ -44,7 +44,7 @@ financial.llm.gemini.max-output-tokens=${GEMINI_MAX_OUTPUT_TOKENS:16384}
 financial.llm.gemini.thinking-budget=${GEMINI_THINKING_BUDGET:1024}
 financial.llm.scheduler.enabled=false
 financial.validation.scheduler.enabled=false
-# Base64 of at least 32 random bytes. Required by the production profile.
+# Authentication secret as plain text, at least 32 UTF-8 bytes. Required in production.
 financial.security.jwt-secret=${FINANCIAL_JWT_SECRET:}
 
 # Cloudinary document storage: fill values in the gitignored local file or environment.

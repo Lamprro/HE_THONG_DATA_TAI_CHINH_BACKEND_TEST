@@ -80,6 +80,20 @@ public class ValidationResultEntity {
     @Column(name = "resolution_note")
     private String resolutionNote;
 
+    public void recordReview(UUID reviewer, String note) {
+        if (!"FAIL".equals(status)) {
+            throw new IllegalArgumentException("Only failed validation results can be reviewed");
+        }
+        resolvedByUserId = reviewer;
+        resolvedAt = Instant.now();
+        resolutionNote = note;
+    }
+
+    public void resolveSourceReview(UUID reviewer, String note) {
+        recordReview(reviewer, note);
+        handlingStatus = "RESOLVED";
+    }
+
     public static ValidationResultEntity create(
             Long ruleId,
             String ruleCode,

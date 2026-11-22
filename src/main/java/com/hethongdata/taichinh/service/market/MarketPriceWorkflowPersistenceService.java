@@ -18,6 +18,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.math.BigDecimal;
+import com.hethongdata.taichinh.service.validation.DataVersionLifecycleService;
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
@@ -29,6 +31,10 @@ import java.util.UUID;
 /** Atomic normalized write boundary for accepted QUOTE and OHLCV versions. */
 @Service
 public class MarketPriceWorkflowPersistenceService {
+    private static final Comparator<DataSourceEntity> SOURCE_PRIORITY = Comparator
+            .comparing((DataSourceEntity source) -> !source.isOfficial())
+            .thenComparing(DataSourceEntity::getPriority)
+            .thenComparing(DataSourceEntity::getId);
     private final DataVersionJpaRepository versions;
     private final RawPayloadJpaRepository rawPayloads;
     private final IngestionRunJpaRepository runs;
@@ -65,6 +71,7 @@ public class MarketPriceWorkflowPersistenceService {
             throw new IllegalStateException("Data version MARKET_PRICE chứa loại payload không phù hợp");
         }
         int inserted = 0, updated = 0, fetched = 0, skipped = 0;
+        Map<Long, DataSourceEntity> sourceCache = new HashMap<>();
         var touchedSecurities=new java.util.HashSet<UUID>();
         for (RawPayloadEntity raw : payloads) {
             var batch = parser.parse(raw.getPayload(), raw.getEntityType(),
@@ -72,7 +79,7 @@ public class MarketPriceWorkflowPersistenceService {
             SecurityEntity security = lockedSecurity(raw, batch.symbol());
             touchedSecurities.add(security.getId());
             if (batch.rows().size() >= 100 && batch.rows().stream().allMatch(row -> "1d".equals(row.interval()))) {
-                int[] counts = buildDailyBatch(raw, versionId, security.getId(), batch.rows());
+                int[] counts = buildDailyBatch(raw, version, security.getId(), batch.rows());
                 fetched += batch.rows().size(); inserted += counts[0]; updated += counts[1]; skipped += counts[2];
                 continue;
             }
@@ -80,6 +87,12 @@ public class MarketPriceWorkflowPersistenceService {
                 fetched++;
                 Instant storageTimestamp = storageTimestamp(
                         security.getId(), raw.getDataSource().getId(), row);
+                if (version.getReviewedAt() == null && "1d".equals(row.interval()) && comparableClose(raw, row)
+                        && duplicateDailyClose(raw, row,
+                        prices.findBucketForUpdate(security.getId(), storageTimestamp, row.interval()), sourceCache)) {
+                    skipped++;
+                    continue;
+                }
                 var existing = prices.findBySecurityIdAndPriceTimestampAndIntervalCodeAndDataSourceId(
                         security.getId(), storageTimestamp, row.interval(), raw.getDataSource().getId());
                 if (existing.isPresent()) {
@@ -110,7 +123,8 @@ public class MarketPriceWorkflowPersistenceService {
                     prices.saveAndFlush(created);
                     inserted++;
                 }
-                reconcileCanonical(security.getId(), storageTimestamp, row.interval());
+                reconcileCanonical(security.getId(), storageTimestamp, row.interval(),
+                        version.getReviewedAt() != null ? versionId : null);
             }
         }
         touchedSecurities.forEach(prices::linkKnownForeignObservations);
@@ -153,7 +167,7 @@ public class MarketPriceWorkflowPersistenceService {
         return securities.findByIdForUpdate(found.getId()).orElseThrow();
     }
 
-    private void reconcileCanonical(UUID securityId, Instant timestamp, String interval) {
+    private void reconcileCanonical(UUID securityId, Instant timestamp, String interval, UUID approvedVersion) {
         List<MarketPriceEntity> bucket = prices.findBucketForUpdate(securityId, timestamp, interval);
         if (bucket.isEmpty()) throw new IllegalStateException("Không tìm thấy giá vừa ghi");
         Map<Long, DataSourceEntity> sourceById = new HashMap<>();
@@ -161,10 +175,9 @@ public class MarketPriceWorkflowPersistenceService {
             sourceById.computeIfAbsent(row.getDataSourceId(), this::source);
         }
         Comparator<MarketPriceEntity> preference = Comparator
-                .comparing((MarketPriceEntity row) -> !"UNADJUSTED".equals(row.getPriceBasis()))
-                .thenComparing(row -> !sourceById.get(row.getDataSourceId()).isOfficial())
-                .thenComparing(row -> sourceById.get(row.getDataSourceId()).getPriority())
-                .thenComparing(MarketPriceEntity::getDataSourceId);
+                .comparing((MarketPriceEntity row) -> approvedVersion == null || !approvedVersion.equals(row.getDataVersionId()))
+                .thenComparing(row -> !"UNADJUSTED".equals(row.getPriceBasis()))
+                .thenComparing(row -> sourceById.get(row.getDataSourceId()), SOURCE_PRIORITY);
         MarketPriceEntity winner = bucket.stream().min(preference).orElseThrow();
         for (MarketPriceEntity row : bucket) row.setCanonical(false);
         prices.saveAllAndFlush(bucket);
@@ -173,8 +186,9 @@ public class MarketPriceWorkflowPersistenceService {
     }
 
     /** The security row is already locked across all writers. Load daily buckets once for backfill. */
-    private int[] buildDailyBatch(RawPayloadEntity raw, UUID versionId, UUID securityId,
+    private int[] buildDailyBatch(RawPayloadEntity raw, DataVersionEntity version, UUID securityId,
             List<MarketPricePayloadParser.PriceRow> rows) {
+        UUID versionId=version.getId();
         Instant start=rows.stream().map(MarketPricePayloadParser.PriceRow::timestamp).min(Instant::compareTo).orElseThrow();
         Instant end=rows.stream().map(MarketPricePayloadParser.PriceRow::timestamp).max(Instant::compareTo).orElseThrow();
         Map<Instant,List<MarketPriceEntity>> buckets=new HashMap<>();
@@ -186,6 +200,11 @@ public class MarketPriceWorkflowPersistenceService {
         int inserted=0,updated=0,skipped=0;
         for (var row:rows) {
             var bucket=buckets.computeIfAbsent(row.timestamp(),ignored->new java.util.ArrayList<>());
+            if (version.getReviewedAt() == null && comparableClose(raw, row)
+                    && duplicateDailyClose(raw, row, bucket, sourceCache)) {
+                skipped++;
+                continue;
+            }
             var sameSource=bucket.stream().filter(p->p.getDataSourceId().equals(raw.getDataSource().getId())).findFirst();
             if (sameSource.isEmpty()) {
                 var created=MarketPriceEntity.create(securityId,row.timestamp(),row.interval(),row.open(),row.high(),row.low(),
@@ -209,10 +228,9 @@ public class MarketPriceWorkflowPersistenceService {
             }
             for (var p:bucket) sourceCache.computeIfAbsent(p.getDataSourceId(),this::source);
             var winner=bucket.stream().min(Comparator
-                    .comparing((MarketPriceEntity p)->!"UNADJUSTED".equals(p.getPriceBasis()))
-                    .thenComparing(p->!sourceCache.get(p.getDataSourceId()).isOfficial())
-                    .thenComparing(p->sourceCache.get(p.getDataSourceId()).getPriority())
-                    .thenComparing(MarketPriceEntity::getDataSourceId)).orElseThrow();
+                    .comparing((MarketPriceEntity p) -> version.getReviewedAt() == null || !versionId.equals(p.getDataVersionId()))
+                    .thenComparing(p -> !"UNADJUSTED".equals(p.getPriceBasis()))
+                    .thenComparing(p -> sourceCache.get(p.getDataSourceId()), SOURCE_PRIORITY)).orElseThrow();
             var displaced=bucket.stream().filter(p->p!=winner && Boolean.TRUE.equals(p.getIsCanonical())).toList();
             if (!displaced.isEmpty()) {
                 displaced.forEach(p->p.setCanonical(false));prices.saveAllAndFlush(displaced);
@@ -222,6 +240,26 @@ public class MarketPriceWorkflowPersistenceService {
             }
         }
         return new int[]{inserted,updated,skipped};
+    }
+
+    private boolean comparableClose(RawPayloadEntity raw, MarketPricePayloadParser.PriceRow row) {
+        return row.close() != null && MarketPriceEntity.hasUnadjustedClose(raw.getPayload().path("provider").asText(),
+                row.adjustedClose());
+    }
+
+    private boolean duplicateDailyClose(RawPayloadEntity raw, MarketPricePayloadParser.PriceRow row,
+            List<MarketPriceEntity> bucket, Map<Long, DataSourceEntity> sourceCache) {
+        var canonical = bucket.stream().filter(price -> Boolean.TRUE.equals(price.getIsCanonical())
+                && "UNADJUSTED".equals(price.getPriceBasis()) && price.getClosePrice() != null
+                && !price.getDataSourceId().equals(raw.getDataSource().getId())).findFirst();
+        if (canonical.isEmpty()) return false;
+        var current = canonical.get();
+        DataVersionLifecycleService.requireMatchingSource(raw.getId(),
+                "Giá đóng cửa " + raw.getSourceSymbol() + " "
+                        + row.timestamp().atZone(MarketPricePayloadParser.VIETNAM_ZONE).toLocalDate(),
+                row.close(), current.getClosePrice(), BigDecimal.ZERO);
+        return SOURCE_PRIORITY.compare(raw.getDataSource(),
+                sourceCache.computeIfAbsent(current.getDataSourceId(), this::source)) > 0;
     }
 
     /** Only an empty locked range uses JDBC batching; correction and winner rules stay in JPA. */

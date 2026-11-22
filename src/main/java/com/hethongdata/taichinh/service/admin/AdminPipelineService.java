@@ -67,7 +67,9 @@ public class AdminPipelineService {
       progress.accept(result.deepCopy());return result;
     }
     if(!"ACTIVE".equals(version.get().getStatus())) {
-      result.put("status",version.get().getStatus()).put("stage","STOPPED_AT_VALIDATION");
+      String status = version.get().getStatus();
+      result.put("status", status).put("stage",
+          "PENDING_REVIEW".equals(status) ? "WAITING_FOR_SOURCE_REVIEW" : "STOPPED_AT_VALIDATION");
       progress.accept(result.deepCopy());return result;
     }
     var definition=definitions.findAllEntities().stream().filter(j->code.equals(j.getCode())).findFirst()
@@ -76,7 +78,9 @@ public class AdminPipelineService {
     var build=jobs.runVersion(definition.getId(),version.get().getId());
     result.set("build",json.valueToTree(build));
     String status=versions.findById(version.get().getId()).orElseThrow().getStatus();
-    result.put("status",status).put("stage","COMPLETE"); progress.accept(result.deepCopy());
+    result.put("status", status).put("stage",
+        "PENDING_REVIEW".equals(status) ? "WAITING_FOR_SOURCE_REVIEW" : "COMPLETE");
+    progress.accept(result.deepCopy());
     return result;
   }
 }

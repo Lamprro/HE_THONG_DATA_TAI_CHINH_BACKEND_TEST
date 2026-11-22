@@ -4,7 +4,6 @@ import static com.hethongdata.taichinh.security.SecurityConfiguration.currentAct
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hethongdata.taichinh.repository.jpa.admin.AdminAuditJpaRepository;
 import com.hethongdata.taichinh.repository.jdbc.llm.PromptTemplateJdbcRepository;
 import com.hethongdata.taichinh.service.ingestion.ChecksumService;
 import java.util.*;
@@ -15,17 +14,15 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class PromptAdminService {
+  private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(PromptAdminService.class);
   private final PromptTemplateJdbcRepository repository;
-  private final AdminAuditJpaRepository auditRepository;
   private final ObjectMapper json;
   private final ChecksumService hashes;
 
   public PromptAdminService(PromptTemplateJdbcRepository repository,
-      AdminAuditJpaRepository auditRepository,
       ObjectMapper json,
       ChecksumService hashes) {
     this.repository = repository;
-    this.auditRepository = auditRepository;
     this.json = json;
     this.hashes = hashes;
   }
@@ -63,7 +60,7 @@ public class PromptAdminService {
     if (n != 1) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "Prompt version already exists; existing versions are immutable");
     }
-    auditRepository.recordEvent(UUID.randomUUID(), "PROMPT_CREATED", id, reason,currentActor());
+    LOG.info("Admin {} created prompt version {}", currentActor(), id);
     return Map.of("id", id, "version", version, "enabled", false, "checksum", checksum);
   }
 
@@ -75,7 +72,7 @@ public class PromptAdminService {
       repository.disableTaskPrompts(task);
     }
     repository.setEnabled(id, enabled);
-    auditRepository.recordEvent(UUID.randomUUID(), enabled ? "PROMPT_ENABLED" : "PROMPT_DISABLED", id, reason,currentActor());
+    LOG.info("Admin {} set prompt {} enabled={}", currentActor(), id, enabled);
     return Map.of("id", id, "enabled", enabled);
   }
 }

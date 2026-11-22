@@ -9,20 +9,17 @@ import com.hethongdata.taichinh.entity.account.RoleEntity;
 import com.hethongdata.taichinh.repository.jpa.account.AccountJpaRepository;
 import com.hethongdata.taichinh.security.AccountSecurityService;
 import com.hethongdata.taichinh.support.TestJwt;
-import com.hethongdata.taichinh.config.AdminOperationAuditConfiguration;
 import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.*;
 import com.hethongdata.taichinh.config.OpenApiConfiguration;
 import com.hethongdata.taichinh.security.SecurityConfiguration;
 import com.hethongdata.taichinh.controller.admin.AdminConsoleController;
 import com.hethongdata.taichinh.controller.admin.CatalogAdminController;
-import com.hethongdata.taichinh.repository.jpa.admin.AdminAuditJpaRepository;
 import com.hethongdata.taichinh.service.ingestion.IngestionJobCatalogService;
 import com.hethongdata.taichinh.service.llm.LlmPromptCatalog;
 import com.hethongdata.taichinh.service.llm.NewsLlmService;
 import com.hethongdata.taichinh.service.master.MasterDataCatalogService;
 import java.time.Instant;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,13 +35,11 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -55,7 +50,7 @@ class AdminConsoleHttpTests {
 
     @Configuration(proxyBeanMethods = false)
     @EnableAutoConfiguration(exclude = DataSourceAutoConfiguration.class)
-    @Import({SecurityConfiguration.class, OpenApiConfiguration.class, AdminOperationAuditConfiguration.class,
+    @Import({SecurityConfiguration.class, OpenApiConfiguration.class,
         AdminConsoleController.class, CatalogAdminController.class, AdminRuntimeService.class,
         AuthController.class, AccountSecurityService.class, ApiExceptionHandler.class})
     static class Config {}
@@ -64,10 +59,8 @@ class AdminConsoleHttpTests {
     @Autowired ObjectMapper json;
     @Autowired PasswordEncoder passwords;
     @MockitoBean AccountJpaRepository accounts;
-    @MockitoBean AdminAuditJpaRepository audit;
     @MockitoBean AdminConsoleReadService reads;
     @MockitoBean AdminCommandService commands;
-    @MockitoBean AdminScheduleService schedule;
     @MockitoBean NewsLlmService news;
     @MockitoBean IngestionJobCatalogService jobs;
     @MockitoBean MasterDataCatalogService master;
@@ -101,14 +94,13 @@ class AdminConsoleHttpTests {
     }
 
     @Test
-    void writingCatalogRequiresAdminAndAuditsTheAuthenticatedActor() throws Exception {
+    void writingCatalogRequiresAdmin() throws Exception {
         var path = "/api/admin/catalog/ingestion-jobs/retry-budget";
         when(jobs.initializeRetryBudgets()).thenReturn(2);
         mvc.perform(post(path)).andExpect(status().isUnauthorized());
         mvc.perform(post(path).header("Authorization", OPERATOR))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.count").value(2));
         verify(jobs).initializeRetryBudgets();
-        verify(audit).recordHttpMutation(any(UUID.class), eq("POST"), eq(path), eq(200), eq("operator"));
     }
 
     @Test
@@ -146,18 +138,17 @@ class AdminConsoleHttpTests {
                 .andExpect(jsonPath("$.validation[0].validation_target").value("RAW"))
                 .andExpect(jsonPath("$.validation[0].result_status").value("FAIL"));
 
-        var policy = new Schedule("INGESTION", false, Set.of("JOB"), 2, "Keep disabled",
-                now, now, null, null, null, true, false, "UTC cron / Asia/Ho_Chi_Minh business dates");
-        when(schedule.status()).thenReturn(policy);
-        when(schedule.update(any(ScheduleUpdate.class))).thenReturn(policy);
-        mvc.perform(get(base + "/schedule").header("Authorization", OPERATOR)).andExpect(status().isOk())
-                .andExpect(jsonPath("$.job_codes[0]").value("JOB")).andExpect(jsonPath("$.workerEnabled").value(true))
-                .andExpect(jsonPath("$.heartbeat_at").value(now.toString()));
-        mvc.perform(put(base + "/schedule").header("Authorization", OPERATOR).contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {"enabled":false,"jobCodes":["JOB"],"version":1,"reason":"Keep disabled"}
-                    """)).andExpect(status().isOk()).andExpect(jsonPath("$.version").value(2));
-        verify(schedule).update(new ScheduleUpdate(false, Set.of("JOB"), 1, "Keep disabled"));
+    }
+
+    @Test
+    void notesUseTheValidatedUsername() throws Exception {
+        var id = UUID.randomUUID();
+        when(reads.reviewIssue(id, "Checked provider", "operator")).thenReturn(new ReviewReceipt(id, id, false));
+        mvc.perform(post("/api/admin/console/issues/" + id + "/reviews").header("Authorization", OPERATOR)
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                    {"reason":"Checked provider"}
+                    """)).andExpect(status().isOk()).andExpect(jsonPath("$.validationStatusChanged").value(false));
+        verify(reads).reviewIssue(id, "Checked provider", "operator");
     }
 
     @Test

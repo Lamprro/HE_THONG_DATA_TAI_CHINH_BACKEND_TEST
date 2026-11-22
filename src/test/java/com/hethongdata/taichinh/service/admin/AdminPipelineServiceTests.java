@@ -34,7 +34,7 @@ class AdminPipelineServiceTests {
     assertThat(result.path("status").asText()).isEqualTo("VALIDATION_BLOCKED");verifyNoInteractions(jobs,definitions);
     verify(validation).validate(any());assertThat(progress.getLast()).isEqualTo(result);
   }
-  @ParameterizedTest @CsvSource({"ACTIVATED,ALREADY_ACTIVATED,COMPLETE","REJECTED,REJECTED,STOPPED_AT_VALIDATION"})
+  @ParameterizedTest @CsvSource({"ACTIVATED,ALREADY_ACTIVATED,COMPLETE","REJECTED,REJECTED,STOPPED_AT_VALIDATION","PENDING_REVIEW,PENDING_REVIEW,WAITING_FOR_SOURCE_REVIEW"})
   void terminalSourceResumePersistsItsActualFinalStage(String state,String status,String stage) {
     UUID run=fixture("OHLCV");var version=DataVersionEntity.acceptedForRun("MARKET_PRICE",run,1,"fixture");
     ReflectionTestUtils.setField(version,"id",UUID.randomUUID());ReflectionTestUtils.setField(version,"status",state);

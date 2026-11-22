@@ -11,6 +11,9 @@ public class AccountEntity {
     @Id
     private UUID id;
 
+    @Column(name = "user_id")
+    private UUID userId;
+
     private String username;
     private String email;
     private String status;

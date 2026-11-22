@@ -3,7 +3,11 @@ package com.hethongdata.taichinh.service.admin;
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.node.*;
 import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.*;
-import com.hethongdata.taichinh.repository.jpa.admin.AdminAuditJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.account.AccountJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.validation.ValidationResultJpaRepository;
+import org.springframework.http.HttpStatus;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 import com.hethongdata.taichinh.repository.jpa.admin.AdminConsoleQueryRepository;
 import java.util.*;
 import org.springframework.stereotype.Service;
@@ -17,7 +21,7 @@ public class AdminConsoleReadService {
       "security_index_memberships", "macro_series", "macro_observations", "news_articles", "llm_runs",
       "llm_run_attempts", "llm_validation_rounds", "llm_results", "llm_prompt_templates",
       "security_foreign_observations", "security_reference_observations",
-      "admin_commands", "admin_operation_events", "financial_disclosure_documents");
+      "admin_commands", "financial_disclosure_documents");
   private static final Set<String> OMIT = Set.of("body", "payload", "raw_text", "payload_json", "request_headers", "response_headers",
       "response_snapshot", "response_text", "request_body");
   private static final Set<String> EXACT = Set.of("id","raw_payload_id","data_version_id","validation_target","llm_run_id",
@@ -28,12 +32,15 @@ public class AdminConsoleReadService {
     return result;
   }
   private final AdminConsoleQueryRepository repository;
-  private final AdminAuditJpaRepository audit;
+  private final ValidationResultJpaRepository validation;
+  private final AccountJpaRepository accounts;
   private final ObjectMapper json;
 
-  public AdminConsoleReadService(AdminConsoleQueryRepository repository, AdminAuditJpaRepository audit, ObjectMapper json) {
+  public AdminConsoleReadService(AdminConsoleQueryRepository repository, ValidationResultJpaRepository validation,
+      AccountJpaRepository accounts, ObjectMapper json) {
     this.repository = repository;
-    this.audit = audit;
+    this.validation = validation;
+    this.accounts = accounts;
     this.json = json.copy().enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
         .enable(DeserializationFeature.USE_BIG_INTEGER_FOR_INTS);
   }
@@ -45,11 +52,28 @@ public class AdminConsoleReadService {
   public List<NewsCandidate> articleTitles(List<UUID> ids) {
     return repository.articleTitles(ids);
   }
-  public List<IssueReview> issueReviews(UUID validationResultId) {
-    return audit.findByTargetIdOrderByCreatedAtDescIdDesc(validationResultId).stream()
-        .map(row -> new IssueReview(row.getId(), row.getEventType(), row.getReason(), row.getPrincipal(), row.getCreatedAt()))
-        .toList();
+  public List<IssueReview> issueReviews(UUID id) {
+    var result = validation.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+    if (result.getResolutionNote() == null) return List.of();
+    String principal = result.getResolvedByUserId() == null ? null : accounts.findByUserId(result.getResolvedByUserId())
+        .map(account -> account.getUsername()).orElse(null);
+    return List.of(new IssueReview(id, "ISSUE_REVIEWED", result.getResolutionNote(), principal, result.getResolvedAt()));
   }
+
+  @Transactional
+  public ReviewReceipt reviewIssue(UUID id, String note, String username) {
+    if (note == null || note.isBlank() || note.length() > 2000) {
+      throw new IllegalArgumentException("A reason (1..2000) is required");
+    }
+    var account = accounts.findTop2ByUsername(username);
+    if (account.size() != 1 || account.getFirst().getUserId() == null) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Admin account has no unique user profile");
+    }
+    var result = validation.findForReview(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+    result.recordReview(account.getFirst().getUserId(), note);
+    return new ReviewReceipt(id, id, false);
+  }
+
   public boolean databaseUp() {
     return repository.databaseUp();
   }

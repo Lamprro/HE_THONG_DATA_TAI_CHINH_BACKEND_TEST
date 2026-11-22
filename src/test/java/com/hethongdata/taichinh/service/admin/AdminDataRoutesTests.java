@@ -31,8 +31,7 @@ class AdminDataRoutesTests {
         @Bean TrainingDataQualityService quality(){return mock(TrainingDataQualityService.class);}
         @Bean MarketDataAdminController market(MarketDataReadService r,IndexJobProvisioningService j,MacroJobCatalogService m,JdbcTemplate db){return new MarketDataAdminController(r,j,m,db);}
         @Bean FinancialDataAdminController financial(HistoricalFinancialMetricService m,TrainingDataQualityService q){
-            return new FinancialDataAdminController(m,q,mock(com.hethongdata.taichinh.service.financial.FinancialDataQualityService.class),
-                mock(com.hethongdata.taichinh.service.financial.FinancialDisclosureDocumentStore.class));}
+            return new FinancialDataAdminController(m,q,mock(com.hethongdata.taichinh.service.financial.FinancialDataQualityService.class));}
         @Bean AdminAccessConfiguration access(){return new AdminAccessConfiguration(TOKEN,new ObjectMapper().findAndRegisterModules());}
     }
     @Test void originalRoutesKeepAuthPagingStatusAndNativeDispatch() throws Exception {

@@ -17,12 +17,10 @@ class FinancialDataAdminAccessTests {
  @Autowired MockMvc mvc;
  @MockitoBean org.springframework.jdbc.core.JdbcTemplate auditDatabase;
  @MockitoBean FinancialDataQualityService service;
- @MockitoBean FinancialDisclosureDocumentStore store;
  @MockitoBean HistoricalFinancialMetricService metrics;
  @MockitoBean com.hethongdata.taichinh.service.market.TrainingDataQualityService trainingQuality;
- @Test void missingCredentialCannotRefreshOrRead()throws Exception {
-  mvc.perform(post("/api/admin/financial-data/disclosures/refresh").contentType("application/json").content("{\"symbol\":\"FPT\"}")).andExpect(status().isForbidden());
-  mvc.perform(get("/api/admin/financial-data/status?symbol=FPT")).andExpect(status().isForbidden());verifyNoInteractions(service,store,metrics);
+ @Test void missingCredentialCannotReadOrRecalculate()throws Exception {
+  mvc.perform(get("/api/admin/financial-data/status?symbol=FPT")).andExpect(status().isForbidden());verifyNoInteractions(service,metrics);
   mvc.perform(post("/api/admin/financial-data/metrics/recalculate").contentType("application/json").content("{}")).andExpect(status().isForbidden());
   mvc.perform(post("/api/admin/financial-data/metrics/recalculate").header("Authorization","Bearer wrong").contentType("application/json").content("{}")).andExpect(status().isForbidden());
   verifyNoInteractions(metrics);
@@ -30,5 +28,17 @@ class FinancialDataAdminAccessTests {
  @Test void authenticatedReadUsesService()throws Exception {
   when(service.status("FPT")).thenReturn(java.util.Map.of("symbol","FPT"));
   mvc.perform(get("/api/admin/financial-data/status?symbol=FPT").header("Authorization","Bearer isolated-fixture-admin-token-long-enough")).andExpect(status().isOk()).andExpect(jsonPath("$.symbol").value("FPT"));
+ }
+ @Test void retiredPdfRoutesReturnNotFound() throws Exception {
+  String token = "Bearer isolated-fixture-admin-token-long-enough";
+  for (String path : java.util.List.of("/disclosures", "/bindings", "/reconciliation")) {
+   mvc.perform(get("/api/admin/financial-data" + path).param("symbol", "FPT").header("Authorization", token))
+       .andExpect(status().isNotFound());
+  }
+  for (String path : java.util.List.of("/disclosures/refresh", "/bindings/reconcile")) {
+   mvc.perform(post("/api/admin/financial-data" + path).header("Authorization", token)
+       .contentType("application/json").content("{}"))
+       .andExpect(status().isNotFound());
+  }
  }
 }

@@ -1,3 +1,9 @@
+# 22/11/2026 — Gỡ kho bằng chứng PDF
+
+- Bỏ API `disclosures`, `bindings` và `reconciliation` dưới `/api/admin/financial-data` cùng các màn quản trị tương ứng. `status`, `coverage`, `gaps`, rà soát dữ liệu cũ và tính lại chỉ số sử dụng dữ liệu tài chính hiện có. Admin tiếp tục duyệt chênh lệch nguồn qua **Tác vụ & lịch sử → Validation & version → Phiên bản dữ liệu**. Version chờ duyệt nằm trong `data_versions` và cảnh báo nằm trong `validation_results`.
+- Migration thủ công `V20261122_04` xóa đúng 5 bảng bằng chứng và 2 view PDF. Chạy trên PostgreSQL tạm dựng từ định nghĩa schema dùng chung. Chạy hai lần thành công. Khi có view khác tham chiếu dữ liệu PDF, migration từ chối và hoàn tác cả giao dịch. Cần xác nhận API và FE đã ngừng gọi PDF trước khi áp dụng vào DB dùng chung.
+- Bản sao 819 bản ghi PDF và 2 view đã được kiểm tra bằng `pg_restore`, lưu cục bộ trong thư mục bị Git bỏ qua `docs/db-backups/`. Các bảng raw/canonical, view dùng cho dữ liệu huấn luyện chung và repo Local AI độc lập nằm ngoài phạm vi migration. Script nghiên cứu cũ nào đọc trực tiếp bảng PDF cần dùng bản sao nếu chạy lại lịch sử.
+
 # 22/11/2026 — Đơn giản hóa cấu hình đăng nhập
 
 - Spring Security dùng `AccountPasswordEncoder` để kiểm tra mật khẩu trong `accounts`. Khi có chuỗi cấu hình, backend dẫn xuất khóa băm riêng và dùng HMAC-SHA256 trước BCrypt. Tài khoản cũ chỉ cập nhật hash sau khi kiểm tra đúng mật khẩu. Hàm ghi kiểm tra hash cũ và trạng thái tài khoản để tránh ghi đè một lần đổi mật khẩu đồng thời.

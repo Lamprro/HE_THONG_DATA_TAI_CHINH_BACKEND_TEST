@@ -1,3 +1,8 @@
+# 22/11/2026 — Hợp nhất nhánh vá PDF
+
+- PR #21 hợp nhất lịch sử nhánh vá PDF. Bản code hợp nhất giữ Spring Security và JWT, API kiểm tra dữ liệu thiếu `/api/admin/financial-data/gaps` và cấu hình deploy của `main`.
+- Migration `V20261122_04` đã áp dụng trong đợt gỡ PDF bên dưới. Workflow trên `main` tiếp tục chạy thủ công. Bản Linux hiện được ghi nhận ở đợt gỡ PDF.
+
 # 22/11/2026 — Gỡ kho bằng chứng PDF
 
 - Bỏ API `disclosures`, `bindings` và `reconciliation` dưới `/api/admin/financial-data` cùng các màn quản trị tương ứng. `status`, `coverage`, `gaps`, rà soát dữ liệu cũ và tính lại chỉ số sử dụng dữ liệu tài chính hiện có. Admin tiếp tục duyệt chênh lệch nguồn qua **Tác vụ & lịch sử → Validation & version → Phiên bản dữ liệu**. Version chờ duyệt nằm trong `data_versions` và cảnh báo nằm trong `validation_results`.

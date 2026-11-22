@@ -13,18 +13,45 @@ services:
       - /home/mai-van-nam/app-config/.env
     environment:
       FINANCIAL_JWT_SECRET: ${FINANCIAL_JWT_SECRET:?JWT signing key is required for deployment}
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        export SPRING_DATA_REDIS_HOST="$${REDIS_HOST:-$${SPRING_DATA_REDIS_HOST:-redis}}"
+        export SPRING_DATA_REDIS_PORT="$${REDIS_PORT:-$${SPRING_DATA_REDIS_PORT:-6379}}"
+        export SPRING_DATA_REDIS_PASSWORD="$${REDIS_PASSWORD:-$${SPRING_DATA_REDIS_PASSWORD:?Set REDIS_PASSWORD in server .env}}"
+        unset SPRING_DATA_REDIS_URL
+        if [ "$$SPRING_DATA_REDIS_HOST" = "redis" ]; then
+          export SPRING_DATA_REDIS_USERNAME=default SPRING_DATA_REDIS_SSL_ENABLED=false
+        fi
+        exec "$$@"
+      - springboot
+    command: ["java", "-Xmx512m", "-jar", "app.jar"]
     mem_limit: 768m
     mem_reservation: 256m
     cpus: "1.50"
     restart: always
   redis:
     image: redis:7.4-alpine
-    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "always", "--maxmemory-policy", "noeviction"]
+    env_file:
+      - /home/mai-van-nam/app-config/.env
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        port="$${REDIS_PORT:-$${SPRING_DATA_REDIS_PORT:-6379}}"
+        password="$${REDIS_PASSWORD:-$${SPRING_DATA_REDIS_PASSWORD:?Set REDIS_PASSWORD in server .env}}"
+        exec env -i PATH="$$PATH" docker-entrypoint.sh redis-server --port "$$port" --requirepass "$$password" \
+          --appendonly yes --appendfsync always --maxmemory-policy noeviction
     volumes:
       - financial_data_redis:/data
     restart: always
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test:
+        - CMD-SHELL
+        - >-
+          REDISCLI_AUTH="$${REDIS_PASSWORD:-$${SPRING_DATA_REDIS_PASSWORD:?Set REDIS_PASSWORD in server .env}}"
+          redis-cli --raw -p "$${REDIS_PORT:-$${SPRING_DATA_REDIS_PORT:-6379}}" ping | grep -qx PONG
       interval: 5s
       timeout: 3s
       retries: 10

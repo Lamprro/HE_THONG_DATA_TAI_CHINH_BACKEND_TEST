@@ -1,3 +1,61 @@
+# 22/11/2026 — Gỡ kho bằng chứng PDF
+
+- Bỏ API `disclosures`, `bindings` và `reconciliation` dưới `/api/admin/financial-data` cùng các màn quản trị tương ứng. `status`, `coverage`, `gaps`, rà soát dữ liệu cũ và tính lại chỉ số sử dụng dữ liệu tài chính hiện có. Admin tiếp tục duyệt chênh lệch nguồn qua **Tác vụ & lịch sử → Validation & version → Phiên bản dữ liệu**. Version chờ duyệt nằm trong `data_versions` và cảnh báo nằm trong `validation_results`.
+- Migration thủ công `V20261122_04` xóa đúng 5 bảng bằng chứng và 2 view PDF. Chạy trên PostgreSQL tạm dựng từ định nghĩa schema dùng chung. Chạy hai lần thành công. Khi có view khác tham chiếu dữ liệu PDF, migration từ chối và hoàn tác cả giao dịch. Cần xác nhận API và FE đã ngừng gọi PDF trước khi áp dụng vào DB dùng chung.
+- Bản sao 819 bản ghi PDF và 2 view đã được kiểm tra bằng `pg_restore`, lưu cục bộ trong thư mục bị Git bỏ qua `docs/db-backups/`. Các bảng raw/canonical, view dùng cho dữ liệu huấn luyện chung và repo Local AI độc lập nằm ngoài phạm vi migration. Script nghiên cứu cũ nào đọc trực tiếp bảng PDF cần dùng bản sao nếu chạy lại lịch sử.
+
+- Đã merge Java PR #20 và FE PR #7. Build Java của PR có 259 test đạt và 120 test theo điều kiện bị bỏ qua. Bản vá production có 12 test đạt và smoke HTTP qua PostgreSQL tạm. Admin có 15 test đơn vị và 3 bộ kiểm thử trình duyệt dùng fixture.
+- Linux đang chạy bản vá `2f2bce0` từ `4ea75d1` để giữ các API Local AI vốn đang phục vụ. Workflow deploy #44984832721 đạt, gồm các API coverage và kiểm tra route PDF trả 404. Đã xác nhận bản Admin trên Vercel không gọi các API PDF.
+- Đã áp dụng `V20261122_04` cho DB dùng chung sau khi triển khai và kiểm tra bản sao 819 dòng lúc chuyển đổi. PostgreSQL xác nhận đủ 5 bảng và 2 view PDF đã bị gỡ. Sau migration, health và API BCTC FPT trả HTTP 200. Hai API Local AI công khai hiện có vẫn trả HTTP 200. Luồng duyệt lệch nguồn và đăng nhập JWT đã có trên `main`; bản vá production chỉ mang thay đổi PDF.
+
+# 22/11/2026 — Đơn giản hóa cấu hình đăng nhập
+
+- Spring Security dùng `AccountPasswordEncoder` để kiểm tra mật khẩu trong `accounts`. Khi có chuỗi cấu hình, backend dẫn xuất khóa băm riêng và dùng HMAC-SHA256 trước BCrypt. Tài khoản cũ chỉ cập nhật hash sau khi kiểm tra đúng mật khẩu. Hàm ghi kiểm tra hash cũ và trạng thái tài khoản để tránh ghi đè một lần đổi mật khẩu đồng thời.
+- Giữ `FINANCIAL_JWT_SECRET` là chuỗi text duy nhất ở production. Khi để trống trong môi trường local, backend dùng BCrypt thường và tự tạo khóa JWT theo tiến trình. Tài khoản đã nâng cấp hash cần cùng chuỗi cấu hình để đăng nhập.
+- Deploy kiểm tra health, một request login thiếu thông tin trả 400 và API Admin thiếu JWT trả 401. CI giữ bài đăng nhập và cấp token thành công bằng tài khoản mẫu. Workflow deploy đã bỏ các biến username và password kiểm tra riêng.
+
+- Java đóng gói thành công với 269 bài đạt. Kiểm thử JAR qua HTTP với PostgreSQL loopback xác nhận đăng nhập sai giữ hash cũ, đăng nhập đúng nâng cấp hash đúng một lần và JWT mở được API Admin. Workflow được kiểm tra cú pháp và chạy với Docker/HTTP giả lập. DB dùng chung giữ nguyên.
+
+# 22/11/2026 — Dọn bảng và duyệt lệch nguồn
+
+- DB dùng chung đã áp dụng `V20261122_01`. `roles` chỉ còn `ADMIN` và `USER`, tài khoản Admin hiện có vẫn đăng nhập bằng JWT. Đã bỏ `audit_logs` (0), `system_settings` (4), `data_lineage_events` (0), `news_crawl_controls` (1) và `data_correction_audit` (6.920). Hai trigger ghi bảng correction được gỡ trước khi bỏ bảng. Cấu hình mặc định đã nằm trong Java và cấu hình job. Bản sao cục bộ được kiểm tra danh mục trước khi xóa, ở `.local-handover/schema-clean-legacy-20261122.dump` và bị Git bỏ qua.
+- DB dùng chung đã áp dụng migration mở rộng `V20261122_03`. Mã mới đưa version vào `PENDING_REVIEW` trước khi thay dữ liệu canonical nếu khác giá đóng cửa ngày trên cùng cơ sở giá hoặc lệch quá 0,1% doanh thu/lợi nhuận sau thuế khi cùng loại báo cáo, kỳ, phạm vi và tiền tệ. Giá đóng cửa trùng từ nguồn ưu tiên thấp hơn được bỏ qua. Giữ quy tắc nguồn chính thức rồi priority để chọn canonical mặc định. Một version duyệt chấp nhận cho phép builder dùng nguồn được duyệt, còn từ chối giữ dữ liệu hiện tại.
+- Kết quả lệch nằm trong `validation_results`. Mở **Tác vụ & lịch sử → Validation & version → Phiên bản dữ liệu** và chọn **Duyệt lệch nguồn**. Chấp nhận mở thao tác build version đã chọn. Phân hệ giá so sánh ngày khi xác định được giá đóng cửa chưa điều chỉnh. Báo cáo thiếu thông tin để xác định cùng cơ sở so sánh vẫn theo luồng validation hiện tại.
+- Java và FE đã bỏ worker lịch Admin riêng. Sử dụng cron/trạng thái bật trong `ingestion_jobs`, lịch sử `ingestion_runs` và cấu hình bật scheduler của Java. Ghi chú mới nhất lưu trên kết quả `validation_results`. Lịch sử lệnh vẫn nằm trong `admin_commands`. Sau khi phát hành Java và FE đồng bộ, áp dụng `V20261122_02` để chép ghi chú cũ mới nhất rồi xóa `admin_operation_events` và `admin_schedule_policy`. Migration có guard để dừng nếu phát hiện lịch riêng đang bật hoặc còn phạm vi job đã đặt.
+- Giữ 5 bảng chứng cứ PDF trong đợt này. API coverage/disclosures/bindings/reconciliation và các truy vấn Local AI vẫn dùng chúng. Số dòng khi kiểm tra lần lượt là documents 702, facts 37, bindings 37, reconciliation 6, review 37. Quy tắc mới làm việc trên dữ liệu canonical và raw/version thông thường, không dùng danh sách 6 mã của luồng PDF.
+- Đóng gói Java với 266 bài đạt và 121 bài theo điều kiện bị bỏ qua. Chạy thêm 16 bài Admin trên PostgreSQL loopback, ba bộ browser FE dùng fixture và thử cả ba migration trên PostgreSQL tạm. Bản Java đóng gói xác nhận schema và gọi thành công login, summary, data versions và trạng thái tài chính FPT bằng kết nối chỉ đọc tới DB dùng chung. Ca lệch nguồn và quyết định duyệt dùng fixture, không gọi nhà cung cấp bên ngoài.
+
+# 21/11/2026 — Đăng nhập bằng tài khoản và JWT
+
+- `POST /api/auth/login` nhận `username` và `password`. `AccountSecurityService` đọc `accounts` và `roles` qua JPA, xác thực hash BCrypt bằng Spring Security. Chỉ tài khoản `ACTIVE` có username duy nhất được đăng nhập. `ADMIN` hoặc `ROLE_ADMIN` trong DB cho quyền Admin.
+- `JwtService` phát JWT 15 phút. `security/SecurityConfiguration` xác minh chữ ký, issuer, audience và hạn dùng ở API bảo vệ. Token tĩnh cũ bị từ chối. API dữ liệu công khai dưới `/api/v1/**` vẫn dùng được như trước. Audit Admin ghi username, worker nền ghi `SYSTEM_WORKER`.
+- FE Admin và Swagger đều đăng nhập bằng tài khoản. JWT của FE giữ trong bộ nhớ. Hết phiên thì đăng nhập lại. Thay đổi vai trò hoặc trạng thái tài khoản áp dụng cho lần đăng nhập tiếp theo. JWT đã cấp có hiệu lực tối đa đến thời điểm hết hạn.
+- Production cấu hình một chuỗi bí mật `FINANCIAL_JWT_SECRET` dạng text. Spring Security dùng tài khoản và vai trò hiện có. GitHub Actions kiểm tra health và phản hồi từ chối trên API bảo vệ. Bài đăng nhập thành công dùng tài khoản fixture trong CI.
+- Java đóng gói thành công, 260 test đạt trong lần chạy chung. Có 122 test theo điều kiện bị bỏ qua ở lần này và hai suite dùng DB chung được loại khỏi lệnh chạy. Chạy riêng 17 test trên PostgreSQL 17.12 tạm. Java đóng gói gọi HTTP thành công qua login, session và OpenAPI bằng bản ghi tài khoản trong PostgreSQL loopback. Mật khẩu sai và token tĩnh bị từ chối, tài khoản USER nhận 403 tại API Admin. FE build thành công, 34 test đơn vị và ba bộ trình duyệt Admin đạt với fixture.
+
+# 21/11/2026 — Admin dùng JPA và DTO
+
+- Ba bảng `admin_commands`, `admin_schedule_policy` và `admin_operation_events` có entity và Spring Data JPA repository. Các truy vấn tổng hợp, metadata và duyệt bảng Admin dùng JPA EntityManager. Các API commands, summary và schedule có DTO trong `AdminConsoleDtos`; tên trường JSON phía FE giữ nguyên. Dữ liệu xem theo cột động vẫn theo danh sách bảng và bộ lọc cho phép.
+- Worker khóa hàng chờ bằng PostgreSQL `FOR UPDATE SKIP LOCKED` rồi chuyển sang RUNNING trong cùng transaction. Lệnh trùng dựa vào các ràng buộc unique hiện có. Lease và kết quả vẫn kiểm tra chủ sở hữu. Lịch vẫn cập nhật theo version. Khóa advisory theo phiên kết nối của job được giữ ở lớp dùng chung.
+- Java đóng gói thành công; 259 test đạt và 121 test theo điều kiện được bỏ qua trong lần chạy chung, ngoài hai suite mặc định trỏ DB dùng chung đã loại riêng. Chạy thêm 16 test Admin trên PostgreSQL 17.12 tạm qua loopback, tất cả đạt. Các bài kiểm tra xác nhận hai transaction lấy hai lệnh khác nhau, gửi cùng idempotency key chỉ ghi một lệnh và một audit, retry kế thừa run, replay giữ nguồn, kiểm tra version lịch và số liệu tổng hợp. Các service gọi provider dùng mock, DB và transaction dùng PostgreSQL thật.
+- Chạy lại suite Admin bằng `DATA_ENRICHMENT_TEST_DB=1` và `mvn -Dtest=AdminCommandIsolatedIntegrationTests -Dfinancial.test.config=<file-test-properties> test`. Dùng cấu hình PostgreSQL dành riêng cho kiểm thử; suite tạo và dọn schema riêng. Bản thay đổi dùng các bảng và migration hiện có.
+
+# 21/11/2026 — Bảo mật và tổ chức lại luồng Admin
+
+- Request Admin đi qua `SecurityConfiguration` → controller → service nghiệp vụ → repository. API health và API User dưới `/api/v1/**` vẫn công khai. CORS được xử lý trong Spring Security. Các route Admin cũ, kể cả route ngoài `/api/admin`, vẫn yêu cầu quyền `ROLE_ADMIN`.
+- Giữ cấu hình `FINANCIAL_ADMIN_API_TOKEN` với tên audit `DEDICATED_ADMIN_TOKEN`. Có thể cấp token theo định danh `financial.admin.credentials.<tên>` với `token`, `roles=ADMIN` và `email` tùy chọn. Xem file cấu hình mẫu. Quyền `AUDITOR` chưa được cấp route. Session và audit dùng danh tính của thông tin xác thực. Worker nền dùng `SYSTEM_WORKER`.
+- `AdminConsoleController` trả DTO cho `/session` và `/runtime`. `AdminRuntimeService` đọc trạng thái DB, cấu hình lịch và worker. Cờ bật cho biết cấu hình được bật. Nhịp chạy và lịch sử thực tế vẫn xem ở luồng lịch và log.
+- Mở `/admin-api-docs/index.html` trên origin Java để dùng Swagger. Đặc tả `/v3/api-docs/admin` cần token Admin. Swagger trên trình duyệt cho thử GET. Các thao tác ghi thường dùng có màn hình riêng trong FE. Catalog reflection `/api/admin/console/catalog` đã được gỡ.
+- Nạp danh mục từ **Hệ thống → Danh mục & tài liệu API** hoặc POST API tương ứng khi cần. Đã bỏ năm tác vụ seed lúc khởi động. Bộ SQL hiện có dưới `db/manual/` vẫn dùng theo quy trình hiện tại. Còn thiếu một baseline tái dựng schema hoàn chỉnh và đã kiểm thử trước khi đưa SQL nền sang Flyway hoặc Liquibase.
+- Java đã đóng gói thành công. Bản chạy cuối có 258 test đạt và 117 test cần điều kiện riêng bị bỏ qua. Hai suite trỏ DB dùng chung được loại khỏi lần chạy cuối. Kiểm thử Spring MVC đã xác nhận token theo định danh, từ chối auditor, Swagger, endpoint nạp và tham số audit với service/repository giả lập. Chưa nghiệm thu các thao tác ghi mới trên PostgreSQL riêng.
+- FE Admin và User build thành công. Có 19 test đơn vị và ba bộ browser Admin đạt với fixture. Nhánh cả hai repo là `clean-admin-architecture`. Khi phát hành, cần đồng bộ thay đổi FE Admin với backend mới. Không có thay đổi Python, dự án huấn luyện Local AI hay dữ liệu production trong bản này.
+
+# Ranh giới backend
+
+Local AI chạy ở dự án huấn luyện riêng. Backend Java giữ API tài chính, vận hành và LLM news/forecast. Gỡ script huấn luyện, mô hình Suite, API Admin/User, cấu hình và migration riêng của Local AI khỏi source. Việc gỡ file trong Git không chạy SQL xóa bảng. Các mục lịch sử bên dưới mô tả phiên bản trước thay đổi này.
+
+Kiểm thử mặc định sau khi gỡ: 272 bài đạt, 117 bài cần cấu hình riêng bị bỏ qua. Client API: 4 bài đạt. PostgreSQL cô lập: 26 bài Admin/User/market đạt. Sau sửa ánh xạ lỗi thiếu route, 6 bài MVC/kiến trúc đạt và các route Local AI cũ trả 404. Giữ migration chất lượng thị trường đang tạo cột giá, bảng khối ngoại/bản ghi tham chiếu và audit phục vụ backend.
+
 # Cập nhật 19/11/2026 — tinh gọn lớp backend (nhánh `refactor/backend-consolidation`, chưa push)
 
 - `src/main/java` 234 → 177 file: gộp seeder/config/scheduler, controller ingestion/master/prompt, DTO master/source thành record,
@@ -75,7 +133,7 @@ riêng trên main/FE main; không đưa API user lên main.
 # Cập nhật 23/10/2026 — reader gói Local AI mới và client FE
 
 Tiếp tục `feature/user-api`, chỉ push, **chưa PR/merge/deploy**.
-Đọc [35 GET, registry Local AI thật và luồng browser](USER_LOCAL_AI_FE_20261023.md).
+Đọc 35 GET, registry Local AI thật và luồng browser (tài liệu cũ).
 Thêm model catalog/per-security progress từ suite registry, nối availability/overview;
 không xuất prediction nghiên cứu hoặc sửa thư mục train/checkout gốc.
 Client FE có UUID/envelope/decimal string, chỉ GET không credential, TypeScript và

@@ -3,6 +3,7 @@ package com.hethongdata.taichinh.service.news.recovery;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.hethongdata.taichinh.dto.news.NewsRecoveryDtos.*;
+import com.hethongdata.taichinh.repository.jdbc.news.NewsRecoveryJdbcRepository;
 import com.hethongdata.taichinh.repository.jpa.news.NewsArticleCompanyJpaRepository;
 import com.hethongdata.taichinh.service.ingestion.ChecksumService;
 import com.hethongdata.taichinh.service.llm.*;
@@ -10,7 +11,6 @@ import com.hethongdata.taichinh.service.news.*;
 import java.time.*;
 import java.util.*;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -18,7 +18,7 @@ import org.springframework.web.server.ResponseStatusException;
 /** Short commit points only; provider calls/downloads never hold a database transaction. */
 @Service
 public class NewsRecoveryStore {
-  private final JdbcTemplate db;
+  private final NewsRecoveryJdbcRepository repo;
   private final LlmJson json;
   private final ChecksumService hashes;
   private final NewsRecoveryCatalog catalog;
@@ -26,13 +26,13 @@ public class NewsRecoveryStore {
   private final NewsArticleCompanyJpaRepository links;
 
   public NewsRecoveryStore(
-      JdbcTemplate db,
+      NewsRecoveryJdbcRepository repo,
       LlmJson json,
       ChecksumService hashes,
       NewsRecoveryCatalog catalog,
       NewsCompanyMatcher matcher,
       NewsArticleCompanyJpaRepository links) {
-    this.db = db;
+    this.repo = repo;
     this.json = json;
     this.hashes = hashes;
     this.catalog = catalog;
@@ -41,15 +41,9 @@ public class NewsRecoveryStore {
   }
 
   public JsonNode article(UUID id) {
-    return db
-        .query(
-            "SELECT"
-                + " jsonb_build_object('id',id,'url',canonical_url,'title',title,'sapo',sapo,'content_text',content_text,'content_hash',content_hash,'author',author,'published_at',published_at,'updated_at',updated_at,'dedup_status',dedup_status,'is_deleted_source',is_deleted_source,'metadata',metadata)::text"
-                + " FROM news_articles WHERE id=?",
-            (r, n) -> json.read(r.getString(1)),
-            id)
-        .stream()
-        .findFirst()
+    return repo
+        .findArticleJson(id)
+        .map(json::read)
         .orElseThrow(() -> new IllegalArgumentException("Article not found"));
   }
 
@@ -58,22 +52,7 @@ public class NewsRecoveryStore {
   }
 
   public List<Candidate> candidates(int limit) {
-    return db.query(
-        """
-SELECT id,title,canonical_url,coalesce(length(content_text),0) FROM news_articles a
-WHERE dedup_status='UNIQUE' AND NOT is_deleted_source AND coalesce(length(content_text),0)<200
-AND NOT coalesce((metadata->>'is_test')::boolean,false) AND NOT coalesce((metadata->>'llm_excluded')::boolean,false)
-AND canonical_url !~* '(real-db-|localhost|example.com|/test/)'
-AND NOT EXISTS (SELECT 1 FROM llm_runs r WHERE r.news_article_id=a.id AND r.task_code='NEWS_CONTENT_RECOVERY'
-  AND (r.status='PENDING_VALIDATION' OR r.status='RUNNING' AND r.created_at>now()-interval '15 minutes'
-    OR r.status IN ('FAILED','REJECTED') AND r.created_at>now()-interval '1 hour'))
-AND (SELECT count(*) FROM llm_runs r WHERE r.news_article_id=a.id AND r.task_code='NEWS_CONTENT_RECOVERY'
-  AND r.status IN ('FAILED','REJECTED') AND r.created_at>=a.updated_at)<3
-ORDER BY published_at DESC NULLS LAST,id LIMIT ?
-""",
-        (r, n) ->
-            new Candidate(r.getObject(1, UUID.class), r.getString(2), r.getString(3), r.getInt(4)),
-        Math.max(1, Math.min(50, limit)));
+    return repo.findCandidates(limit);
   }
 
   @Transactional
@@ -83,7 +62,7 @@ ORDER BY published_at DESC NULLS LAST,id LIMIT ?
       JsonNode source,
       String model,
       List<String> urls) {
-    db.queryForList("SELECT id FROM news_articles WHERE id=? FOR UPDATE", article);
+    repo.lockArticleForUpdate(article);
     if (!hash(article(article)).equals(hash(source)))
       return new Outcome("SOURCE_CHANGED", null, article, List.of());
     if (!"UNIQUE".equals(source.path("dedup_status").asText())
@@ -92,33 +71,14 @@ ORDER BY published_at DESC NULLS LAST,id LIMIT ?
         || source.path("metadata").path("llm_excluded").asBoolean()
         || source.path("url").asText().matches("(?i).*(real-db-|localhost|example\\.com|/test/).*"))
       return new Outcome("SKIPPED", null, article, List.of("SOURCE_NOT_ELIGIBLE"));
-    db.update(
-        "UPDATE llm_runs SET"
-            + " status='FAILED',error_message='RECOVERY_LEASE_EXPIRED',finished_at=now() WHERE"
-            + " news_article_id=? AND task_code=? AND status='RUNNING' AND"
-            + " created_at<now()-interval '15 minutes'",
-        article,
-        NewsRecoveryCatalog.TASK);
-    var pending =
-        db.queryForList(
-            "SELECT id FROM llm_runs WHERE news_article_id=? AND task_code=? AND status IN"
-                + " ('RUNNING','PENDING_VALIDATION')",
-            UUID.class,
-            article,
-            NewsRecoveryCatalog.TASK);
+    repo.expireRunningLeases(article, NewsRecoveryCatalog.TASK);
+    var pending = repo.findActiveRuns(article, NewsRecoveryCatalog.TASK);
     if (!pending.isEmpty())
       return new Outcome("EXISTING_RUN", pending.getFirst(), article, List.of());
     String fingerprint = validationFingerprint();
     String inputHash =
         hashes.sha256(hash(source) + template.checksum() + fingerprint + urls.toString());
-    Integer failures =
-        db.queryForObject(
-            "SELECT count(*) FROM llm_runs WHERE news_article_id=? AND task_code=? AND input_hash=?"
-                + " AND status IN ('FAILED','REJECTED')",
-            Integer.class,
-            article,
-            NewsRecoveryCatalog.TASK,
-            inputHash);
+    Integer failures = repo.countFailures(article, NewsRecoveryCatalog.TASK, inputHash);
     if (failures != null && failures >= 3)
       return new Outcome("RETRY_LIMIT", null, article, List.of());
     var metadata = json.mapper().createObjectNode();
@@ -129,10 +89,7 @@ ORDER BY published_at DESC NULLS LAST,id LIMIT ?
         .put("validation_policy", fingerprint);
     metadata.set("admin_document_urls", json.mapper().valueToTree(urls));
     UUID run = UUID.randomUUID();
-    db.update(
-        "INSERT INTO"
-            + " llm_runs(id,operation_type,provider,model_name,prompt_version,status,input_hash,request_metadata,response_metadata,created_at,prompt_template_id,task_code,news_article_id)"
-            + " VALUES (?,'NEWS_PARSE','GEMINI',?,?,'RUNNING',?,?::jsonb,'{}'::jsonb,now(),?,?,?)",
+    repo.insertRun(
         run,
         model,
         template.version(),
@@ -145,48 +102,32 @@ ORDER BY published_at DESC NULLS LAST,id LIMIT ?
   }
 
   public Run run(UUID id) {
-    return db
-        .query(
-            "SELECT * FROM llm_runs WHERE id=? AND task_code=?",
-            (r, n) ->
-                new Run(
-                    id,
-                    r.getObject("news_article_id", UUID.class),
-                    r.getString("status"),
-                    json.read(r.getString("request_metadata")),
-                    json.read(r.getString("response_metadata")),
-                    r.getString("response_text") == null
-                        ? json.mapper().nullNode()
-                        : json.read(r.getString("response_text")),
-                    json.read(r.getString("validation_errors"))),
-            id,
-            NewsRecoveryCatalog.TASK)
-        .stream()
-        .findFirst()
-        .orElseThrow(() -> new IllegalArgumentException("Recovery run not found"));
+    var rows = repo.findRunById(id, NewsRecoveryCatalog.TASK);
+    if (rows.isEmpty()) throw new IllegalArgumentException("Recovery run not found");
+    var r = rows.getFirst();
+    return new Run(
+        id,
+        (UUID) r.get("news_article_id"),
+        (String) r.get("status"),
+        json.read(r.get("request_metadata").toString()),
+        json.read(r.get("response_metadata").toString()),
+        r.get("response_text") == null
+            ? json.mapper().nullNode()
+            : json.read(r.get("response_text").toString()),
+        json.read(r.get("validation_errors").toString()));
   }
 
   public List<Run> pending(int limit) {
-    return db
-        .queryForList(
-            "SELECT id FROM llm_runs WHERE task_code=? AND status='PENDING_VALIDATION' ORDER BY"
-                + " created_at,id LIMIT ?",
-            UUID.class,
-            NewsRecoveryCatalog.TASK,
-            Math.max(1, Math.min(50, limit)))
+    return repo
+        .findPendingRunIds(NewsRecoveryCatalog.TASK, limit)
         .stream()
         .map(this::run)
         .toList();
   }
 
   public void checkpoint(UUID run, JsonNode request, JsonNode metadata) {
-    if (db.update(
-            "UPDATE llm_runs SET request_payload=?::jsonb,response_metadata=?::jsonb WHERE id=? AND"
-                + " status='RUNNING'",
-            request.toString(),
-            metadata.toString(),
-            run)
-        != 1) throw new IllegalStateException("RECOVERY_LEASE_LOST");
+    if (!repo.checkpoint(run, request.toString(), metadata.toString()))
+      throw new IllegalStateException("RECOVERY_LEASE_LOST");
   }
 
   @Transactional
@@ -197,11 +138,11 @@ ORDER BY published_at DESC NULLS LAST,id LIMIT ?
       JsonNode output,
       JsonNode metadata,
       Set<String> retrieved) {
-    db.queryForList("SELECT id FROM llm_runs WHERE id=? FOR UPDATE", id);
+    repo.lockRunForUpdate(id);
     var run = run(id);
     if (!"RUNNING".equals(run.status()))
       return new Outcome("LEASE_LOST", id, run.articleId(), List.of());
-    db.queryForList("SELECT id FROM news_articles WHERE id=? FOR SHARE", run.articleId());
+    repo.lockArticleForShare(run.articleId());
     var evaluation =
         evaluate(
             id,
@@ -216,10 +157,8 @@ ORDER BY published_at DESC NULLS LAST,id LIMIT ?
     ((ObjectNode) metadata)
         .put("review_state", "PENDING_ADMIN_REVIEW")
         .set("retrieved_urls", json.mapper().valueToTree(retrieved));
-    db.update(
-        "UPDATE llm_runs SET"
-            + " status='PENDING_VALIDATION',response_text=?,response_payload=?::jsonb,response_metadata=?::jsonb,validation_errors=?::jsonb,validation_round_id=?,http_status=?,model_name=?,input_tokens=?,output_tokens=?"
-            + " WHERE id=?",
+    repo.stageResponse(
+        id,
         output.toString(),
         reply.rawBody(),
         metadata.toString(),
@@ -228,9 +167,8 @@ ORDER BY published_at DESC NULLS LAST,id LIMIT ?
         reply.httpStatus(),
         reply.selectedModel(),
         reply.inputTokens(),
-        reply.outputTokens(),
-        id);
-    totals(id);
+        reply.outputTokens());
+    repo.updateTotals(id);
     return new Outcome("PENDING_ADMIN_REVIEW", id, run.articleId(), evaluation.errors());
   }
 
@@ -242,49 +180,28 @@ ORDER BY published_at DESC NULLS LAST,id LIMIT ?
   }
 
   public Outcome fail(UUID runId, UUID article, String reason) {
-    db.update(
-        "UPDATE llm_runs SET status='FAILED',error_message=?,finished_at=now() WHERE id=? AND"
-            + " status='RUNNING'",
-        reason,
-        runId);
-    totals(runId);
+    repo.failRun(runId, reason);
+    repo.updateTotals(runId);
     return new Outcome("FAILED", runId, article, List.of(reason));
-  }
-
-  private void totals(UUID id) {
-    db.update("""
-        UPDATE llm_runs SET
-          input_tokens=(SELECT CASE WHEN count(a->>'input_tokens')=0 THEN NULL
-                        ELSE least(sum((a->>'input_tokens')::bigint),2147483647) END FROM jsonb_array_elements(attempts) a),
-          output_tokens=(SELECT CASE WHEN count(a->>'output_tokens')=0 THEN NULL
-                         ELSE least(sum((a->>'output_tokens')::bigint),2147483647) END FROM jsonb_array_elements(attempts) a),
-          latency_ms=(SELECT least(coalesce(sum((a->>'latency_ms')::bigint),0),2147483647) FROM jsonb_array_elements(attempts) a)
-        WHERE id=?
-        """, id);
   }
 
   @Transactional
   public Outcome reject(UUID id, ReviewRequest review) {
-    db.queryForList("SELECT id FROM llm_runs WHERE id=? FOR UPDATE", id);
+    repo.lockRunForUpdate(id);
     var run = run(id);
     if (!"PENDING_VALIDATION".equals(run.status())) throw conflict("RUN_NOT_AWAITING_REVIEW");
     var meta = (ObjectNode) run.responseMetadata().deepCopy();
     review(meta, review, "REJECTED");
-    db.update(
-        "UPDATE llm_runs SET"
-            + " status='REJECTED',response_metadata=?::jsonb,finished_at=now(),error_message='ADMIN_REJECTED'"
-            + " WHERE id=?",
-        meta.toString(),
-        id);
+    repo.rejectRun(id, meta.toString());
     return new Outcome("REJECTED", id, run.articleId(), List.of());
   }
 
   @Transactional
   public Outcome approve(UUID id, ReviewRequest review) {
-    db.queryForList("SELECT id FROM llm_runs WHERE id=? FOR UPDATE", id);
+    repo.lockRunForUpdate(id);
     var run = run(id);
     if (!"PENDING_VALIDATION".equals(run.status())) throw conflict("RUN_NOT_AWAITING_REVIEW");
-    db.queryForList("SELECT id FROM news_articles WHERE id=? FOR UPDATE", run.articleId());
+    repo.lockArticleForUpdate(run.articleId());
     var current = article(run.articleId());
     if (!hash(current).equals(run.requestMetadata().path("source_hash").asText()))
       throw conflict("SOURCE_CHANGED_SINCE_RECOVERY");
@@ -296,22 +213,13 @@ ORDER BY published_at DESC NULLS LAST,id LIMIT ?
     var evaluation =
         evaluate(id, run.articleId(), template, output, retrieved, true, true);
     if (!evaluation.errors().isEmpty()) {
-      db.update(
-          "UPDATE llm_runs SET validation_errors=?::jsonb,validation_round_id=? WHERE id=?",
-          json.mapper().valueToTree(evaluation.errors()).toString(),
-          evaluation.round(),
-          id);
+      repo.updateValidationErrors(id, json.mapper().valueToTree(evaluation.errors()).toString(), evaluation.round());
       return new Outcome("VALIDATION_BLOCKED", id, run.articleId(), evaluation.errors());
     }
     String content = output.path("proposed_content").asText(), contentHash = hashes.sha256(content);
-    db.queryForList(
-        "SELECT pg_advisory_xact_lock(hashtextextended(?,0))", "news-content:" + contentHash);
-    if (Boolean.TRUE.equals(
-        db.queryForObject(
-            "SELECT EXISTS(SELECT 1 FROM news_articles WHERE content_hash=? AND id<>?)",
-            Boolean.class,
-            contentHash,
-            run.articleId()))) throw conflict("DUPLICATE_CONTENT_REQUIRES_MERGE_REVIEW");
+    repo.lockContentHash(contentHash);
+    if (repo.contentHashExists(contentHash, run.articleId()))
+      throw conflict("DUPLICATE_CONTENT_REQUIRES_MERGE_REVIEW");
     String date =
         output.hasNonNull("published_at")
             ? output.path("published_at").asText()
@@ -336,18 +244,15 @@ ORDER BY published_at DESC NULLS LAST,id LIMIT ?
             ? current.path("sapo").asText()
             : null;
     try {
-      db.update(
-          "UPDATE news_articles SET"
-              + " title=?,sapo=?,content_text=?,content_hash=?,author=coalesce(?,author),published_at=?,metadata=?::jsonb,updated_at=now()"
-              + " WHERE id=?",
+      repo.updateArticle(
+          run.articleId(),
           output.path("proposed_title").asText(),
           sapo,
           content,
           contentHash,
           output.hasNonNull("author") ? output.path("author").asText() : null,
           java.sql.Timestamp.from(published),
-          articleMetadata.toString(),
-          run.articleId());
+          articleMetadata.toString());
     } catch (org.springframework.dao.DataIntegrityViolationException conflict) {
       if (String.valueOf(conflict.getMostSpecificCause().getMessage())
           .contains("ux_news_unique_content_hash"))
@@ -374,20 +279,12 @@ ORDER BY published_at DESC NULLS LAST,id LIMIT ?
           match.score(),
           "TEXT_MATCH",
           match.evidence().toString());
-    db.update(
-        "UPDATE llm_results SET is_current=false WHERE news_article_id=? AND is_current",
-        run.articleId());
+    repo.retireCurrentResults(run.articleId());
     var meta = (ObjectNode) run.responseMetadata().deepCopy();
     review(meta, review, "APPROVED");
     meta.put("approved_content_hash", contentHash);
     meta.put("approved_source_hash", hash(article(run.articleId())));
-    db.update(
-        "UPDATE llm_runs SET"
-            + " status='SUCCESS',response_metadata=?::jsonb,validation_round_id=?,validation_errors='[]'::jsonb,finished_at=now()"
-            + " WHERE id=?",
-        meta.toString(),
-        evaluation.round(),
-        id);
+    repo.approveRun(id, meta.toString(), evaluation.round());
     return new Outcome("APPROVED", id, run.articleId(), List.of());
   }
 
@@ -396,8 +293,6 @@ ORDER BY published_at DESC NULLS LAST,id LIMIT ?
         .put("reviewer_label", review.reviewer())
         .put("review_reason", review.reason())
         .put("reviewed_at", Instant.now().toString());
-    // A shared admin credential authenticates access. Label is attribution, NOT a verified account
-    // ID.
   }
 
   private ResponseStatusException conflict(String reason) {
@@ -415,13 +310,8 @@ ORDER BY published_at DESC NULLS LAST,id LIMIT ?
           "RECOVERY_SNAPSHOT",
           "RECOVERY_POLICY");
   private List<JsonNode> validationRules() {
-    var rows =
-        db.query(
-            "SELECT"
-                + " jsonb_build_object('id',id,'code',code,'executor',executor_key,'severity',severity,'config',rule_config)::text"
-                + " FROM validation_rules WHERE data_domain='NEWS_RECOVERY' AND is_active ORDER BY"
-                + " code",
-            (r, n) -> json.read(r.getString(1)));
+    var rawRules = repo.findValidationRulesJson();
+    var rows = rawRules.stream().map(json::read).toList();
     var missing = new HashSet<>(REQUIRED_RULES);
     for (var r : rows) {
       if (!REQUIRED_RULES.contains(r.path("code").asText())
@@ -497,10 +387,7 @@ ORDER BY published_at DESC NULLS LAST,id LIMIT ?
             default -> policy ? List.of() : List.of("RECOVERY_POLICY_CHANGED");
           };
       all.addAll(issues);
-      db.update(
-          "INSERT INTO"
-              + " validation_results(id,validation_rule_id,rule_code,severity,result_status,handling_status,checked_at,validation_target,llm_run_id,validation_round_id,rule_snapshot,observed_value,expected_value,message)"
-              + " VALUES (?,?,?,?,?,?,now(),'LLM_OUTPUT',?,?,?::jsonb,?,'PASS',?)",
+      repo.insertValidationResult(
           UUID.randomUUID(),
           rule.path("id").asLong(),
           rule.path("code").asText(),

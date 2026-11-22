@@ -2,7 +2,6 @@ package com.hethongdata.taichinh.service.financial;
 
 import java.time.Instant;
 import java.util.*;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 /** Reports coverage for canonical financial statements. */

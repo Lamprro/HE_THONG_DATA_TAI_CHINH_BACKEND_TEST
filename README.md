@@ -21,4 +21,12 @@ CI chạy unit/contract và build trên PR/main. Deploy chỉ qua thao tác th�
 
 Không commit `application-local.properties`, khóa API, backup DB hoặc output trong `target/`.
 
+## Đăng nhập Admin
+
+Admin và người dùng thường đăng nhập bằng username và mật khẩu qua `POST /api/auth/login`. Spring Security đọc tài khoản `ACTIVE` trong `accounts`, kiểm tra `password_hash` và cấp JWT. Vai trò `ADMIN` mở các API quản trị.
+
+Ở production, đặt một chuỗi bí mật ổn định vào `FINANCIAL_JWT_SECRET` trong GitHub Actions. Dùng chuỗi thường có ít nhất 32 byte UTF-8. Backend dùng chuỗi này để ký JWT và dẫn xuất khóa riêng để băm mật khẩu trước BCrypt. Tài khoản BCrypt cũ tự cập nhật `password_hash` sau lần đăng nhập đúng đầu tiên. Dùng cùng một chuỗi cho mọi instance kết nối cùng DB. Khi thay chuỗi, các tài khoản đã cập nhật hash cần được đặt lại mật khẩu. Local có thể để trống để dùng BCrypt thông thường và khóa JWT ngẫu nhiên theo tiến trình.
+
+Deploy kiểm tra health và quyền truy cập HTTP. CI kiểm thử đăng nhập thành công bằng tài khoản mẫu.
+
 Luồng macro Việt Nam: [MACRO_PIPELINE.md](docs/MACRO_PIPELINE.md).

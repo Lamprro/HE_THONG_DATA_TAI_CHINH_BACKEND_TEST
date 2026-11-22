@@ -81,6 +81,7 @@ public class FinancialStatementBuildService {
 
         UUID latestRunId = null;
         int rejected = 0;
+        boolean pendingReview = false;
         for (DataVersionEntity version : candidates) {
             IngestionRunEntity run =
                     ingestionRuns.startInternalBatch(job.getDataSource(), job, triggerType, FINANCIAL_STATEMENT_BUILD);
@@ -98,6 +99,11 @@ public class FinancialStatementBuildService {
                     throw new IllegalStateException("FINANCIAL_STATEMENT version has no parseable statement periods: " + version.getId());
                 }
                 writes.persist(version.getId(), run, drafts);
+            } catch (DataVersionLifecycleService.SourceConflict conflict) {
+                lifecycle.holdConflict(version.getId(), conflict);
+                ingestionRuns.markFailed(run, ExternalErrorCategory.PROTOCOL.name(), null,
+                        FINANCIAL_STATEMENT_BUILD + " waiting for source review: " + version.getId());
+                pendingReview = true;
             } catch (RuntimeException exception) {
                 ingestionRuns.markFailed(
                         run,
@@ -111,7 +117,7 @@ public class FinancialStatementBuildService {
         return new IngestionExecutionResponse(
                 latestRunId,
                 null,
-                rejected == 0 ? "SUCCESS" : "COMPLETED_WITH_REJECTIONS",
+                pendingReview ? "PENDING_REVIEW" : rejected == 0 ? "SUCCESS" : "COMPLETED_WITH_REJECTIONS",
                 200,
                 "application/json",
                 null,

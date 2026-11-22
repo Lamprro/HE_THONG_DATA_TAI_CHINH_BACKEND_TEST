@@ -1,5 +1,7 @@
 package com.hethongdata.taichinh.service.forecast;
 
+import com.hethongdata.taichinh.support.TestJwt;
+
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -25,7 +27,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {
-      "financial.admin.api-token=isolated-test-admin-credential-not-production",
+      TestJwt.PROPERTY,
       "financial.admin.commands.enabled=false",
       "financial.admin.schedule.enabled=false",
       "financial.llm.catalog.seed-enabled=false",
@@ -305,7 +307,7 @@ class ForecastPipelineIntegrationTests {
     assertThat(service.execute(farther).status()).isEqualTo("SUCCESS");
     assertThat(db.queryForObject("SELECT count(*) FROM llm_results WHERE is_current", Integer.class)).isEqualTo(2);
     assertThat(db.queryForList("SELECT forecast_period_end::text FROM llm_results ORDER BY forecast_period_end", String.class))
-        .containsExactly("2026-12-31", "2027-03-31");
+        .containsExactly("2027-03-31", "2027-06-30");
     assertThat(service.execute(request).status()).isEqualTo("CACHED");
     assertThat(service.execute(farther).status()).isEqualTo("CACHED");
   }
@@ -467,7 +469,7 @@ class ForecastPipelineIntegrationTests {
       UUID article=db.queryForObject("SELECT id FROM news_articles WHERE canonical_url='https://cafef.vn/isolated-metadata-flow.chn'",UUID.class);
       assertThat(db.queryForObject("SELECT content_text FROM news_articles WHERE id=?",String.class,article)).isNull();
       assertThat(db.queryForObject("SELECT count(*) FROM news_article_companies WHERE news_article_id=?",Integer.class,article)).isEqualTo(1);
-      assertThat(new NewsLlmContext(db,json,new com.hethongdata.taichinh.service.ingestion.ChecksumService())
+      assertThat(new NewsLlmContext(new com.hethongdata.taichinh.repository.jdbc.news.NewsLlmQueryRepository(db),json,new com.hethongdata.taichinh.service.ingestion.ChecksumService())
           .build(article,"NEWS_SUMMARY").issues()).contains("BODY_MISSING_OR_TOO_SHORT");
       assertThat(db.queryForObject("SELECT count(*) FROM validation_results WHERE raw_payload_id=? AND result_status='FAIL' AND severity='ERROR'",Integer.class,fetched)).isZero();
       reset(external);
@@ -742,9 +744,9 @@ class ForecastPipelineIntegrationTests {
   @Test
   void adminAuthenticationAndDtosAreEnforced() {
     var noAuth = http.postForEntity("/api/admin/forecasts/preview", request, String.class);
-    assertThat(noAuth.getStatusCode().value()).isEqualTo(403);
+    assertThat(noAuth.getStatusCode().value()).isEqualTo(401);
     var headers = new HttpHeaders();
-    headers.setBearerAuth("isolated-test-admin-credential-not-production");
+    headers.setBearerAuth(TestJwt.admin());
     var response =
         http.exchange(
             "/api/admin/forecasts/preview",
@@ -782,7 +784,7 @@ class ForecastPipelineIntegrationTests {
             http.postForEntity("/api/admin/forecasts/preview", request, String.class)
                 .getStatusCode()
                 .value())
-        .isEqualTo(403);
+        .isEqualTo(401);
   }
 
   @Test
@@ -874,7 +876,7 @@ class ForecastPipelineIntegrationTests {
   void priceCannotUseStoredNumbersWithoutMatchingRawEvidence() {
     db.update(
         "UPDATE market_prices SET close_price=close_price+1 WHERE id=(SELECT id FROM market_prices"
-            + " WHERE security_id=? AND is_canonical AND interval_code='1d' ORDER BY"
+            + " WHERE security_id=? AND is_canonical AND interval_code='1d' AND price_timestamp<'2026-10-10T00:00:00+07:00' AND created_at<'2026-10-10T00:00:00+07:00' ORDER BY"
             + " price_timestamp DESC LIMIT 1)",
         request.securityId());
     try {
@@ -888,7 +890,7 @@ class ForecastPipelineIntegrationTests {
     } finally {
       db.update(
           "UPDATE market_prices SET close_price=close_price-1 WHERE id=(SELECT id FROM"
-              + " market_prices WHERE security_id=? AND is_canonical AND interval_code='1d' ORDER"
+              + " market_prices WHERE security_id=? AND is_canonical AND interval_code='1d' AND price_timestamp<'2026-10-10T00:00:00+07:00' AND created_at<'2026-10-10T00:00:00+07:00' ORDER"
               + " BY price_timestamp DESC LIMIT 1)",
           request.securityId());
     }
@@ -913,7 +915,7 @@ class ForecastPipelineIntegrationTests {
   @Test
   void apiAcceptsSixTargetsAndPublishesPriceAlongsideFinancials() {
     var headers = new HttpHeaders();
-    headers.setBearerAuth("isolated-test-admin-credential-not-production");
+    headers.setBearerAuth(TestJwt.admin());
     var all =
         new ForecastRequest(
             request.securityId(),
@@ -943,7 +945,7 @@ class ForecastPipelineIntegrationTests {
           long latest =
               db.queryForObject(
                   "SELECT id FROM market_prices WHERE security_id=? AND is_canonical AND"
-                      + " interval_code='1d' ORDER BY price_timestamp DESC LIMIT 1",
+                      + " interval_code='1d' AND price_timestamp<'2026-10-10T00:00:00+07:00' AND created_at<'2026-10-10T00:00:00+07:00' ORDER BY price_timestamp DESC LIMIT 1",
                   Long.class,
                   request.securityId());
           db.update(
@@ -979,7 +981,7 @@ class ForecastPipelineIntegrationTests {
           db.update(
               "UPDATE market_prices SET is_canonical=false WHERE security_id=? AND is_canonical AND"
                   + " interval_code='1d' AND id NOT IN (SELECT id FROM market_prices WHERE"
-                  + " security_id=? AND is_canonical AND interval_code='1d' ORDER BY"
+                  + " security_id=? AND is_canonical AND interval_code='1d' AND price_timestamp<'2026-10-10T00:00:00+07:00' AND created_at<'2026-10-10T00:00:00+07:00' ORDER BY"
                   + " price_timestamp DESC LIMIT 59)",
               request.securityId(),
               request.securityId());
@@ -1014,9 +1016,9 @@ class ForecastPipelineIntegrationTests {
         () -> {
           db.update(
               "UPDATE market_prices SET price_timestamp=(SELECT max(price_timestamp) FROM"
-                  + " market_prices WHERE security_id=? AND is_canonical AND interval_code='1d') +"
+                  + " market_prices WHERE security_id=? AND is_canonical AND interval_code='1d' AND price_timestamp<'2026-10-10T00:00:00+07:00' AND created_at<'2026-10-10T00:00:00+07:00') +"
                   + " interval '1 minute' WHERE id=(SELECT id FROM market_prices WHERE"
-                  + " security_id=? AND is_canonical AND interval_code='1d' ORDER BY"
+                  + " security_id=? AND is_canonical AND interval_code='1d' AND price_timestamp<'2026-10-10T00:00:00+07:00' AND created_at<'2026-10-10T00:00:00+07:00' ORDER BY"
                   + " price_timestamp DESC OFFSET 1 LIMIT 1)",
               request.securityId(),
               request.securityId());
@@ -1032,7 +1034,7 @@ class ForecastPipelineIntegrationTests {
         () -> {
           db.update(
               "UPDATE data_versions SET status='REJECTED' WHERE id=(SELECT data_version_id FROM"
-                  + " market_prices WHERE security_id=? AND is_canonical AND interval_code='1d'"
+                  + " market_prices WHERE security_id=? AND is_canonical AND interval_code='1d' AND price_timestamp<'2026-10-10T00:00:00+07:00' AND created_at<'2026-10-10T00:00:00+07:00'"
                   + " ORDER BY price_timestamp DESC LIMIT 1)",
               request.securityId());
           assertThat(service.preview(priceRequest()).issues())
@@ -1050,6 +1052,8 @@ class ForecastPipelineIntegrationTests {
               db.update(
                   "UPDATE market_prices SET close_price=close_price+1 WHERE id=(SELECT id FROM"
                       + " market_prices WHERE security_id=? AND is_canonical AND interval_code='1d'"
+                      + " AND price_timestamp<'2026-10-10T00:00:00+07:00'"
+                      + " AND created_at<'2026-10-10T00:00:00+07:00'"
                       + " ORDER BY price_timestamp DESC LIMIT 1)",
                   request.securityId());
               return new LlmGateway.Reply(200, "{}", response.toString(), 1, 1);
@@ -1086,7 +1090,7 @@ class ForecastPipelineIntegrationTests {
         .extracting(ForecastDtos.Result::forecastPeriodEnd)
         .containsExactlyInAnyOrder(LocalDate.of(2027,3,31), LocalDate.of(2027,6,30));
     var headers = new HttpHeaders();
-    headers.setBearerAuth("isolated-test-admin-credential-not-production");
+    headers.setBearerAuth(TestJwt.admin());
     var filtered = http.exchange(
         "/api/admin/forecasts/securities/" + price.securityId()
             + "/results?forecastPeriodEnd=2027-06-30",
@@ -1225,7 +1229,7 @@ class ForecastPipelineIntegrationTests {
     var outcome = service.execute(priceRequest());
     var firstRound = store.run(outcome.runId()).validationRoundId();
     var headers = new HttpHeaders();
-    headers.setBearerAuth("isolated-test-admin-credential-not-production");
+    headers.setBearerAuth(TestJwt.admin());
     var revalidate =
         http.exchange(
             "/api/admin/forecasts/runs/" + outcome.runId() + "/revalidate",

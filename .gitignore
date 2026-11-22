@@ -24,3 +24,8 @@ application-prod.properties
 
 # Private database backups (may contain complete provider payloads)
 docs/db-backups/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+

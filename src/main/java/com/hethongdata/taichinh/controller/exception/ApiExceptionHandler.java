@@ -55,8 +55,11 @@ public class ApiExceptionHandler {
         return new ResponseEntity<>(response.getBody(),headers,HttpStatus.METHOD_NOT_ALLOWED);
     }
 
-    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
-    ResponseEntity<ApiErrorResponse> unknownRoute(org.springframework.web.servlet.resource.NoResourceFoundException exception) {
+    @ExceptionHandler({
+        org.springframework.web.servlet.resource.NoResourceFoundException.class,
+        org.springframework.web.servlet.NoHandlerFoundException.class
+    })
+    ResponseEntity<ApiErrorResponse> unknownRoute(Exception exception) {
         return error(HttpStatus.NOT_FOUND,"NOT_FOUND",null,null,"No endpoint matches this path");
     }
 

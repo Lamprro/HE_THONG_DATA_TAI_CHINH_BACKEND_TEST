@@ -61,11 +61,17 @@ public class MarketPriceWorkflowService {
         }
         UUID lastRunId = null;
         int rejected = 0;
+        boolean pendingReview = false;
         for (DataVersionEntity version : candidates) {
             IngestionRunEntity run = runs.startInternalBatch(job.getDataSource(), job, triggerType, WORKFLOW);
             lastRunId = run.getId();
             try {
                 writes.build(version.getId(), run);
+            } catch (DataVersionLifecycleService.SourceConflict conflict) {
+                lifecycle.holdConflict(version.getId(), conflict);
+                runs.markFailed(run, ExternalErrorCategory.PROTOCOL.name(), null,
+                        WORKFLOW + " waiting for source review: " + version.getId());
+                pendingReview = true;
             } catch (RuntimeException exception) {
                 runs.markFailed(run, ExternalErrorCategory.PROTOCOL.name(), null,
                         WORKFLOW + " failed for version " + version.getId());
@@ -73,7 +79,7 @@ public class MarketPriceWorkflowService {
                 rejected++;
             }
         }
-        return response(lastRunId, rejected);
+        return response(lastRunId, rejected, pendingReview);
     }
 
     private boolean containsPricePayload(DataVersionEntity version) {
@@ -83,12 +89,12 @@ public class MarketPriceWorkflowService {
     }
 
     private IngestionExecutionResponse response(UUID runId) {
-        return response(runId, 0);
+        return response(runId, 0, false);
     }
 
-    private IngestionExecutionResponse response(UUID runId, int rejected) {
+    private IngestionExecutionResponse response(UUID runId, int rejected, boolean pendingReview) {
         return new IngestionExecutionResponse(runId, null,
-                rejected == 0 ? "SUCCESS" : "COMPLETED_WITH_REJECTIONS", 200,
+                pendingReview ? "PENDING_REVIEW" : rejected == 0 ? "SUCCESS" : "COMPLETED_WITH_REJECTIONS", 200,
                 "application/json", null, false);
     }
 }

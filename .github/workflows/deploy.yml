@@ -20,13 +20,15 @@ jobs:
 
       - name: Deploy with Docker Compose
         env:
-          FINANCIAL_ADMIN_API_TOKEN: ${{ secrets.FINANCIAL_ADMIN_API_TOKEN }}
+          FINANCIAL_JWT_SECRET: ${{ secrets.FINANCIAL_JWT_SECRET }}
         run: |
           set -euo pipefail
-          if [ "${#FINANCIAL_ADMIN_API_TOKEN}" -lt 32 ]; then
-            echo "Dedicated admin credential must be configured in deployment secrets."
-            exit 1
-          fi
+          python3 - <<'PY'
+          import os
+          key = os.environ["FINANCIAL_JWT_SECRET"]
+          if not key.strip() or len(key.encode("utf-8")) < 32:
+              raise SystemExit("FINANCIAL_JWT_SECRET needs at least 32 UTF-8 bytes.")
+          PY
           # Keep the server's Docker/Maven cache between deployments.
           # The changed service is recreated by compose without taking the
           # whole project down first.
@@ -46,9 +48,15 @@ jobs:
             sleep 2
           done
 
-          curl --fail --silent --show-error --max-time 20 --output /dev/null \
-            --header "Authorization: Bearer ${FINANCIAL_ADMIN_API_TOKEN}" \
-            http://127.0.0.1:8080/api/admin/financial-data/quality/coverage
+          # Successful login is covered by the Backend tests workflow with fixture credentials.
+          login_status=$(curl --silent --show-error --max-time 10 --output /dev/null --write-out '%{http_code}' \
+            --header 'Content-Type: application/json' --data '{}' http://127.0.0.1:8080/api/auth/login)
+          admin_status=$(curl --silent --show-error --max-time 10 --output /dev/null --write-out '%{http_code}' \
+            http://127.0.0.1:8080/api/admin/console/session)
+          if [ "$login_status" != 400 ] || [ "$admin_status" != 401 ]; then
+            echo "Unexpected login or Admin access status."
+            exit 1
+          fi
 
           for path in '/status?symbol=FPT' '/coverage'; do
             curl --fail --silent --show-error --max-time 15 --output /dev/null \
@@ -68,5 +76,5 @@ jobs:
       - name: Show deployed containers
         if: always()
         env:
-          FINANCIAL_ADMIN_API_TOKEN: ${{ secrets.FINANCIAL_ADMIN_API_TOKEN }}
+          FINANCIAL_JWT_SECRET: ${{ secrets.FINANCIAL_JWT_SECRET }}
         run: docker compose ps

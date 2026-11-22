@@ -2,10 +2,10 @@ package com.hethongdata.taichinh.service.macro;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hethongdata.taichinh.entity.ingestion.IngestionRunEntity;
+import com.hethongdata.taichinh.repository.jdbc.macro.MacroPersistenceJdbcRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.*;
 import com.hethongdata.taichinh.repository.jpa.validation.DataVersionJpaRepository;
 
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,7 +18,7 @@ public class MacroWorkflowPersistenceService {
     private final DataVersionJpaRepository versions;
     private final RawPayloadJpaRepository rawPayloads;
     private final IngestionRunJpaRepository runs;
-    private final JdbcTemplate db;
+    private final MacroPersistenceJdbcRepository repo;
     private final MacroPayloadParser parser;
     private final ObjectMapper mapper;
 
@@ -26,13 +26,13 @@ public class MacroWorkflowPersistenceService {
             DataVersionJpaRepository versions,
             RawPayloadJpaRepository rawPayloads,
             IngestionRunJpaRepository runs,
-            JdbcTemplate db,
+            MacroPersistenceJdbcRepository repo,
             MacroPayloadParser parser,
             ObjectMapper mapper) {
         this.versions = versions;
         this.rawPayloads = rawPayloads;
         this.runs = runs;
-        this.db = db;
+        this.repo = repo;
         this.parser = parser;
         this.mapper = mapper;
     }
@@ -49,27 +49,17 @@ public class MacroWorkflowPersistenceService {
                 || rawPayloads.countByIngestionRunId(version.getIngestionRunId()) != 1)
             throw new IllegalArgumentException("Expected one validated macro batch");
         var raw = payloads.getFirst();
-        Integer approved =
-                db.queryForObject(
-                        "SELECT count(*) FROM validation_results WHERE raw_payload_id=? AND"
-                            + " rule_code='MACRO_PAYLOAD_VALID' AND result_status='PASS'",
-                        Integer.class,
-                        raw.getId());
-        if (approved == null || approved == 0)
+        int approved = repo.countApprovedValidationResults(raw.getId(), "MACRO_PAYLOAD_VALID");
+        if (approved == 0)
             throw new IllegalStateException(
                     "Macro contract validation audit is required before materialization");
         var batch = parser.parse(raw.getPayload(), raw.getDataSource().getProvider());
         Long sourceId = raw.getDataSource().getId();
         // Serializes first inserts and corrections for one source across different raw versions.
-        db.queryForObject(
-                "SELECT id FROM data_sources WHERE id=? FOR UPDATE", Long.class, sourceId);
+        repo.lockDataSourceForUpdate(sourceId);
         int inserted = 0, updated = 0, unchanged = 0, stale = 0;
         for (var series : batch.series()) {
-            db.update(
-                    "INSERT INTO"
-                        + " macro_series(id,data_source_id,code,name,country_code,frequency,unit,description,is_active)"
-                        + " VALUES (?,?,?,?,?,?,?,?,true) ON CONFLICT(data_source_id,code) DO"
-                        + " NOTHING",
+            repo.insertMacroSeriesIfNotExists(
                     UUID.randomUUID(),
                     sourceId,
                     series.code(),
@@ -78,12 +68,7 @@ public class MacroWorkflowPersistenceService {
                     series.frequency(),
                     series.unit(),
                     series.description());
-            var definition =
-                    db.queryForMap(
-                            "SELECT id,country_code,frequency,unit FROM macro_series WHERE"
-                                + " data_source_id=? AND code=? FOR UPDATE",
-                            sourceId,
-                            series.code());
+            var definition = repo.lockAndGetMacroSeriesDefinition(sourceId, series.code());
             if (!"VNM".equals(definition.get("country_code"))
                     || !series.frequency().equals(definition.get("frequency"))
                     || !series.unit().equals(definition.get("unit")))
@@ -91,25 +76,9 @@ public class MacroWorkflowPersistenceService {
                         "Existing macro definition has incompatible country/frequency/unit");
             UUID seriesId = (UUID) definition.get("id");
             for (var observation : series.observations()) {
-                var existing =
-                        db.query(
-                                "SELECT o.value, r.fetched_at FROM macro_observations o LEFT JOIN"
-                                    + " raw_payloads r ON r.id=o.raw_payload_id WHERE"
-                                    + " o.macro_series_id=? AND o.observation_date=? FOR UPDATE OF"
-                                    + " o",
-                                (r, n) ->
-                                        new Previous(
-                                                r.getBigDecimal(1),
-                                                r.getTimestamp(2) == null
-                                                        ? null
-                                                        : r.getTimestamp(2).toInstant()),
-                                seriesId,
-                                observation.date());
+                var existing = repo.findPreviousObservationForUpdate(seriesId, observation.date());
                 if (existing.isEmpty()) {
-                    db.update(
-                            "INSERT INTO"
-                                + " macro_observations(macro_series_id,observation_date,value,raw_payload_id,data_version_id)"
-                                + " VALUES (?,?,?,?,?)",
+                    repo.insertMacroObservation(
                             seriesId,
                             observation.date(),
                             observation.value(),
@@ -122,15 +91,12 @@ public class MacroWorkflowPersistenceService {
                         && existing.getFirst().value().compareTo(observation.value()) == 0)
                     unchanged++;
                 else {
-                    db.update(
-                            "UPDATE macro_observations SET"
-                                + " value=?,raw_payload_id=?,data_version_id=?,updated_at=now()"
-                                + " WHERE macro_series_id=? AND observation_date=?",
+                    repo.updateMacroObservation(
+                            seriesId,
+                            observation.date(),
                             observation.value(),
                             raw.getId(),
-                            versionId,
-                            seriesId,
-                            observation.date());
+                            versionId);
                     updated++;
                 }
             }
@@ -169,6 +135,4 @@ public class MacroWorkflowPersistenceService {
         versions.save(version);
         return counts;
     }
-
-    private record Previous(java.math.BigDecimal value, Instant fetchedAt) {}
 }

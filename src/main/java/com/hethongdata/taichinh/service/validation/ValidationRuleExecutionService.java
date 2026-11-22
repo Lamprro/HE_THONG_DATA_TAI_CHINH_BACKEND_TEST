@@ -58,7 +58,7 @@ public class ValidationRuleExecutionService {
                 && com.hethongdata.taichinh.service.news.NewsWorkflowService.urlOnly(raw.getPayload())
                 && java.util.Set.of("NEWS_DATA_HTTP_SUCCESS", "NEWS_DATA_CONTENT_TYPE_VALID",
                     "NEWS_DATA_RAW_TEXT_REQUIRED", "NEWS_DATA_HTML_STRUCTURE", "NEWS_DATA_ARTICLE_EXTRACTED",
-                    "NEWS_DATA_BLOCK_PAGE_DETECTED", "RAW_ERROR_MESSAGE").contains(rule.getExecutorKey())) {
+                    "RAW_ERROR_MESSAGE").contains(rule.getExecutorKey())) {
             return new Outcome("SKIP", "URL_ONLY", "link without article evidence",
                     "URL_ONLY: content rules do not apply; fetch/extraction diagnostics remain in raw metadata");
         }

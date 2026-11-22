@@ -7,6 +7,7 @@ import com.hethongdata.taichinh.entity.MarketPriceEntity;
 import com.hethongdata.taichinh.entity.ingestion.*;
 import com.hethongdata.taichinh.entity.master.SecurityEntity;
 import com.hethongdata.taichinh.entity.validation.DataVersionEntity;
+import com.hethongdata.taichinh.repository.jdbc.market.MarketPriceBatchInsertJdbcRepository;
 import com.hethongdata.taichinh.repository.jpa.ingestion.*;
 import com.hethongdata.taichinh.repository.jpa.market.MarketPriceJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.master.SecurityJpaRepository;
@@ -24,7 +25,7 @@ class MarketPriceDailyBackfillTests {
         var sources=mock(DataSourceJpaRepository.class);var securities=mock(SecurityJpaRepository.class);
         var prices=mock(MarketPriceJpaRepository.class);
         var jdbc=mock(org.springframework.jdbc.core.JdbcTemplate.class);
-        var writes=new MarketPriceWorkflowPersistenceService(versions,raws,runs,sources,securities,prices,new MarketPricePayloadParser(),json,jdbc);
+        var writes=new MarketPriceWorkflowPersistenceService(versions,raws,runs,sources,securities,prices,new MarketPricePayloadParser(),json,new MarketPriceBatchInsertJdbcRepository(jdbc));
         var security=SecurityEntity.create(UUID.randomUUID(),"FPT","HOSE","STOCK",null,"VND",null,null,null,null,true,true);
         ReflectionTestUtils.setField(security,"id",UUID.randomUUID());
         when(securities.findById(security.getId())).thenReturn(Optional.of(security));

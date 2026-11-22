@@ -433,10 +433,10 @@ class NewsPipelineIntegrationFlowTests {
     }
 
     // =========================================================================
-    // CASE 8: EXTRACTION FAILED IN NEWS_DATA
+    // CASE 8: EXTRACTION FAILED IN NEWS_DATA PRESERVES LINK AS URL_ONLY
     // =========================================================================
     @Test
-    @DisplayName("Case 8: Extraction Failure in NEWS_DATA Fails Validation and articleDraft Gracefully Rejects")
+    @DisplayName("Case 8: Extraction Failure in NEWS_DATA Skips Content Rules as URL_ONLY and articleDraft Preserves Link")
     void testNewsData_ExtractionFailed_FailsRuleAndBuild() throws Exception {
         IngestionRunEntity run = ingestionRunRepository.startInternalBatch(
                 cafefDataSource, newsDataFetchJob, "MANUAL", "NEWS_DATA_FETCH");
@@ -465,8 +465,15 @@ class NewsPipelineIntegrationFlowTests {
                 .findFirst()
                 .orElseThrow();
 
-        assertThat(extractResult.getStatus()).isEqualTo("FAIL");
-        assertThat(extractResult.getMessage()).contains("Publisher article extraction failed");
+        // Under P08, URL_ONLY bypasses content extraction rules with SKIP so the link is preserved
+        assertThat(extractResult.getStatus()).isEqualTo("SKIP");
+        assertThat(extractResult.getObservedValue()).isEqualTo("URL_ONLY");
+
+        // And articleDraft builds a URL_ONLY article without body
+        var draft = newsWorkflowService.articleDraft(failedRaw);
+        assertThat(draft.canonicalUrl()).isEqualTo("https://cafef.vn/failed-extract.chn");
+        assertThat(draft.contentText()).isNull();
+        assertThat(draft.metadata().path("content_status").asText()).isEqualTo("URL_ONLY");
     }
 
     // =========================================================================

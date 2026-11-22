@@ -1,9 +1,9 @@
 package com.hethongdata.taichinh.service;
 
+import com.hethongdata.taichinh.repository.support.DatabaseProbeRepository;
 import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.util.concurrent.*;
-import javax.sql.DataSource;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -12,7 +12,7 @@ import org.springframework.stereotype.Service;
 public class DatabaseHealthService {
   public record DatabaseHealth(String status, String reason) {}
 
-  private final DataSource dataSource;
+  private final DatabaseProbeRepository probeRepository;
   private final Duration timeout;
   private Future<DatabaseHealth> inFlight;
   private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
@@ -21,11 +21,17 @@ public class DatabaseHealthService {
     return thread;
   });
 
-  public DatabaseHealthService(DataSource dataSource,
+  public DatabaseHealthService(javax.sql.DataSource dataSource,
+      @Value("${financial.health.database-timeout:2s}") Duration timeout) {
+    this(new DatabaseProbeRepository(dataSource), timeout);
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public DatabaseHealthService(DatabaseProbeRepository probeRepository,
       @Value("${financial.health.database-timeout:2s}") Duration timeout) {
     if (timeout.isNegative() || timeout.isZero() || timeout.compareTo(Duration.ofSeconds(10)) > 0)
       throw new IllegalArgumentException("Database health timeout must be positive and at most 10 seconds");
-    this.dataSource = dataSource;
+    this.probeRepository = probeRepository;
     this.timeout = timeout;
   }
 
@@ -55,12 +61,9 @@ public class DatabaseHealthService {
   }
 
   private DatabaseHealth probeDatabase() {
-    try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
-      statement.setQueryTimeout((int) Math.max(1, (timeout.toMillis() + 999) / 1000));
-      try (var result = statement.executeQuery("SELECT 1")) {
-        return result.next() && result.getInt(1) == 1
-            ? new DatabaseHealth("UP", null) : down("PROBE_FAILED");
-      }
+    try {
+      return probeRepository.probe(timeout)
+          ? new DatabaseHealth("UP", null) : down("PROBE_FAILED");
     } catch (Exception e) {
       return down("CONNECTION_UNAVAILABLE");
     }

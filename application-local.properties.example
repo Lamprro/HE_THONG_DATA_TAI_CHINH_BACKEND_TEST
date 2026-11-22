@@ -42,11 +42,10 @@ financial.llm.gemini.max-backoff-ms=${GEMINI_MAX_BACKOFF_MS:8000}
 financial.llm.gemini.cooldown-ms=${GEMINI_COOLDOWN_MS:60000}
 financial.llm.gemini.max-output-tokens=${GEMINI_MAX_OUTPUT_TOKENS:16384}
 financial.llm.gemini.thinking-budget=${GEMINI_THINKING_BUDGET:1024}
-financial.llm.catalog.seed-enabled=false
 financial.llm.scheduler.enabled=false
 financial.validation.scheduler.enabled=false
-## Dedicated credential for forecast admin API only; keep private, >=32 characters. Never use Gemini key here.
-financial.admin.api-token=${FINANCIAL_ADMIN_API_TOKEN:}
+# Authentication secret as plain text, at least 32 UTF-8 bytes. Required in production.
+financial.security.jwt-secret=${FINANCIAL_JWT_SECRET:}
 
 # Cloudinary document storage: fill values in the gitignored local file or environment.
 # Storage is used by the admin recovery API; the recovery scheduler remains separately opt-in.

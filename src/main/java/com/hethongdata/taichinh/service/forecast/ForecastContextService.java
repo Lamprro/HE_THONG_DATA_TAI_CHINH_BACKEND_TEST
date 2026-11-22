@@ -3,6 +3,7 @@ package com.hethongdata.taichinh.service.forecast;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hethongdata.taichinh.dto.forecast.*;
 import com.hethongdata.taichinh.dto.forecast.ForecastDtos.*;
+import com.hethongdata.taichinh.repository.jdbc.forecast.ForecastContextQueryRepository;
 import com.hethongdata.taichinh.service.financial.FinancialRatioCalculator;
 import com.hethongdata.taichinh.service.ingestion.ChecksumService;
 import com.hethongdata.taichinh.service.llm.LlmJson;
@@ -11,7 +12,6 @@ import java.math.*;
 import java.time.*;
 import java.util.*;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,7 +38,7 @@ public class ForecastContextService {
     }
   }
 
-  private final JdbcTemplate db;
+  private final ForecastContextQueryRepository repo;
   private final LlmJson json;
   private final ChecksumService hashes;
   private final FinancialRatioCalculator calculator;
@@ -46,7 +46,7 @@ public class ForecastContextService {
   private final int yearlyMonths, quarterlyMonths, monthlyMonths, dailyDays;
 
   public ForecastContextService(
-      JdbcTemplate db,
+      ForecastContextQueryRepository repo,
       LlmJson json,
       ChecksumService hashes,
       FinancialRatioCalculator calculator,
@@ -57,7 +57,7 @@ public class ForecastContextService {
       @Value("${financial.forecast.macro.max-age.daily-days:15}") int dailyDays) {
     if (yearlyMonths < 1 || quarterlyMonths < 1 || monthlyMonths < 1 || dailyDays < 1)
       throw new IllegalArgumentException("Macro freshness thresholds must be positive");
-    this.db = db;
+    this.repo = repo;
     this.json = json;
     this.hashes = hashes;
     this.calculator = calculator;
@@ -80,11 +80,7 @@ public class ForecastContextService {
         || request.targets() == null
         || request.targets().isEmpty())
       throw new IllegalArgumentException("Choose 1-8 quarters and at least one supported target");
-    var security =
-        db.queryForList(
-            "SELECT s.company_id,s.symbol,c.legal_name,c.industry_name FROM securities s JOIN"
-                + " companies c ON c.id=s.company_id WHERE s.id=?",
-            request.securityId());
+    var security = repo.findSecurityCompanyById(request.securityId());
     if (security.isEmpty()) throw new IllegalArgumentException("Security not found");
     UUID company = (UUID) security.getFirst().get("company_id");
     var cutoff =
@@ -92,44 +88,28 @@ public class ForecastContextService {
             request.asOfDate().plusDays(1).atStartOfDay(ZoneId.of("Asia/Ho_Chi_Minh")).toInstant());
     LocalDate start = request.asOfDate().minusYears(5);
     LocalDate targetDate = resolveTargetDate(request.asOfDate(), request.horizonQuarters(), request.forecastPeriodEnd());
-    var points =
-        new ArrayList<SourcePoint>(
-            db.query(
-"""
-SELECT i.id,s.statement_type,i.item_code,i.value*s.unit_scale AS amount,s.currency,p.start_date,p.end_date,
-    p.period_type,s.report_scope,coalesce(s.published_at,s.created_at)::text AS available_at,
-    s.period_basis,s.metadata_provenance::text
-FROM financial_statement_items i JOIN financial_statements s ON s.id=i.financial_statement_id
-JOIN financial_periods p ON p.id=s.financial_period_id
-WHERE s.company_id=? AND s.security_id=? AND s.is_current AND s.is_canonical
-    AND s.currency='VND' AND s.unit_scale>0 AND i.unit='VND' AND i.value IS NOT NULL
-    AND p.end_date BETWEEN ? AND ? AND coalesce(s.published_at,s.created_at)<?
-    AND i.created_at<? AND p.period_type IN ('Q1','Q2','Q3','Q4')
-    AND ((s.statement_type='INCOME_STATEMENT' AND i.item_code IN ('NET_PROFIT_AFTER_TAX','PRETAX_PROFIT'))
-        OR (s.statement_type='BALANCE_SHEET' AND i.item_code IN ('TOTAL_ASSETS','OWNERS_EQUITY',
-            'LIABILITIES','CURRENT_ASSETS','SHORT_TERM_LIABILITIES','CASH_AND_CASH_EQUIVALENTS'))
-        OR (s.statement_type='CASH_FLOW' AND i.item_code IN ('NET_CASHFLOW_FROM_OPERATING_ACTIVITIES',
-            'NET_CASHFLOW_FROM_INVESTING_ACTIVITIES','NET_CASHFLOW_FROM_FINANCING_ACTIVITIES')))
-ORDER BY p.end_date,s.statement_type,i.item_code,i.id
-""",
-                (r, n) ->
-                    new SourcePoint(
-                        "FSI:" + r.getString(1),
-                        r.getString(2),
-                        r.getString(3),
-                        r.getBigDecimal(4),
-                        r.getString(5).trim(),
-                        "YTD".equals(r.getString(11)) ? r.getDate(7).toLocalDate().withDayOfYear(1) : r.getDate(6).toLocalDate(),
-                        r.getDate(7).toLocalDate(),
-                        r.getString(8),
-                        r.getString(9),
-                        r.getString(10),r.getString(11),json.read(r.getString(12))),
-                company,
-                request.securityId(),
-                start,
-                request.asOfDate(),
-                cutoff,
-                cutoff));
+    var rawStatementItems = repo.findStatementItemSourcePoints(
+        company, request.securityId(), start, request.asOfDate(), cutoff, cutoff);
+    var points = new ArrayList<SourcePoint>();
+    for (var r : rawStatementItems) {
+      String id = r.get("id").toString();
+      String statementType = (String) r.get("statement_type");
+      String itemCode = (String) r.get("item_code");
+      BigDecimal amount = (BigDecimal) r.get("amount");
+      String currency = ((String) r.get("currency")).trim();
+      LocalDate startDate = "YTD".equals(r.get("period_basis"))
+          ? ((java.sql.Date) r.get("end_date")).toLocalDate().withDayOfYear(1)
+          : ((java.sql.Date) r.get("start_date")).toLocalDate();
+      LocalDate endDate = ((java.sql.Date) r.get("end_date")).toLocalDate();
+      String periodType = (String) r.get("period_type");
+      String reportScope = (String) r.get("report_scope");
+      String availableAt = (String) r.get("available_at");
+      String periodBasis = (String) r.get("period_basis");
+      JsonNode metadataProvenance = r.get("metadata_provenance") == null ? null : json.read((String) r.get("metadata_provenance"));
+      points.add(new SourcePoint(
+          "FSI:" + id, statementType, itemCode, amount, currency, startDate, endDate,
+          periodType, reportScope, availableAt, periodBasis, metadataProvenance));
+    }
     var limitations = new ArrayList<String>();
     var issues = new ArrayList<String>();
     limitations.add(
@@ -156,38 +136,30 @@ ORDER BY p.end_date,s.statement_type,i.item_code,i.id
     int financialPeriods = (int) points.stream().map(SourcePoint::periodEnd).distinct().count();
     boolean priceRequested = request.targets().contains(ForecastRequest.Target.STOCK_PRICE);
     var rawPrices = new HashMap<UUID, RawPrices>();
-    var market =
-        db.query(
-"""
-SELECT id,close_price,(price_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS d,created_at::text,raw_payload_id,data_version_id
-FROM market_prices WHERE security_id=? AND is_canonical AND interval_code='1d'
-    AND close_price>0 AND price_timestamp<? AND created_at<?
-ORDER BY price_timestamp DESC,id DESC LIMIT 60
-""",
-            (r, n) ->
-                new SourcePoint(
-                    "PRICE:" + r.getLong(1),
-                    "MARKET",
-                    "CLOSE",
-                    r.getBigDecimal(2),
-                    priceRequested
-                            && verifiedMarketClose(
-                                security.getFirst().get("symbol").toString(),
-                                r.getObject(5, UUID.class),
-                                r.getObject(6, UUID.class),
-                                r.getDate(3).toLocalDate(),
-                                r.getBigDecimal(2),
-                                rawPrices)
-                        ? "VND_PER_SHARE"
-                        : "SOURCE_PRICE_UNIT_UNVERIFIED",
-                    r.getDate(3).toLocalDate(),
-                    r.getDate(3).toLocalDate(),
-                    "DAILY",
-                    "UNADJUSTED",
-                    r.getString(4)),
-            request.securityId(),
-            cutoff,
-            cutoff);
+    var marketRows = repo.findMarketPriceSourcePoints(request.securityId(), cutoff);
+    var market = new ArrayList<SourcePoint>();
+    for (var r : marketRows) {
+      market.add(new SourcePoint(
+          "PRICE:" + r.get("id"),
+          "MARKET",
+          "CLOSE",
+          (BigDecimal) r.get("close_price"),
+          priceRequested
+                  && verifiedMarketClose(
+                      security.getFirst().get("symbol").toString(),
+                      (UUID) r.get("raw_payload_id"),
+                      (UUID) r.get("data_version_id"),
+                      ((java.sql.Date) r.get("d")).toLocalDate(),
+                      (BigDecimal) r.get("close_price"),
+                      rawPrices)
+              ? "VND_PER_SHARE"
+              : "SOURCE_PRICE_UNIT_UNVERIFIED",
+          ((java.sql.Date) r.get("d")).toLocalDate(),
+          ((java.sql.Date) r.get("d")).toLocalDate(),
+          "DAILY",
+          "UNADJUSTED",
+          (String) r.get("created_at")));
+    }
     if (market.stream().map(SourcePoint::periodEnd).distinct().count() != market.size())
       issues.add("AMBIGUOUS_DAILY_PRICES");
     if (market.size() < 20) limitations.add("Fewer than 20 daily market observations.");
@@ -210,55 +182,35 @@ ORDER BY price_timestamp DESC,id DESC LIMIT 60
         "Prices are unadjusted; no PE/PB or calibrated price forecast is calculated. Price units"
             + " must be proven against raw for STOCK_PRICE.");
     points.addAll(market);
-    points.addAll(
-        db.query(
-            """
-            SELECT m.id,d.code,m.value,d.unit,m.as_of_date,m.created_at::text
-            FROM financial_metrics m JOIN metric_definitions d ON d.id=m.metric_definition_id
-            WHERE m.company_id=? AND m.security_id=? AND m.is_canonical AND m.quality_status='VALID'
-                AND m.value IS NOT NULL AND m.as_of_date BETWEEN ? AND ? AND m.created_at<?
-            ORDER BY m.as_of_date DESC,d.code,m.id LIMIT 100
-            """,
-            (r, n) ->
-                new SourcePoint(
-                    "METRIC:" + r.getString(1),
-                    "METRIC",
-                    r.getString(2),
-                    r.getBigDecimal(3),
-                    r.getString(4),
-                    r.getDate(5).toLocalDate(),
-                    r.getDate(5).toLocalDate(),
-                    "AS_OF",
-                    "CANONICAL",
-                    r.getString(6)),
-            company,
-            request.securityId(),
-            start,
-            request.asOfDate(),
-            cutoff));
-    var macro =
-        db.query(
-"""
-SELECT o.id,s.code,o.value,s.unit,o.observation_date,s.frequency,o.created_at::text
-FROM macro_observations o JOIN macro_series s ON s.id=o.macro_series_id
-WHERE s.is_active AND s.country_code='VNM' AND o.value IS NOT NULL AND o.observation_date BETWEEN ? AND ? AND o.created_at<?
-ORDER BY o.observation_date DESC,s.code,o.id DESC LIMIT 120
-""",
-            (r, n) ->
-                new SourcePoint(
-                    "MACRO:" + r.getLong(1),
-                    "MACRO",
-                    r.getString(2),
-                    r.getBigDecimal(3),
-                    r.getString(4),
-                    r.getDate(5).toLocalDate(),
-                    r.getDate(5).toLocalDate(),
-                    r.getString(6),
-                    "OBSERVATION_DATE_NOT_RELEASE_DATE",
-                    r.getString(7)),
-            request.asOfDate().minusMonths(12),
-            request.asOfDate(),
-            cutoff);
+    var metricRows = repo.findFinancialMetricSourcePoints(company, request.securityId(), start, request.asOfDate(), cutoff);
+    for (var r : metricRows) {
+      points.add(new SourcePoint(
+          "METRIC:" + r.get("id"),
+          "METRIC",
+          (String) r.get("code"),
+          (BigDecimal) r.get("value"),
+          (String) r.get("unit"),
+          ((java.sql.Date) r.get("as_of_date")).toLocalDate(),
+          ((java.sql.Date) r.get("as_of_date")).toLocalDate(),
+          "AS_OF",
+          "CANONICAL",
+          (String) r.get("created_at")));
+    }
+    var macroRows = repo.findMacroObservationSourcePoints(request.asOfDate().minusMonths(12), request.asOfDate(), cutoff);
+    var macro = new ArrayList<SourcePoint>();
+    for (var r : macroRows) {
+      macro.add(new SourcePoint(
+          "MACRO:" + r.get("id"),
+          "MACRO",
+          (String) r.get("code"),
+          (BigDecimal) r.get("value"),
+          (String) r.get("unit"),
+          ((java.sql.Date) r.get("observation_date")).toLocalDate(),
+          ((java.sql.Date) r.get("observation_date")).toLocalDate(),
+          (String) r.get("frequency"),
+          "OBSERVATION_DATE_NOT_RELEASE_DATE",
+          (String) r.get("created_at")));
+    }
     if (macro.isEmpty()) {
       limitations.add("MACRO_NOT_AVAILABLE: no numeric macro assumptions may be invented.");
       if (request.requireMacro()) issues.add("MACRO_REQUIRED_BUT_MISSING");
@@ -267,7 +219,7 @@ ORDER BY o.observation_date DESC,s.code,o.id DESC LIMIT 120
           "Macro release/vintage timestamps are not modeled; ingestion time is only an availability"
               + " proxy.");
     points.addAll(macro);
-    var macroCoverage = macroCoverage(request.asOfDate(),cutoff,macro);
+    var macroCoverage = macroCoverage(request.asOfDate(), cutoff, macro);
     if (macroCoverage.isEmpty()) limitations.add("MACRO_CATALOG_MISSING: no active Vietnam series configured.");
     for (var series : macroCoverage) {
       if (!"AVAILABLE".equals(series.status())) limitations.add("MACRO_"+series.status()+":"+series.code()
@@ -301,7 +253,7 @@ ORDER BY o.observation_date DESC,s.code,o.id DESC LIMIT 120
     root.set("macro_coverage", json.mapper().valueToTree(macroCoverage));
     root.set("limitations", json.mapper().valueToTree(limitations));
     var coverage =
-        new Coverage(financialPeriods, market.size(), macro.size(), List.copyOf(limitations),macroCoverage);
+        new Coverage(financialPeriods, market.size(), macro.size(), List.copyOf(limitations), macroCoverage);
     return new Context(
         company,
         request,
@@ -315,60 +267,44 @@ ORDER BY o.observation_date DESC,s.code,o.id DESC LIMIT 120
   }
 
   public List<SecurityOption> securities(int limit) {
-    return db.query(
-        "SELECT s.id,s.company_id,s.symbol,c.legal_name FROM securities s JOIN companies c ON"
-            + " c.id=s.company_id ORDER BY s.symbol LIMIT ?",
-        (r, n) ->
-            new SecurityOption(
-                r.getObject(1, UUID.class),
-                r.getObject(2, UUID.class),
-                r.getString(3),
-                r.getString(4)),
-        Math.max(1, Math.min(500, limit)));
+    var rows = repo.findSecuritiesOptions(Math.max(1, Math.min(500, limit)));
+    return rows.stream().map(r -> new SecurityOption(
+        (UUID) r.get("id"),
+        (UUID) r.get("company_id"),
+        (String) r.get("symbol"),
+        (String) r.get("legal_name")
+    )).toList();
   }
 
   public List<StoredMetric> storedMetrics(UUID security, int limit) {
-    return db.query(
-        "SELECT"
-            + " m.id,d.code,m.value,d.unit,m.as_of_date,m.is_derived,m.is_canonical,m.quality_status,m.calculation_version,m.input_snapshot::text"
-            + " FROM financial_metrics m JOIN metric_definitions d ON d.id=m.metric_definition_id"
-            + " WHERE m.security_id=? ORDER BY m.created_at DESC,m.id LIMIT ?",
-        (r, n) ->
-            new StoredMetric(
-                r.getObject(1, UUID.class),
-                r.getString(2),
-                r.getBigDecimal(3),
-                r.getString(4),
-                r.getDate(5).toLocalDate(),
-                r.getBoolean(6),
-                r.getBoolean(7),
-                r.getString(8),
-                r.getString(9),
-                r.getString(10) == null ? null : json.read(r.getString(10))),
-        security,
-        Math.max(1, Math.min(200, limit)));
+    var rows = repo.findStoredMetrics(security, Math.max(1, Math.min(200, limit)));
+    return rows.stream().map(r -> new StoredMetric(
+        (UUID) r.get("id"),
+        (String) r.get("code"),
+        (BigDecimal) r.get("value"),
+        (String) r.get("unit"),
+        ((java.sql.Date) r.get("as_of_date")).toLocalDate(),
+        (Boolean) r.get("is_derived"),
+        (Boolean) r.get("is_canonical"),
+        (String) r.get("quality_status"),
+        (String) r.get("calculation_version"),
+        r.get("input_snapshot") == null ? null : json.read((String) r.get("input_snapshot"))
+    )).toList();
   }
 
   @Transactional
   public MetricCalculation recalculate(ForecastRequest request) {
-    db.queryForList(
-        "SELECT pg_advisory_xact_lock(hashtextextended(?,0))",
-        "financial-ratios:" + request.securityId());
+    repo.lockFinancialRatios(request.securityId());
     var context = build(request);
     int inserted = 0;
     for (var metric : context.metrics()) {
       if (metric.sourcePointIds().isEmpty()
           || !metric.sourcePointIds().getFirst().startsWith("FSI:")) continue;
       var sourceId = UUID.fromString(metric.sourcePointIds().getFirst().substring(4));
-      var source =
-          db.queryForList(
-                  "SELECT s.financial_period_id,s.data_source_id,s.data_version_id,s.raw_payload_id"
-                      + " FROM financial_statement_items i JOIN financial_statements s ON"
-                      + " s.id=i.financial_statement_id WHERE i.id=?",
-                  sourceId)
-              .getFirst();
-      var definition =
-          db.queryForList("SELECT id,unit FROM metric_definitions WHERE code=?", metric.code());
+      var sourceRows = repo.findStatementSourceByItemId(sourceId);
+      if (sourceRows.isEmpty()) continue;
+      var source = sourceRows.getFirst();
+      var definition = repo.findMetricDefinitionByCode(metric.code());
       if (definition.isEmpty() || !metric.unit().equals(definition.getFirst().get("unit")))
         continue;
       var provenance =
@@ -391,23 +327,16 @@ ORDER BY o.observation_date DESC,s.code,o.id DESC LIMIT 120
                   + ":"
                   + json.canonical(json.mapper().valueToTree(metric)));
       inserted +=
-          db.update(
-"""
-INSERT INTO financial_metrics(id,company_id,security_id,financial_period_id,metric_definition_id,as_of_date,
-    value,data_source_id,raw_payload_id,data_version_id,is_derived,is_canonical,calculation_version,quality_status,input_snapshot,calculation_key)
-VALUES (?,?,?,?,?,?,?,?,?,?,true,false,'balance-ratios-v1','WARNING',?::jsonb,?)
-ON CONFLICT (calculation_key) WHERE calculation_key IS NOT NULL DO NOTHING
-""",
-              UUID.randomUUID(),
+          repo.insertCalculatedMetric(
               context.company(),
               request.securityId(),
-              source.get("financial_period_id"),
-              definition.getFirst().get("id"),
+              (UUID) source.get("financial_period_id"),
+              (Long) definition.getFirst().get("id"),
               request.asOfDate(),
               metric.value(),
-              source.get("data_source_id"),
-              source.get("raw_payload_id"),
-              source.get("data_version_id"),
+              (Long) source.get("data_source_id"),
+              (UUID) source.get("raw_payload_id"),
+              (UUID) source.get("data_version_id"),
               provenance.toString(),
               key);
     }
@@ -415,7 +344,6 @@ ON CONFLICT (calculation_key) WHERE calculation_key IS NOT NULL DO NOTHING
         request, context.metrics(), context.coverage().limitations(), inserted);
   }
 
-  // ---- Forecast horizon: one always means the end of the next calendar quarter, including on quarter-end. ----
   public static LocalDate periodStart(LocalDate end) {
     return LocalDate.of(end.getYear(), ((end.getMonthValue() - 1) / 3) * 3 + 1, 1);
   }
@@ -437,35 +365,31 @@ ON CONFLICT (calculation_key) WHERE calculation_key IS NOT NULL DO NOTHING
     return YearMonth.of(asOf.getYear(), quarterEndMonth).plusMonths(quarters * 3L).atEndOfMonth();
   }
 
-  // ---- Macro coverage describes source availability; it does not manufacture observations or release dates. ----
   List<MacroSeriesCoverage> macroCoverage(LocalDate asOf, java.sql.Timestamp cutoff, List<SourcePoint> points) {
-      return db.query("""
-          SELECT s.code,s.frequency,max(o.observation_date) latest_date,
-              count(o.id) FILTER (WHERE o.observation_date>=?) window_count
-          FROM macro_series s LEFT JOIN macro_observations o ON o.macro_series_id=s.id
-              AND o.value IS NOT NULL AND o.observation_date<=? AND o.created_at<?
-          WHERE s.is_active AND s.country_code='VNM'
-          GROUP BY s.id,s.code,s.frequency ORDER BY s.code
-          """, (r,n)-> {
-              LocalDate latest=r.getDate("latest_date")==null?null:r.getDate("latest_date").toLocalDate();
-              String frequency=r.getString("frequency"), code=r.getString("code");
-              long count=r.getLong("window_count");
-              long sent=points.stream().filter(p->p.code().equals(code)).count();
-              LocalDate oldest= switch(frequency) {
-                  case "YEARLY" -> asOf.minusMonths(yearlyMonths);
-                  case "QUARTERLY" -> asOf.minusMonths(quarterlyMonths);
-                  case "MONTHLY" -> asOf.minusMonths(monthlyMonths);
-                  case "DAILY" -> asOf.minusDays(dailyDays);
-                  default -> null;
-              };
-              String status=latest==null?"MISSING":oldest==null?"UNSUPPORTED_FREQUENCY":
-                  latest.isBefore(oldest)?"STALE":count==0?"OUTSIDE_WINDOW":sent<count?"TRUNCATED_CONTEXT":"AVAILABLE";
-              return new MacroSeriesCoverage(code,frequency,latest,count,sent,status,
-                      latest==null,latest!=null && oldest!=null && latest.isBefore(oldest));
-          },asOf.minusMonths(12),asOf,cutoff);
+    var rows = repo.findMacroSeriesCoverage(asOf.minusMonths(12), asOf, cutoff);
+    var list = new ArrayList<MacroSeriesCoverage>();
+    for (var r : rows) {
+      LocalDate latest = r.get("latest_date") == null ? null : ((java.sql.Date) r.get("latest_date")).toLocalDate();
+      String frequency = (String) r.get("frequency");
+      String code = (String) r.get("code");
+      long count = ((Number) r.get("window_count")).longValue();
+      long sent = points.stream().filter(p -> p.code().equals(code)).count();
+      LocalDate oldest = switch (frequency) {
+        case "YEARLY" -> asOf.minusMonths(yearlyMonths);
+        case "QUARTERLY" -> asOf.minusMonths(quarterlyMonths);
+        case "MONTHLY" -> asOf.minusMonths(monthlyMonths);
+        case "DAILY" -> asOf.minusDays(dailyDays);
+        default -> null;
+      };
+      String status = latest == null ? "MISSING" : oldest == null ? "UNSUPPORTED_FREQUENCY" :
+          latest.isBefore(oldest) ? "STALE" : count == 0 ? "OUTSIDE_WINDOW" : sent < count ? "TRUNCATED_CONTEXT" : "AVAILABLE";
+      list.add(new MacroSeriesCoverage(
+          code, frequency, latest, count, sent, status,
+          latest == null, latest != null && oldest != null && latest.isBefore(oldest)));
+    }
+    return list;
   }
 
-  // ---- Descriptive trailing market indicators only: never substitutes a statistical price forecast. ----
   static List<DerivedMetric> marketScenarioMetrics(List<SourcePoint> market) {
     var history =
         market.stream()
@@ -508,7 +432,6 @@ ON CONFLICT (calculation_key) WHERE calculation_key IS NOT NULL DO NOTHING
     return List.copyOf(result);
   }
 
-  // ---- Reuses the production price parser to prove each stored close against its activated raw batch. ----
   record RawPrices(UUID ingestionRun, Map<LocalDate, BigDecimal> closes) {}
 
   private boolean verifiedMarketClose(
@@ -523,11 +446,7 @@ ON CONFLICT (calculation_key) WHERE calculation_key IS NOT NULL DO NOTHING
       if (!cache.containsKey(rawId)) cache.put(rawId, loadRawPrices(symbol, rawId));
       var raw = cache.get(rawId);
       if (raw == null) return false;
-      var version =
-          db.queryForList(
-              "SELECT ingestion_run_id FROM data_versions WHERE id=? AND status='ACTIVATED' AND"
-                  + " data_domain='MARKET_PRICE'",
-              versionId);
+      var version = repo.findActivatedMarketPriceDataVersion(versionId);
       return !version.isEmpty()
           && raw.ingestionRun().equals(version.getFirst().get("ingestion_run_id"))
           && raw.closes().containsKey(date)
@@ -538,12 +457,7 @@ ON CONFLICT (calculation_key) WHERE calculation_key IS NOT NULL DO NOTHING
   }
 
   private RawPrices loadRawPrices(String symbol, UUID rawId) {
-    var rows =
-        db.queryForList(
-            "SELECT r.payload::text AS"
-                + " body,r.entity_type,r.source_symbol,r.fetched_at,r.ingestion_run_id,d.provider"
-                + " FROM raw_payloads r JOIN data_sources d ON d.id=r.data_source_id WHERE r.id=?",
-            rawId);
+    var rows = repo.findRawPayloadWithDataSource(rawId);
     if (rows.isEmpty()) return null;
     var row = rows.getFirst();
     String provider = Objects.toString(row.get("provider"), "");
@@ -551,8 +465,6 @@ ON CONFLICT (calculation_key) WHERE calculation_key IS NOT NULL DO NOTHING
     if (!Set.of("vnstock", "vndirect", "cafef").contains(provider)
         || !provider.equals(body.path("provider").asText())
         || !"OHLCV".equals(row.get("entity_type"))) return null;
-    // A normalized contract must explicitly assert its unit; legacy providers use the existing
-    // production parser's reviewed VND multiplier, verified by matching the stored value below.
     if ("market_price.v1".equals(body.path("schema_version").asText())
         && !"VND".equals(body.path("price_unit").asText())) return null;
     Instant fetched = ((java.sql.Timestamp) row.get("fetched_at")).toInstant();

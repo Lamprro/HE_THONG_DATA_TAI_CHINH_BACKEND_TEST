@@ -37,18 +37,16 @@ try {
     const metrics = await api.securityMetrics('FPT', { exchange: 'HOSE', size: 1 });
     const metricSource = await api.metricLineage('FPT', metrics.items[0].id, { exchange: 'HOSE' });
     if (priceSource.data.id !== prices.items[0].id || metricSource.data.id !== metrics.items[0].id) throw new Error('Source identity mismatch');
-    const local = await api.securityLocalAi('FPT', { exchange: 'HOSE' });
-    const models = await api.localAiModels({ size: 100 });
     const overview = await api.overview('FPT', { exchange: 'HOSE' });
     const openapi = await api.contract();
     const missingClientOperations = Object.keys(openapi.paths).filter(path => !Object.values(userOperations).some(route => '/api/v1' + route === path));
     let errorStatus;
     try { await api.financials('FPT', {}); } catch (error) { if (!(error instanceof UserApiError)) throw error; errorStatus = error.status; }
-    const text = { company: company.data.legalName, symbol: profile.data.symbol, source: lineage.data.sourceCode, publication: lineage.data.publishedAt, researchState: local.data.state, modelCount: models.total, errorStatus };
+    const text = { company: company.data.legalName, symbol: profile.data.symbol, source: lineage.data.sourceCode, publication: lineage.data.publishedAt, errorStatus };
     document.getElementById('result').textContent = JSON.stringify(text, null, 2);
     return { ...text, companyIdMatches: company.data.id === profile.data.companyId, overviewIdMatches: overview.data.profile.data.id === profile.data.id,
       matrixHasValues: matrix.data.series.some(series => Object.values(series.values).some(point => point.value === null || typeof point.value === 'string')),
-      publicResultsAvailable: local.data.publicResultsAvailable, missingClientOperations, routeCount: Object.keys(openapi.paths).length };
+      missingClientOperations, routeCount: Object.keys(openapi.paths).length };
   }, baseUrl);
   assert.equal(result.companyIdMatches, true); assert.equal(result.overviewIdMatches, true); assert.equal(result.matrixHasValues, true);
   assert.equal(result.publicResultsAvailable, false); assert.equal(result.errorStatus, 400); assert.deepEqual(result.missingClientOperations, []);

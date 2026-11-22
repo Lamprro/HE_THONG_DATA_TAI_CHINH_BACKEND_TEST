@@ -214,13 +214,6 @@ public class IngestionJobService {
     public void executeDueMacroJobs() {
         executeDueJobs(MacroWorkflowService.JOBS);
     }
-    public void executeDueAdminJobs(Set<String> codes) {
-        if(codes.isEmpty()) return;
-        var allowed=ingestionJobs.findActiveEntities().stream().filter(j->j.getDataSource().isActive() && codes.contains(j.getCode()))
-            .map(IngestionJobEntity::getCode).collect(Collectors.toSet());
-        if(!allowed.isEmpty()) executeDueJobs(allowed);
-    }
-
     private void executeDueJobs(Set<String> allowedCodes) {
         Instant now = Instant.now();
         List<IngestionJobEntity> activeJobs = ingestionJobs.findActiveEntities();

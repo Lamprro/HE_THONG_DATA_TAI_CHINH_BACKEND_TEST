@@ -1,9 +1,11 @@
 package com.hethongdata.taichinh.service.user;
+
+import com.hethongdata.taichinh.support.TestJwt;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hethongdata.taichinh.config.AdminAccessConfiguration;
+import com.hethongdata.taichinh.security.SecurityConfiguration;
 import com.hethongdata.taichinh.controller.exception.ApiExceptionHandler;
 import com.hethongdata.taichinh.controller.user.*;
 import org.junit.jupiter.api.Test;
@@ -14,7 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.context.support.AnnotationConfigWebApplicationContext;
 import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 class UserApiMvcTests {
-  @Configuration @EnableWebMvc static class Config {
+  @Configuration @EnableWebMvc @Import(SecurityConfiguration.class) static class Config {
     @Bean UserSecurityService service() {return mock(UserSecurityService.class);}
     @Bean UserSecurityController controller(UserSecurityService s) {return new UserSecurityController(s);}
     @Bean UserMarketService market() {return mock(UserMarketService.class);}
@@ -22,32 +24,37 @@ class UserApiMvcTests {
     @Bean UserFinancialService financial(){return mock(UserFinancialService.class);}
     @Bean UserFinancialController financialController(){return new UserFinancialController(financial());}
     @Bean UserNewsService news(){return mock(UserNewsService.class);}
-    @Bean UserLocalAiService localAi(){return mock(UserLocalAiService.class);}
-    @Bean UserAnalysisController analysisController(){return new UserAnalysisController(news(), localAi());}
+    @Bean UserAnalysisController analysisController(){return new UserAnalysisController(news());}
     @Bean ApiExceptionHandler errors() {return new ApiExceptionHandler();}
     @Bean com.hethongdata.taichinh.controller.user.UserContractController contract(org.springframework.beans.factory.ObjectProvider<org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping> routes){return new com.hethongdata.taichinh.controller.user.UserContractController(routes);}
-    @Bean AdminAccessConfiguration access() {return new AdminAccessConfiguration("fixture-token-at-least-32-characters",new ObjectMapper().findAndRegisterModules());}
+    @Bean ObjectMapper securityJson() { return new ObjectMapper().findAndRegisterModules(); }
     @Bean Probe probe() {return new Probe();}
   }
   @Test void chartDateParametersBindAsIsoDatesAndBadRangesAreNotSilentlyCoerced() throws Exception {
     try(var context=new AnnotationConfigWebApplicationContext()) {
-      context.setServletContext(new MockServletContext());context.register(Config.class);context.refresh();var mvc=MockMvcBuilders.webAppContextSetup(context).build();
+      context.setServletContext(new MockServletContext());context.register(Config.class);org.springframework.test.context.support.TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context, TestJwt.PROPERTY);
+      context.refresh();var mvc=MockMvcBuilders.webAppContextSetup(context)
+          .addFilters(context.getBean("springSecurityFilterChain", jakarta.servlet.Filter.class)).build();
       mvc.perform(get("/api/v1/securities/FPT/prices").param("from","2016-10-01").param("to","2026-10-01")).andExpect(status().isOk());
       verify(context.getBean(UserMarketService.class)).prices("FPT",null,"1d",java.time.LocalDate.parse("2016-10-01"),java.time.LocalDate.parse("2026-10-01"),0,250);
       mvc.perform(get("/api/v1/securities/FPT/prices").param("from","invalid")).andExpect(status().isBadRequest());
       mvc.perform(get("/api/v1/securities/FPT/financials")).andExpect(status().isBadRequest()).andExpect(jsonPath("message").value("Missing parameter 'codes'"));
-      mvc.perform(get("/api/v1/local-ai/models").param("packageId","wrong")).andExpect(status().isBadRequest());
       mvc.perform(get("/api/v1/securities/FPT/prices/9007199254740993/lineage")).andExpect(status().isOk());
       verify(context.getBean(UserMarketService.class)).priceLineage("FPT",null,9007199254740993L);
       mvc.perform(get("/api/v1/securities/FPT/prices/9223372036854775808/lineage")).andExpect(status().isBadRequest());
     }
   }
-  @Test void consolidationPreservesTheEntirePublishedContract() throws Exception {
+  @Test void publishedContractMatchesSupportedRoutes() throws Exception {
     try(var context=new AnnotationConfigWebApplicationContext();
         var snapshot=getClass().getResourceAsStream("/contracts/user-api.json")) {
-      context.setServletContext(new MockServletContext());context.register(Config.class);context.refresh();
-      var mvc=MockMvcBuilders.webAppContextSetup(context).build();
+      context.setServletContext(new MockServletContext());context.register(Config.class);org.springframework.test.context.support.TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context, TestJwt.PROPERTY);
+      context.refresh();
+      var mvc=MockMvcBuilders.webAppContextSetup(context)
+          .addFilters(context.getBean("springSecurityFilterChain", jakarta.servlet.Filter.class)).build();
       var body=mvc.perform(get("/api/v1/openapi.json")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+      mvc.perform(get("/api/v1/local-ai/models")).andExpect(status().isNotFound());
+      mvc.perform(get("/api/v1/securities/FPT/local-ai")).andExpect(status().isNotFound());
+      mvc.perform(get("/api/v1/securities/FPT/local-ai/research-preview")).andExpect(status().isNotFound());
       var mapper=new ObjectMapper();
       org.assertj.core.api.Assertions.assertThat(mapper.readTree(body)).isEqualTo(mapper.readTree(snapshot));
     }
@@ -56,18 +63,22 @@ class UserApiMvcTests {
     try(var context=new AnnotationConfigWebApplicationContext()) {
       context.setServletContext(new MockServletContext());context.register(Config.class);
 
-      context.refresh();var mvc=MockMvcBuilders.webAppContextSetup(context).build();
+      org.springframework.test.context.support.TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context, TestJwt.PROPERTY);
+      context.refresh();var mvc=MockMvcBuilders.webAppContextSetup(context)
+          .addFilters(context.getBean("springSecurityFilterChain", jakarta.servlet.Filter.class)).build();
       mvc.perform(get("/api/v1/securities")).andExpect(status().isOk());
       mvc.perform(get("/api/v1/openapi.json")).andExpect(status().isOk());
       mvc.perform(post("/api/v1/securities")).andExpect(status().isMethodNotAllowed());
       for(String path:java.util.List.of("/api/admin/probe","/api/ingestion-jobs","/api/raw-payloads","/api/validation","/api/securities"))
-        mvc.perform(get(path)).andExpect(status().isForbidden());
+        mvc.perform(get(path)).andExpect(status().isUnauthorized());
     }
   }
   @RestController static class Probe {@GetMapping({"/api/admin/probe","/api/ingestion-jobs","/api/raw-payloads","/api/validation","/api/securities"}) String admin() {return "private";}}
   @Test void contractDescribesOnlyPublicGetRoutesAndRequiredParameters() throws Exception {
     try(var context=new AnnotationConfigWebApplicationContext()){
-      context.setServletContext(new MockServletContext());context.register(Config.class);context.refresh();var mvc=MockMvcBuilders.webAppContextSetup(context).build();
+      context.setServletContext(new MockServletContext());context.register(Config.class);org.springframework.test.context.support.TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context, TestJwt.PROPERTY);
+      context.refresh();var mvc=MockMvcBuilders.webAppContextSetup(context)
+          .addFilters(context.getBean("springSecurityFilterChain", jakarta.servlet.Filter.class)).build();
       String body=mvc.perform(get("/api/v1/openapi.json")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
       var json=new ObjectMapper().readTree(body);org.assertj.core.api.Assertions.assertThat(body).doesNotContain("/api/admin","fixture-token");
       org.assertj.core.api.Assertions.assertThat(json.path("paths").path("/api/v1/securities/{symbol}/financials").path("get").path("parameters").toString()).contains("codes","required\":true");
@@ -78,10 +89,12 @@ class UserApiMvcTests {
   }
   @Test void publicReadsDoNotRequireAdminTokenAndWritesAreNotAvailable() throws Exception {
     try(var context=new AnnotationConfigWebApplicationContext()) {
-      context.setServletContext(new MockServletContext());context.register(Config.class);context.refresh();
-      var mvc=MockMvcBuilders.webAppContextSetup(context).build();
+      context.setServletContext(new MockServletContext());context.register(Config.class);org.springframework.test.context.support.TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context, TestJwt.PROPERTY);
+      context.refresh();
+      var mvc=MockMvcBuilders.webAppContextSetup(context)
+          .addFilters(context.getBean("springSecurityFilterChain", jakarta.servlet.Filter.class)).build();
       mvc.perform(get("/api/v1/securities")).andExpect(status().isOk());
-      mvc.perform(get("/api/admin/probe")).andExpect(status().isForbidden());
+      mvc.perform(get("/api/admin/probe")).andExpect(status().isUnauthorized());
       mvc.perform(post("/api/v1/securities").contentType("application/json").content("{}"))
           .andExpect(status().isMethodNotAllowed()).andExpect(header().string("Allow",org.hamcrest.Matchers.containsString("GET")));
       mvc.perform(get("/api/v1/securities").param("size","oops")).andExpect(status().isBadRequest());

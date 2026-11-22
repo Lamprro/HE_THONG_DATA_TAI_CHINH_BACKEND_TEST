@@ -24,9 +24,6 @@ try {
       console.log(company.legalName, matrix.data.series);
     }
   }
-  const progress = await api.securityLocalAi('FPT', { exchange: 'HOSE' });
-  // RESEARCH_ONLY != có dự đoán công khai. Render state và các mốc dữ liệu.
-  console.log(progress.data.state, progress.data.models);
 } catch (error) {
   if (error instanceof UserApiError) console.log(error.kind, error.status, error.message);
   else throw error;
@@ -45,24 +42,9 @@ xử lý số tiền. Tách các trạng thái `HTTP`, `NETWORK`, `TIMEOUT`, `AB
 `INVALID_RESPONSE` để FE xử lý mảng rỗng và lỗi kết nối khác nhau.
 
 `UserApi` khai báo kiểu cho envelope, UUID, business decimal, ma trận, báo cáo,
-progress Local AI và các field chính. Những projection nguồn linh hoạt vẫn là
+các field chính. Những projection nguồn linh hoạt vẫn là
 `Record<string, unknown>`, không giả thành schema cố định của mọi provider/model.
 Đọc `meta.notes` và tài liệu backend khi render/so sánh đơn vị hoặc kỳ dữ liệu.
-
-## Hợp đồng với luồng Local AI
-
-User chỉ gửi `symbol`, `exchange`, tùy chọn `packageId` khi đọc progress/catalog.
-Không gửi feature vector, giá trị dự đoán, vai trò model hoặc đường dẫn PKL từ trình duyệt.
-
-Luồng thực thi hiện có thuộc **admin**, do nhánh Local AI quản lý: request gồm
-`packageId`, `modelId`, `ticker`, `role=selected|challenger|baseline`, `requestId` UUID.
-Spring tìm snapshot đã đăng ký và SHA, rồi gọi Python. Đây không phải operation
-của client user này. Đổi quý cần gói/snapshot mới qua pipeline native, không sửa
-input hay file train cũ. Không có nút “predict” giả trả output demo.
-
-Nguồn hợp đồng: `/api/v1/openapi.json`, các controller user, native
-`LocalAiSuiteContract` v1 và dữ liệu registry thật. Danh mục mới đọc độc lập với
-engine train, không cần chạy Python để xem trạng thái đã lưu.
 
 ## Kiểm thử
 
@@ -88,5 +70,5 @@ Nếu Playwright nằm ở dự án khác, đặt `USER_API_PLAYWRIGHT_MODULE` t
 của `playwright/index.mjs`. `USER_API_BASE`, `USER_API_BROWSER_CHANNEL` (mặc định
 chrome) và `USER_API_BROWSER_PORT` tùy chỉnh môi trường nghiệm thu. Không tự tải
 browser hoặc tạo hosting. Browser test yêu cầu dữ liệu thật FPT/HOSE, báo cáo có
-item; kiểm UUID, financial matrix, lineage, Local AI, lỗi 400 và phủ client của
+item; kiểm UUID, financial matrix, lineage, lỗi 400 và phủ client của
 toàn bộ OpenAPI. Đây là integration harness, chưa thay cho nghiệm thu UI user đầy đủ.

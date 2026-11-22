@@ -1,6 +1,9 @@
 package com.hethongdata.taichinh.repository.jpa.validation;
 
 import com.hethongdata.taichinh.entity.validation.ValidationResultEntity;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
+import java.util.Optional;
 
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -14,6 +17,13 @@ import java.util.UUID;
 
 @Repository
 public interface ValidationResultJpaRepository extends JpaRepository<ValidationResultEntity, UUID> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select result from ValidationResultEntity result where result.id = :id")
+    Optional<ValidationResultEntity> findForReview(@Param("id") UUID id);
+
+    List<ValidationResultEntity> findByIngestionRunIdAndRuleCodeAndHandlingStatus(
+            UUID ingestionRunId, String ruleCode, String handlingStatus);
+
     boolean existsByRawPayloadId(UUID rawPayloadId);
 
     List<ValidationResultEntity> findByRawPayloadIdOrderByCheckedAtAsc(UUID rawPayloadId);

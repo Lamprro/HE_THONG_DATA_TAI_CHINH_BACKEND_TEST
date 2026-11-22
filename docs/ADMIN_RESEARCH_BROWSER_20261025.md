@@ -4,26 +4,11 @@ Sửa trực tiếp trên main theo yêu cầu. Checkout main được fast-forw
 đến remote 8a65bc5 trước khi sửa; không đưa các thay đổi chưa commit ở checkout
 LLM/Local AI vào main. FE được sửa riêng trên main từ e589248. Không deploy.
 
-## Đã sửa
+## Phạm vi hiện tại
 
-- Admin browser nhận diện thêm local_ai_packages, local_ai_package_inputs,
-  local_ai_package_runs, local_ai_package_predictions và financial_disclosure_documents.
-  Bảng chưa cài trả available=false; không tự tạo schema hoặc import gói model.
-- Catalog có exactFilters theo bảng. Lọc được package_id/model_id/ticker/role,
-  run_id/request_id/readiness và symbol/scope/revision/source_raw_payload_id.
-  Input dài hơn 200 ký tự bị từ chối; các giá trị được bind vào SQL.
-- Manifest, feature input và request/response payload của suite không đưa vào bảng
-  tra cứu. Prediction/checks đã lưu được xem bởi admin, luôn giữ readiness/role/run
-  identity; không coi SUCCEEDED/CACHED là đạt production hoặc accuracy.
-- Search chỉ dùng cột scalar hiển thị và các nhãn mã/chỉ số liên quan. Không tìm
-  trong payload/JSON ẩn; tránh việc đếm kết quả làm lộ nội dung đã lược bỏ và giảm
-  đọc các payload lớn. Search vẫn là contains, không phải full-text index/SLA.
-- Inputs phân trang theo khóa package/model/ticker; runs theo started_at+id,
-  package theo registered_at+id, document theo observed_at+id. Không sort bằng
-  toàn bộ feature payload. Cùng truy vấn không có concurrent writes có thứ tự ổn định;
-  offset paging không phải snapshot xuyên nhiều HTTP request.
-- FE hiển thị các cột model/mã/role/trạng thái và kỳ/scope/revision của tài liệu;
-  phân biệt bộ lọc đang nhập với đã áp dụng, có xóa bộ lọc/reset trang.
+- Admin browser dùng danh sách dataset cho phép, lọc theo cột và phân trang. Ví dụ tài liệu công bố có bộ lọc symbol, nguồn, phạm vi và phiên bản.
+- Dữ liệu bí mật và payload ẩn không xuất hiện hoặc được đem tìm kiếm trong trình duyệt dữ liệu.
+- Các màn theo dõi model nghiên cứu trước đây đã được gỡ khỏi backend.
 
 ## Worker trên instance
 

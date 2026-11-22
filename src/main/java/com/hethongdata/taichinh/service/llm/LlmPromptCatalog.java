@@ -1,9 +1,9 @@
 package com.hethongdata.taichinh.service.llm;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.hethongdata.taichinh.repository.jdbc.llm.PromptTemplateJdbcRepository;
 import com.hethongdata.taichinh.service.ingestion.ChecksumService;
 import org.springframework.core.io.ClassPathResource;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
@@ -14,12 +14,14 @@ public class LlmPromptCatalog {
     public static final List<String> TASKS = List.of("NEWS_SUMMARY", "NEWS_DETAIL", "NEWS_FINANCIAL_FACTS");
     public record Template(UUID id, String task, String version, String prompt,
                            JsonNode requestSchema, JsonNode responseSchema, String checksum) {}
-    private final JdbcTemplate db;
+    private final PromptTemplateJdbcRepository repository;
     private final LlmJson json;
     private final ChecksumService hashes;
-    public LlmPromptCatalog(JdbcTemplate db, LlmJson json, ChecksumService hashes) {
-        this.db=db; this.json=json; this.hashes=hashes;
+
+    public LlmPromptCatalog(PromptTemplateJdbcRepository repository, LlmJson json, ChecksumService hashes) {
+        this.repository=repository; this.json=json; this.hashes=hashes;
     }
+
     @Transactional
     public int seed() {
         int count=0;
@@ -29,36 +31,34 @@ public class LlmPromptCatalog {
                 resource=json.mapper().readTree(stream);
             } catch(Exception e) { throw new IllegalStateException("Cannot load prompt "+task,e); }
             String checksum=hashes.sha256(resource.toString());
-            db.queryForObject("SELECT 1 FROM pg_advisory_xact_lock(hashtext(?))",Integer.class,"llm-prompt:"+task);
-            var existing=db.queryForList("SELECT checksum FROM llm_prompt_templates WHERE task_code=? AND version=?",
-                    String.class, task, resource.path("version").asText());
-            if (!existing.isEmpty()) {
-                if (!existing.getFirst().equals(checksum)) throw new IllegalStateException("Prompt is immutable; increment version: "+task);
+            repository.lockPrompt(task);
+            var existing = repository.findChecksum(task, resource.path("version").asText());
+            if (existing.isPresent()) {
+                if (!existing.get().equals(checksum)) throw new IllegalStateException("Prompt is immutable; increment version: "+task);
                 continue;
             }
             // Explicit seeding promotes a new immutable version atomically; previous runs keep their FK.
-            db.update("UPDATE llm_prompt_templates SET enabled=false WHERE task_code=? AND enabled",task);
-            count+=db.update("""
-                INSERT INTO llm_prompt_templates(id,task_code,version,input_domain,description,system_prompt,
-                    request_schema,response_schema,checksum,enabled)
-                VALUES (?,?,?,?,?,?,?::jsonb,?::jsonb,?,true) ON CONFLICT(task_code,version) DO NOTHING
-                """,UUID.randomUUID(),task,resource.path("version").asText(),resource.path("input_domain").asText(),
-                    resource.path("description").asText(),resource.path("system_prompt").asText(),
-                    resource.path("request_schema").toString(),resource.path("response_schema").toString(),checksum);
+            repository.disableTaskPrompts(task);
+            count += repository.insertActiveVersion(UUID.randomUUID(), task, resource.path("version").asText(),
+                    resource.path("input_domain").asText(), resource.path("description").asText(),
+                    resource.path("system_prompt").asText(), resource.path("request_schema").toString(),
+                    resource.path("response_schema").toString(), checksum);
         }
         return count;
     }
+
     public Template active(String task) {
         if (!TASKS.contains(task)) throw new IllegalArgumentException("Unsupported NEWS task: "+task);
-        return db.query("SELECT * FROM llm_prompt_templates WHERE task_code=? AND enabled AND input_domain='NEWS'",
-                (rs,n)->new Template(rs.getObject("id",UUID.class),task,rs.getString("version"),rs.getString("system_prompt"),
-                        json.read(rs.getString("request_schema")),json.read(rs.getString("response_schema")),rs.getString("checksum")),task)
-                .stream().findFirst().orElseThrow(()->new IllegalArgumentException("No active prompt: "+task));
+        var record = repository.findActiveByTaskAndDomain(task, "NEWS")
+                .orElseThrow(() -> new IllegalArgumentException("No active prompt: "+task));
+        return new Template(record.id(), task, record.version(), record.systemPrompt(),
+                json.read(record.requestSchema()), json.read(record.responseSchema()), record.checksum());
     }
+
     public List<Template> activeTemplates() {
-        return db.query("SELECT * FROM llm_prompt_templates WHERE enabled AND input_domain='NEWS' ORDER BY task_code",
-                (rs,n)->new Template(rs.getObject("id",UUID.class),rs.getString("task_code"),rs.getString("version"),
-                        rs.getString("system_prompt"),json.read(rs.getString("request_schema")),
-                        json.read(rs.getString("response_schema")),rs.getString("checksum")));
+        return repository.findActiveByDomain("NEWS").stream()
+                .map(r -> new Template(r.id(), r.taskCode(), r.version(), r.systemPrompt(),
+                        json.read(r.requestSchema()), json.read(r.responseSchema()), r.checksum()))
+                .toList();
     }
 }

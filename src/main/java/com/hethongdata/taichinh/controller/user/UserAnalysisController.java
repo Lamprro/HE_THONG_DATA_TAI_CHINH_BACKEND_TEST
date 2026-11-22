@@ -1,7 +1,6 @@
 package com.hethongdata.taichinh.controller.user;
 
 import com.hethongdata.taichinh.controller.user.UserContractController.EndpointId;
-import com.hethongdata.taichinh.service.user.UserLocalAiService;
 import com.hethongdata.taichinh.service.user.UserNewsService;
 import com.hethongdata.taichinh.service.user.UserReadSupport.Data;
 import com.hethongdata.taichinh.service.user.UserReadSupport.Page;
@@ -10,16 +9,14 @@ import java.util.*;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 
-/** News, published AI analysis/scenarios and Local AI research reads. Operation IDs stay those of the former controllers. */
+/** News, published AI analysis/scenarios reads. Operation IDs stay those of the former controllers. */
 @RestController
 @RequestMapping("/api/v1")
 public class UserAnalysisController {
     private final UserNewsService news;
-    private final UserLocalAiService localAi;
 
-    public UserAnalysisController(UserNewsService news, UserLocalAiService localAi) {
+    public UserAnalysisController(UserNewsService news) {
         this.news = news;
-        this.localAi = localAi;
     }
 
     @EndpointId("UserNewsController_news")
@@ -52,30 +49,5 @@ public class UserAnalysisController {
             @RequestParam(required=false) String exchange,
             @RequestParam(defaultValue="5") int limit) {
         return news.forecasts(symbol,exchange,limit);
-    }
-
-    @EndpointId("UserLocalAiController_models")
-    @GetMapping("/local-ai/models")
-    public Page<Map<String,Object>> models(@RequestParam(required=false) UUID packageId,
-            @RequestParam(defaultValue="0") int page,
-            @RequestParam(defaultValue="25") int size) {
-        return localAi.models(packageId,page,size);
-    }
-
-    @EndpointId("UserLocalAiController_security")
-    @GetMapping("/securities/{symbol}/local-ai")
-    public Data<Map<String,Object>> localAi(@PathVariable String symbol,
-            @RequestParam(required=false) String exchange,
-            @RequestParam(required=false) UUID packageId) {
-        return localAi.security(symbol,exchange,packageId);
-    }
-
-    /** Opt-in (financial.local-ai.research-preview.enabled=true) research preview; 404 when disabled. */
-    @EndpointId("UserLocalAiPreviewController_preview")
-    @GetMapping("/securities/{symbol}/local-ai/research-preview")
-    public Data<Map<String,Object>> localAiPreview(@PathVariable String symbol,
-            @RequestParam(required=false) String exchange,
-            @RequestParam(required=false) UUID packageId) {
-        return localAi.preview(symbol,exchange,packageId);
     }
 }

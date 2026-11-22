@@ -4,6 +4,10 @@
 - Migration thủ công `V20261122_04` xóa đúng 5 bảng bằng chứng và 2 view PDF. Chạy trên PostgreSQL tạm dựng từ định nghĩa schema dùng chung. Chạy hai lần thành công. Khi có view khác tham chiếu dữ liệu PDF, migration từ chối và hoàn tác cả giao dịch. Cần xác nhận API và FE đã ngừng gọi PDF trước khi áp dụng vào DB dùng chung.
 - Bản sao 819 bản ghi PDF và 2 view đã được kiểm tra bằng `pg_restore`, lưu cục bộ trong thư mục bị Git bỏ qua `docs/db-backups/`. Các bảng raw/canonical, view dùng cho dữ liệu huấn luyện chung và repo Local AI độc lập nằm ngoài phạm vi migration. Script nghiên cứu cũ nào đọc trực tiếp bảng PDF cần dùng bản sao nếu chạy lại lịch sử.
 
+- Đã merge Java PR #20 và FE PR #7. Build Java của PR có 259 test đạt và 120 test theo điều kiện bị bỏ qua. Bản vá production có 12 test đạt và smoke HTTP qua PostgreSQL tạm. Admin có 15 test đơn vị và 3 bộ kiểm thử trình duyệt dùng fixture.
+- Linux đang chạy bản vá `2f2bce0` từ `4ea75d1` để giữ các API Local AI vốn đang phục vụ. Workflow deploy #44984832721 đạt, gồm các API coverage và kiểm tra route PDF trả 404. Đã xác nhận bản Admin trên Vercel không gọi các API PDF.
+- Đã áp dụng `V20261122_04` cho DB dùng chung sau khi triển khai và kiểm tra bản sao 819 dòng lúc chuyển đổi. PostgreSQL xác nhận đủ 5 bảng và 2 view PDF đã bị gỡ. Sau migration, health và API BCTC FPT trả HTTP 200. Hai API Local AI công khai hiện có vẫn trả HTTP 200. Luồng duyệt lệch nguồn và đăng nhập JWT đã có trên `main`; bản vá production chỉ mang thay đổi PDF.
+
 # 22/11/2026 — Đơn giản hóa cấu hình đăng nhập
 
 - Spring Security dùng `AccountPasswordEncoder` để kiểm tra mật khẩu trong `accounts`. Khi có chuỗi cấu hình, backend dẫn xuất khóa băm riêng và dùng HMAC-SHA256 trước BCrypt. Tài khoản cũ chỉ cập nhật hash sau khi kiểm tra đúng mật khẩu. Hàm ghi kiểm tra hash cũ và trạng thái tài khoản để tránh ghi đè một lần đổi mật khẩu đồng thời.

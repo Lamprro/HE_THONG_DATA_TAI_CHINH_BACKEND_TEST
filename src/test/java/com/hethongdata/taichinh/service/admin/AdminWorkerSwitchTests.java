@@ -5,21 +5,17 @@ import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hethongdata.taichinh.repository.jpa.admin.AdminAuditJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.admin.AdminCommandJpaRepository;
-import com.hethongdata.taichinh.repository.jpa.admin.AdminScheduleJpaRepository;
 import com.hethongdata.taichinh.service.ingestion.*;
 import com.hethongdata.taichinh.service.validation.ValidationJobService;
-import com.hethongdata.taichinh.repository.ingestion.IngestionJobRepository;
 import org.junit.jupiter.api.Test;
-import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.util.ReflectionTestUtils;
 import java.util.*;
 
 class AdminWorkerSwitchTests {
   @Test void disabledCommandWorkerCannotClaimExpireOrQueueWork() {
-    var repo=mock(AdminCommandJpaRepository.class);var audit=mock(AdminAuditJpaRepository.class);var jobs=mock(IngestionJobService.class);
-    var service=new AdminCommandService(repo,audit,new ObjectMapper(),jobs,mock(IngestionService.class),mock(ValidationJobService.class),
+    var repo=mock(AdminCommandJpaRepository.class);var jobs=mock(IngestionJobService.class);
+    var service=new AdminCommandService(repo,new ObjectMapper(),jobs,mock(IngestionService.class),mock(ValidationJobService.class),
         mock(jakarta.validation.Validator.class),mock(org.springframework.transaction.PlatformTransactionManager.class),mock(AdminPipelineService.class),mock(AdminAiActionService.class));
     ReflectionTestUtils.setField(service,"enabled",false);
     try {
@@ -27,17 +23,7 @@ class AdminWorkerSwitchTests {
       assertThat(service.workerEnabled()).isFalse();
       assertThatThrownBy(()->service.submit(new CommandRequest(UUID.randomUUID(),"RUN_JOB","test",new ObjectMapper().createObjectNode())))
           .hasMessageContaining("503");
-      verifyNoInteractions(repo,audit,jobs);
-    } finally {service.stop();}
-  }
-  @Test void disabledScheduleWorkerCannotHeartbeatOrEnablePolicy() {
-    var repo=mock(AdminScheduleJpaRepository.class);var audit=mock(AdminAuditJpaRepository.class);var jobs=mock(IngestionJobService.class);
-    var service=new AdminScheduleService(repo,audit,new ObjectMapper(),jobs,mock(IngestionJobRepository.class),
-        new MockEnvironment().withProperty("financial.admin.schedule.enabled","false"),mock(NativeJobGuard.class));
-    try {
-      service.start();ReflectionTestUtils.invokeMethod(service,"tick");
-      assertThatThrownBy(()->service.update(new ScheduleUpdate(true,Set.of("JOB"),0,"test"))).hasMessageContaining("503");
-      verifyNoInteractions(repo,audit,jobs);
+      verifyNoInteractions(repo,jobs);
     } finally {service.stop();}
   }
 }

@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 public final class AdminConsoleDtos {
@@ -18,7 +17,7 @@ public final class AdminConsoleDtos {
 
     public record SchedulerStatus(boolean enabled) {}
 
-    public record WorkerStatus(boolean commandsEnabled, boolean scheduleEnabled) {}
+    public record WorkerStatus(boolean commandsEnabled) {}
 
     public record CommandRequest(UUID idempotencyKey, String action, String reason, JsonNode input) {}
 
@@ -51,16 +50,6 @@ public final class AdminConsoleDtos {
 
     public record ValidationCount(@JsonProperty("validation_target") String validationTarget,
             @JsonProperty("result_status") String resultStatus, long count) {}
-
-    public record ScheduleUpdate(boolean enabled, Set<String> jobCodes, long version, String reason) {}
-
-    public record Schedule(String id, boolean enabled, @JsonProperty("job_codes") Set<String> jobCodes,
-            long version, String reason, @JsonProperty("updated_at") Instant updatedAt,
-            @JsonProperty("heartbeat_at") Instant heartbeatAt,
-            @JsonProperty("last_sweep_started_at") Instant lastSweepStartedAt,
-            @JsonProperty("last_sweep_finished_at") Instant lastSweepFinishedAt,
-            @JsonProperty("last_error") String lastError, boolean workerEnabled, boolean legacySchedulerEnabled,
-            String timezone) {}
 
     public record IssueReview(UUID id, @JsonProperty("event_type") String eventType, String reason,
             String principal, @JsonProperty("created_at") Instant createdAt) {}

@@ -64,6 +64,31 @@ public class DataVersionEntity {
     @Column(name = "activated_at")
     private Instant activatedAt;
 
+    @Column(name = "reviewed_at")
+    private Instant reviewedAt;
+
+    @Column(name = "reviewed_by_user_id")
+    private UUID reviewedByUserId;
+
+    public void holdForReview(String detail) {
+        if (!"ACTIVE".equals(status) || reviewedAt != null) {
+            throw new IllegalStateException("Version cannot be held for source review");
+        }
+        status = "PENDING_REVIEW";
+        notes = detail;
+    }
+
+    public void decideReview(UUID userId, boolean accept, String reason) {
+        if (!"PENDING_REVIEW".equals(status)) {
+            throw new IllegalStateException("Only PENDING_REVIEW versions can be reviewed");
+        }
+        reviewedAt = Instant.now();
+        reviewedByUserId = userId;
+        notes = reason;
+        status = accept ? "ACTIVE" : "REJECTED";
+        if (!accept) effectiveTo = reviewedAt;
+    }
+
     /**
      * Creates the single accepted clean-data version for a fully validated ingestion run.
      *

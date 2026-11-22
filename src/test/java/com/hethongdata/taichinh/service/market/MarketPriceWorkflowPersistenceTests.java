@@ -14,6 +14,13 @@ import com.hethongdata.taichinh.repository.jpa.ingestion.RawPayloadJpaRepository
 import com.hethongdata.taichinh.repository.jpa.master.SecurityJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.validation.DataVersionJpaRepository;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import java.math.BigDecimal;
+import com.hethongdata.taichinh.repository.jpa.market.MarketPriceJpaRepository;
+import com.hethongdata.taichinh.repository.jdbc.market.MarketPriceBatchInsertJdbcRepository;
+import com.hethongdata.taichinh.service.validation.DataVersionLifecycleService;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.net.URI;
@@ -91,6 +98,55 @@ class MarketPriceWorkflowPersistenceTests {
 //        assertThat(stored[0].getRawPayloadId()).isEqualTo(raw2.getId());
 //        assertThat(first.getStatus()).isEqualTo("ACTIVATED");
 //        assertThat(second.getStatus()).isEqualTo("ACTIVATED");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"105,false", "106,true"})
+    void comparesTwoSourcesWithoutWritingDuplicateOrConflictingDailyPrices(int close, boolean conflict) throws Exception {
+        var prices = mock(MarketPriceJpaRepository.class);
+        var writes = new MarketPriceWorkflowPersistenceService(versions, raws, runs, sources, securities,
+                prices, new MarketPricePayloadParser(), json, mock(MarketPriceBatchInsertJdbcRepository.class));
+        var incoming = DataSourceEntity.create("VN", "VNDirect", "API", null, "vndirect", false, "UNKNOWN");
+        var preferred = DataSourceEntity.create("CF", "CafeF", "API", null, "cafef", true, "UNKNOWN");
+        ReflectionTestUtils.setField(incoming, "id", 2L);
+        ReflectionTestUtils.setField(preferred, "id", 1L);
+        UUID securityId = UUID.randomUUID();
+        var security = mock(SecurityEntity.class);
+        when(security.getId()).thenReturn(securityId);
+        when(security.getSymbol()).thenReturn("FPT");
+        when(securities.findById(securityId)).thenReturn(Optional.of(security));
+        when(securities.findByIdForUpdate(securityId)).thenReturn(Optional.of(security));
+        var version = version();
+        var payload = json.readTree("""
+                {"schema_version":"market_price.v1","provider":"vndirect","symbol":"FPT","count":1,"data":[
+                    {"trading_date":"2026-11-20","close_price":%d,"adjusted_close":100}
+                ]}
+                """.formatted(close));
+        var run = run(incoming);
+        var raw = RawPayloadEntity.create(run, incoming, "FPT", "OHLCV", "FPT", null, "application/json",
+                payload, null, "checksum", Instant.parse("2026-11-20T10:00:00Z"), securityId);
+        ReflectionTestUtils.setField(raw, "id", UUID.randomUUID());
+        when(versions.findByIdForUpdate(version.getId())).thenReturn(Optional.of(version));
+        when(raws.findByIngestionRunIdOrderByFetchedAtDesc(version.getIngestionRunId())).thenReturn(List.of(raw));
+        var canonical = mock(MarketPriceEntity.class);
+        when(canonical.getIsCanonical()).thenReturn(true);
+        when(canonical.getPriceBasis()).thenReturn("UNADJUSTED");
+        when(canonical.getClosePrice()).thenReturn(new BigDecimal("105"));
+        when(canonical.getDataSourceId()).thenReturn(1L);
+        when(prices.findBucketForUpdate(securityId, Instant.parse("2026-11-19T17:00:00Z"), "1d"))
+                .thenReturn(List.of(canonical));
+        when(sources.findById(1L)).thenReturn(Optional.of(preferred));
+
+        if (conflict) {
+            assertThatThrownBy(() -> writes.build(version.getId(), run))
+                    .isInstanceOf(DataVersionLifecycleService.SourceConflict.class);
+            assertThat(version.getStatus()).isEqualTo("ACTIVE");
+        } else {
+            assertThat(writes.build(version.getId(), run)).isEqualTo(1);
+            assertThat(version.getStatus()).isEqualTo("ACTIVATED");
+        }
+        verify(prices, never()).saveAndFlush(any());
+        verify(prices, never()).saveAllAndFlush(any());
     }
 
     private DataVersionEntity version() {

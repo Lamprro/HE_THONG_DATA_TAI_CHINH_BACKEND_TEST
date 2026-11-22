@@ -13,14 +13,12 @@ public class AdminRuntimeService {
             "ingestion", "macro", "validation", "security-job-reconciliation", "llm", "news-recovery");
     private final AdminConsoleReadService reads;
     private final AdminCommandService commands;
-    private final AdminScheduleService schedule;
     private final Environment environment;
 
     public AdminRuntimeService(AdminConsoleReadService reads, AdminCommandService commands,
-            AdminScheduleService schedule, Environment environment) {
+            Environment environment) {
         this.reads = reads;
         this.commands = commands;
-        this.schedule = schedule;
         this.environment = environment;
     }
 
@@ -31,6 +29,6 @@ public class AdminRuntimeService {
             schedulers.put(name, new SchedulerStatus(enabled));
         }
         return new RuntimeStatus(reads.databaseUp() ? "UP" : "DOWN", Collections.unmodifiableMap(schedulers),
-                "Asia/Ho_Chi_Minh", new WorkerStatus(commands.workerEnabled(), schedule.workerEnabled()));
+                "Asia/Ho_Chi_Minh", new WorkerStatus(commands.workerEnabled()));
     }
 }

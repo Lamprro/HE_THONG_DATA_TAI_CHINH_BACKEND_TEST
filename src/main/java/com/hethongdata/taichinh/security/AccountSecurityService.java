@@ -27,6 +27,9 @@ public class AccountSecurityService {
             }
             var account = candidates.getFirst();
             var role = account.getRole().getCode().toUpperCase(Locale.ROOT).replaceFirst("^ROLE_", "");
+            if (!List.of("ADMIN", "USER").contains(role)) {
+                throw new UsernameNotFoundException("Account role unavailable");
+            }
             var hash = account.getPasswordHash();
             if (hash.startsWith("{bcrypt}")) hash = hash.substring("{bcrypt}".length());
             return new AccountPrincipal(account.getUsername(), account.getEmail(), hash, role);

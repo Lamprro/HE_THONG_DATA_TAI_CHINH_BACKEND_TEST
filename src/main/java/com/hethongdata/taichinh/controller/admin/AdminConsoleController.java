@@ -16,15 +16,13 @@ public class AdminConsoleController {
   private final AdminConsoleReadService reads;
   private final AdminCommandService commands;
   private final AdminRuntimeService runtime;
-  private final AdminScheduleService schedule;
   private final NewsLlmService news;
 
   public AdminConsoleController(AdminConsoleReadService reads, AdminCommandService commands,
-      AdminRuntimeService runtime, AdminScheduleService schedule, NewsLlmService news) {
+      AdminRuntimeService runtime, NewsLlmService news) {
     this.reads = reads;
     this.commands = commands;
     this.runtime = runtime;
-    this.schedule = schedule;
     this.news = news;
   }
 
@@ -64,14 +62,12 @@ public class AdminConsoleController {
     return ResponseEntity.accepted().body(commands.retry(id,body.idempotencyKey(),body.reason(),body.reviewed()));
   }
   @GetMapping("/summary") public Summary summary() { return reads.summary(); }
-  @GetMapping("/schedule") public Schedule schedule() {return schedule.status();}
   @GetMapping("/news-candidates") public List<NewsCandidate> newsCandidates(@RequestParam(defaultValue="20") int limit) {
     if(limit<1||limit>100) throw new IllegalArgumentException("limit must be 1..100");
     return reads.articleTitles(news.candidates(limit));
   }
-  @PutMapping("/schedule") public Schedule updateSchedule(@RequestBody ScheduleUpdate request) {return schedule.update(request);}
   @GetMapping("/issues/{id}/reviews") public List<IssueReview> reviews(@PathVariable UUID id) { return reads.issueReviews(id); }
-  @PostMapping("/issues/{id}/reviews") public ReviewReceipt reviewIssue(@PathVariable UUID id,@RequestBody ReasonRequest body) {
-    return commands.reviewIssue(id,body.reason());
+  @PostMapping("/issues/{id}/reviews") public ReviewReceipt reviewIssue(@PathVariable UUID id,@RequestBody ReasonRequest body, Authentication authentication) {
+    return reads.reviewIssue(id, body.reason(), authentication.getName());
   }
 }

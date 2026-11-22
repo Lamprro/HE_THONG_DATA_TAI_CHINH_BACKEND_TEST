@@ -5,9 +5,7 @@ import static com.hethongdata.taichinh.security.SecurityConfiguration.currentAct
 import com.fasterxml.jackson.databind.*;
 import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.Command;
 import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.CommandRequest;
-import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.ReviewReceipt;
 import com.hethongdata.taichinh.dto.ingestion.ManualIngestionRequest;
-import com.hethongdata.taichinh.repository.jpa.admin.AdminAuditJpaRepository;
 import com.hethongdata.taichinh.repository.jpa.admin.AdminCommandJpaRepository;
 import com.hethongdata.taichinh.service.ingestion.*;
 import com.hethongdata.taichinh.service.validation.ValidationJobService;
@@ -35,7 +33,6 @@ public class AdminCommandService {
     WORKER_ACTIONS=Collections.unmodifiableSet(actions);
   }
   private final AdminCommandJpaRepository repository;
-  private final AdminAuditJpaRepository auditRepository;
   private final ObjectMapper json;
   private final IngestionJobService jobs;
   private final IngestionService ingestion;
@@ -54,11 +51,11 @@ public class AdminCommandService {
     var t=new Thread(r,"admin-native-command"); t.setDaemon(true); return t;
   });
 
-  public AdminCommandService(AdminCommandJpaRepository repository, AdminAuditJpaRepository auditRepository,
+  public AdminCommandService(AdminCommandJpaRepository repository,
       ObjectMapper json, IngestionJobService jobs,
       IngestionService ingestion, ValidationJobService validation, Validator validator,
       PlatformTransactionManager transactions, AdminPipelineService pipeline, AdminAiActionService ai) {
-    this.repository=repository; this.auditRepository=auditRepository; this.json=json; this.jobs=jobs;
+    this.repository=repository; this.json=json; this.jobs=jobs;
     this.ingestion=ingestion; this.pipeline=pipeline; this.ai=ai;
     this.validation=validation; this.validator=validator; this.tx=new TransactionTemplate(transactions);
   }
@@ -95,8 +92,6 @@ public class AdminCommandService {
       int count = repository.insertQueued(id, request.idempotencyKey(), hash, request.action(),
           resource, request.reason(), request.input().toString(), parent, currentActor());
       if (count == 0) return false;
-      event("SUBMITTED", id, request.reason());
-      if (parent != null) event("RETRIED", id, request.reason());
       return true;
     }));
     if (!inserted) {
@@ -183,7 +178,7 @@ public class AdminCommandService {
     return tx.execute(s -> {
       int n=repository.cancelQueued(id, reason);
       if(n!=1) throw new ResponseStatusException(HttpStatus.CONFLICT,"Only queued commands can be cancelled; running native work cannot be interrupted safely");
-      event("CANCELLED",id,reason);return find(id);
+      return find(id);
     });
   }
   public Command retry(UUID id,UUID key,String reason,boolean reviewed) {
@@ -200,19 +195,7 @@ public class AdminCommandService {
     if(key!=null && key.equals(old.idempotencyKey())) throw new IllegalArgumentException("Retry requires a fresh idempotency key");
     return submit(new CommandRequest(key,action,reason,input),id);
   }
-  /** Records an operator note on a validation issue. The validation status itself never changes. */
-  public ReviewReceipt reviewIssue(UUID validationResultId,String reason) {
-    requireReason(reason);
-    if(!repository.validationResultExists(validationResultId))
-      throw new IllegalArgumentException("Validation result not found");
-    UUID reviewId=UUID.randomUUID();
-    auditRepository.recordEvent(reviewId,"ISSUE_REVIEWED",validationResultId,reason,currentActor());
-    return new ReviewReceipt(reviewId, validationResultId, false);
-  }
   private void requireReason(String reason) { if(reason==null || reason.isBlank() || reason.length()>2000) throw new IllegalArgumentException("A reason (1..2000) is required"); }
-  private void event(String type,UUID id,String reason) {
-    auditRepository.recordCommandEvent(UUID.randomUUID(),type,id,reason,currentActor());
-  }
   private void work() {
     if(!enabled) return;
     try {

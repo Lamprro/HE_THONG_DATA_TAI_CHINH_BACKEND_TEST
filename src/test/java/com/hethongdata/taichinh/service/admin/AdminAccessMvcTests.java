@@ -1,6 +1,6 @@
 package com.hethongdata.taichinh.service.admin;
 
-import com.hethongdata.taichinh.repository.jpa.account.RevokedAccessTokenJpaRepository;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import com.hethongdata.taichinh.support.TestJwt;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -19,8 +19,8 @@ class AdminAccessMvcTests {
 
 
   @Configuration @EnableWebMvc @Import(SecurityConfiguration.class) static class Config {
-        @Bean RevokedAccessTokenJpaRepository revokedTokens() {
-            return org.mockito.Mockito.mock(RevokedAccessTokenJpaRepository.class);
+        @Bean StringRedisTemplate redis() {
+            return org.mockito.Mockito.mock(StringRedisTemplate.class);
         }
     @Bean ObjectMapper securityJson() { return new ObjectMapper().findAndRegisterModules(); }
     @Bean Probe probe() { return new Probe(); }

@@ -4,8 +4,8 @@ services:
     container_name: financial-data-redis
     restart: unless-stopped
     ports:
-      - "6380:6379"
-    command: ["redis-server", "--appendonly", "yes"]
+      - "127.0.0.1:6380:6379"
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "always", "--maxmemory-policy", "noeviction"]
     volumes:
       - financial_data_redis:/data
 

@@ -2,6 +2,9 @@ services:
   app:
     build: .
     container_name: springboot-app
+    depends_on:
+      redis:
+        condition: service_healthy
     ports:
       - "8080:8080"
     extra_hosts:
@@ -14,3 +17,17 @@ services:
     mem_reservation: 256m
     cpus: "1.50"
     restart: always
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "always", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - financial_data_redis:/data
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  financial_data_redis:

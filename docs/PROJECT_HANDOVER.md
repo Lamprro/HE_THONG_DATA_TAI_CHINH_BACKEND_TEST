@@ -1,7 +1,14 @@
+# 22/11/2026 — Thu hồi JWT trong Redis
+
+- Đăng nhập vẫn dùng tài khoản PostgreSQL và cấp JWT mới 24 giờ. Đăng xuất chỉ ghi ID đã thu hồi vào Redis với thời hạn bằng phần hiệu lực còn lại của JWT. Redis tự xóa khóa. API bảo vệ trả 503 nếu không thể kiểm tra Redis.
+- Local chạy Redis qua docker-compose.redis.yml ở 127.0.0.1:6380. Compose production có dịch vụ Redis nội bộ, dùng volume và nhật ký bền qua lần khởi động lại. Có thể dùng Redis sẵn có bằng cấu hình kết nối Spring. Redis dùng cho phiên cần giữ khóa tới khi hết hạn.
+- Phiên cấp trước lần triển khai này cần đăng nhập lại một lần. Việc kiểm tra phiên bản JWT loại cả token từng được thu hồi ở PostgreSQL. Migration thu hồi cũ đã bỏ khỏi source. Bảng đã tồn tại trên DB dùng chung có thể dọn riêng. Bản này không ghi thêm vào bảng đó.
+- Bộ kiểm thử Backend tests có Redis cô lập để kiểm tra hai dịch vụ đọc chung dữ liệu thu hồi và Redis tự xóa khóa. Kiểm thử Spring MVC kiểm tra login/logout, token mới và Redis lỗi. Chưa triển khai bản Redis lên production.
+
 # 22/11/2026 — JWT 24 giờ và thu hồi phiên khi đăng xuất
 
 - Mỗi lần đăng nhập thành công cấp JWT có ID riêng, hiệu lực 24 giờ. POST /api/auth/logout dùng JWT hiện tại và trả 204 sau khi ghi ID đã thu hồi vào PostgreSQL. API bảo vệ từ chối token đã thu hồi. FE Admin và Swagger gọi cùng API khi đăng xuất.
-- Bảng thu hồi chỉ giữ ID và hạn dùng. Các dòng đã hết hạn được dọn khi đăng xuất. Phải áp dụng [V20261122_05](../src/main/resources/db/manual/V20261122_05__revoke_access_tokens.sql) trên DB đích trước khi triển khai Java.
+- Bảng thu hồi chỉ giữ ID và hạn dùng. Các dòng đã hết hạn được dọn khi đăng xuất. Phải áp dụng bản SQL lịch sử V20261122_05 trên DB đích trước khi triển khai Java.
 - Java verify theo cấu hình CI đạt 261 bài, 121 bài theo điều kiện bị bỏ qua. Chạy riêng 37 bài xác thực và Admin, gồm PostgreSQL loopback với schema cô lập. Đã kiểm tra JWT cũ bị từ chối sau logout, đăng nhập lại cấp token mới, lưu thu hồi qua lần tạo lại dịch vụ và lỗi kho thu hồi trả HTTP 503. FE Admin build, 15 bài đơn vị và ba bộ Chromium dùng fixture đều đạt. Swagger đã được kiểm tra sự kiện gửi logout với phản hồi giả lập. Chưa áp dụng migration hay triển khai backend lên production.
 
 # 22/11/2026 — Hợp nhất nhánh vá PDF

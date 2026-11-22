@@ -1,7 +1,7 @@
 package com.hethongdata.taichinh.support;
 
 import com.hethongdata.taichinh.jwt.JwtService;
-import com.hethongdata.taichinh.repository.jpa.account.RevokedAccessTokenJpaRepository;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import static org.mockito.Mockito.mock;
 import java.util.List;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -10,7 +10,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 public final class TestJwt {
     private static final String TEST_KEY = "fake local financial JWT fixture key only";
     public static final String PROPERTY = "financial.security.jwt-secret=" + TEST_KEY;
-    private static final JwtService TOKENS = new JwtService(TEST_KEY, mock(RevokedAccessTokenJpaRepository.class));
+    private static final JwtService TOKENS = new JwtService(TEST_KEY, mock(StringRedisTemplate.class));
 
     private TestJwt() {}
 

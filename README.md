@@ -30,3 +30,12 @@ Admin và người dùng thường đăng nhập bằng username và mật khẩ
 Deploy kiểm tra health và quyền truy cập HTTP. CI kiểm thử đăng nhập thành công bằng tài khoản mẫu.
 
 Luồng macro Việt Nam: [MACRO_PIPELINE.md](docs/MACRO_PIPELINE.md).
+
+
+### Redis cho JWT
+
+Local dùng docker-compose.redis.yml ở 127.0.0.1:6380. Production Compose dùng
+Redis nội bộ ở redis:6379. Có thể trỏ đến Redis sẵn có qua
+SPRING_DATA_REDIS_HOST, SPRING_DATA_REDIS_PORT và SPRING_DATA_REDIS_PASSWORD.
+Giữ dữ liệu Redis qua lần khởi động lại và dùng noeviction để ID token đã thu
+hồi tồn tại đúng đến hạn của JWT. Không cần migration SQL cho luồng này.

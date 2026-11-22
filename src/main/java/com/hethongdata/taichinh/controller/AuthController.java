@@ -5,6 +5,7 @@ import com.hethongdata.taichinh.dto.auth.AuthDtos.LoginResponse;
 import com.hethongdata.taichinh.jwt.JwtService;
 import com.hethongdata.taichinh.security.AccountSecurityService;
 import jakarta.validation.Valid;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -28,8 +29,12 @@ public class AuthController {
 
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(@AuthenticationPrincipal Jwt token) {
-        tokens.revoke(token);
-        return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
+        try {
+            tokens.revoke(token);
+            return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
+        } catch (DataAccessException unavailable) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Authentication is temporarily unavailable");
+        }
     }
 
     @PostMapping("/login")

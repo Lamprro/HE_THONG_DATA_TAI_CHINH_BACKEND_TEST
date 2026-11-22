@@ -1,6 +1,6 @@
 package com.hethongdata.taichinh.service.admin;
 
-import com.hethongdata.taichinh.repository.jpa.account.RevokedAccessTokenJpaRepository;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.hethongdata.taichinh.controller.AuthController;
@@ -47,7 +47,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(classes = AdminConsoleHttpTests.Config.class, properties = TestJwt.PROPERTY)
 @AutoConfigureMockMvc
 class AdminConsoleHttpTests {
-    @MockitoBean RevokedAccessTokenJpaRepository revokedTokens;
+    @MockitoBean StringRedisTemplate redis;
 
     private static final String OPERATOR = "Bearer " + TestJwt.admin();
 
@@ -158,12 +158,15 @@ class AdminConsoleHttpTests {
     void logoutRevokesOnlyThePresentedTokenAndNextLoginGetsANewDayLongToken() throws Exception {
         fixture("operator", "ADMIN", "ACTIVE");
         fixture("viewer", "USER", "ACTIVE");
-        var ids = new java.util.HashSet<UUID>();
-        when(revokedTokens.existsById(any())).thenAnswer(call -> ids.contains(call.<UUID>getArgument(0)));
+        var keys = new java.util.HashSet<String>();
+        @SuppressWarnings("unchecked")
+        var values = (org.springframework.data.redis.core.ValueOperations<String, String>) mock(org.springframework.data.redis.core.ValueOperations.class);
+        when(redis.opsForValue()).thenReturn(values);
+        when(redis.hasKey(any(String.class))).thenAnswer(call -> keys.contains(call.<String>getArgument(0)));
         org.mockito.Mockito.doAnswer(call -> {
-            ids.add(call.getArgument(0));
+            keys.add(call.getArgument(0));
             return null;
-        }).when(revokedTokens).revoke(any(), any());
+        }).when(values).set(any(String.class), any(String.class), any(java.time.Duration.class));
 
         var route = "/api/admin/console/session";
         var logout = "/api/auth/logout";
@@ -192,7 +195,7 @@ class AdminConsoleHttpTests {
 
     @Test
     void authenticationFailsClosedWhenRevocationStorageIsUnavailable() throws Exception {
-        when(revokedTokens.existsById(any())).thenThrow(new org.springframework.dao.DataAccessResourceFailureException("fixture unavailable"));
+        when(redis.hasKey(any(String.class))).thenThrow(new org.springframework.dao.DataAccessResourceFailureException("fixture unavailable"));
         mvc.perform(get("/api/admin/console/session").header("Authorization", OPERATOR))
                 .andExpect(status().isServiceUnavailable());
     }

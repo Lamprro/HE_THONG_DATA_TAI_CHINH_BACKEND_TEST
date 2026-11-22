@@ -1,6 +1,6 @@
 package com.hethongdata.taichinh.service.user;
 
-import com.hethongdata.taichinh.repository.jpa.account.RevokedAccessTokenJpaRepository;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import com.hethongdata.taichinh.support.TestJwt;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -19,8 +19,8 @@ import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 class UserApiMvcTests {
 
   @Configuration @EnableWebMvc @Import(SecurityConfiguration.class) static class Config {
-        @Bean RevokedAccessTokenJpaRepository revokedTokens() {
-            return org.mockito.Mockito.mock(RevokedAccessTokenJpaRepository.class);
+        @Bean StringRedisTemplate redis() {
+            return org.mockito.Mockito.mock(StringRedisTemplate.class);
         }
     @Bean UserSecurityService service() {return mock(UserSecurityService.class);}
     @Bean UserSecurityController controller(UserSecurityService s) {return new UserSecurityController(s);}

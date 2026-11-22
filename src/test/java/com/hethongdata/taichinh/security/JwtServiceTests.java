@@ -1,7 +1,7 @@
 package com.hethongdata.taichinh.security;
 
 import com.hethongdata.taichinh.jwt.JwtService;
-import com.hethongdata.taichinh.repository.jpa.account.RevokedAccessTokenJpaRepository;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import static org.mockito.Mockito.mock;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import java.time.Instant;
@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class JwtServiceTests {
     private static final byte[] FIXTURE_KEY = "fake-local-jwt-expiry-fixture-1234567890".getBytes(java.nio.charset.StandardCharsets.UTF_8);
-    private final JwtService service = new JwtService(new String(FIXTURE_KEY, StandardCharsets.UTF_8), mock(RevokedAccessTokenJpaRepository.class));
+    private final JwtService service = new JwtService(new String(FIXTURE_KEY, StandardCharsets.UTF_8), mock(StringRedisTemplate.class));
 
     @Test
     void verifiesSignatureAudienceAndExpiry() {
@@ -36,14 +36,25 @@ class JwtServiceTests {
 
     @Test
     void rejectsShortConfiguredTextKeys() {
-        assertThatThrownBy(() -> new JwtService("short", mock(RevokedAccessTokenJpaRepository.class)))
+        assertThatThrownBy(() -> new JwtService("short", mock(StringRedisTemplate.class)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("32 UTF-8 bytes");
     }
 
+    @Test
+    void rejectsTokensIssuedBeforeMovingRevocationsToRedis() {
+        assertThatThrownBy(() -> service.decode(signed("financial-web", Instant.now().plusSeconds(60), false)))
+                .isInstanceOf(JwtException.class);
+    }
+
     private String signed(String audience, Instant expires) {
+        return signed(audience, expires, true);
+    }
+
+    private String signed(String audience, Instant expires, boolean redisSession) {
         var encoder = new NimbusJwtEncoder(new ImmutableSecret<>(new SecretKeySpec(FIXTURE_KEY, "HmacSHA256")));
         var claims = JwtClaimsSet.builder().issuer("financial-data-api").audience(List.of(audience))
-                .subject("fixture").id(java.util.UUID.randomUUID().toString()).issuedAt(Instant.now().minusSeconds(120)).expiresAt(expires).build();
-        return encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();
+                .subject("fixture").id(java.util.UUID.randomUUID().toString()).issuedAt(Instant.now().minusSeconds(120)).expiresAt(expires);
+        if (redisSession) claims.claim("session_version", "2");
+        return encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims.build())).getTokenValue();
     }
 }

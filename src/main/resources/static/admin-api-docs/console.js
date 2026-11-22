@@ -3,18 +3,37 @@ const username = document.getElementById('admin-username');
 const password = document.getElementById('admin-password');
 const panel = document.getElementById('swagger-ui');
 const statusLine = document.getElementById('docs-status');
+const disconnect = document.getElementById('clear-docs');
+const connect = form.querySelector('button[type="submit"]');
 let connection;
+let accessToken;
 
-document.getElementById('clear-docs').addEventListener('click', () => {
-  connection?.abort();
-  password.value = '';
-  panel.replaceChildren();
-  statusLine.textContent = 'Đã ngắt kết nối.';
-  window.location.reload();
+disconnect.disabled = true;
+disconnect.addEventListener('click', async () => {
+  if (!accessToken) return;
+  disconnect.disabled = true;
+  try {
+    const response = await fetch('/api/auth/logout', {
+      method: 'POST', credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(10000),
+      headers: { Authorization: 'Bearer ' + accessToken, 'ngrok-skip-browser-warning': 'true' },
+    });
+    if (!response.ok && response.status !== 401) throw new Error();
+    connection?.abort();
+    accessToken = undefined;
+    password.value = '';
+    panel.replaceChildren();
+    connect.disabled = false;
+    statusLine.textContent = 'Đã đăng xuất.';
+  } catch {
+    disconnect.disabled = false;
+    statusLine.textContent = 'Chưa thể đăng xuất. Hãy thử lại.';
+  }
 });
 
 form.addEventListener('submit', async event => {
   event.preventDefault();
+  if (connect.disabled) return;
+  connect.disabled = true;
   connection?.abort();
   panel.replaceChildren();
   const credentials = JSON.stringify({ username: username.value.trim(), password: password.value });
@@ -30,6 +49,8 @@ form.addEventListener('submit', async event => {
     if (!login.ok) throw new Error(login.status === 401 ? 'Tên đăng nhập hoặc mật khẩu không đúng.'
       : 'Không thể đăng nhập (HTTP ' + login.status + ').');
     const { accessToken: token } = await login.json();
+    accessToken = token;
+    disconnect.disabled = false;
     const response = await fetch('/v3/api-docs/admin', {
       headers: { Authorization: 'Bearer ' + token, 'ngrok-skip-browser-warning': 'true' },
       credentials: 'omit', redirect: 'error', signal: attempt.signal
@@ -55,5 +76,7 @@ form.addEventListener('submit', async event => {
     statusLine.textContent = 'Đã kết nối. Swagger chỉ cho phép thử GET.';
   } catch (error) {
     if (!attempt.signal.aborted) statusLine.textContent = error.message;
+  } finally {
+    if (!accessToken) connect.disabled = false;
   }
 });

@@ -1,5 +1,6 @@
 package com.hethongdata.taichinh.service.admin;
 
+import com.hethongdata.taichinh.repository.jpa.account.RevokedAccessTokenJpaRepository;
 import com.hethongdata.taichinh.support.TestJwt;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -16,7 +17,11 @@ import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 
 class AdminAccessMvcTests {
 
+
   @Configuration @EnableWebMvc @Import(SecurityConfiguration.class) static class Config {
+        @Bean RevokedAccessTokenJpaRepository revokedTokens() {
+            return org.mockito.Mockito.mock(RevokedAccessTokenJpaRepository.class);
+        }
     @Bean ObjectMapper securityJson() { return new ObjectMapper().findAndRegisterModules(); }
     @Bean Probe probe() { return new Probe(); }
   }

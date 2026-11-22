@@ -1,3 +1,9 @@
+# 22/11/2026 — JWT 24 giờ và thu hồi phiên khi đăng xuất
+
+- Mỗi lần đăng nhập thành công cấp JWT có ID riêng, hiệu lực 24 giờ. POST /api/auth/logout dùng JWT hiện tại và trả 204 sau khi ghi ID đã thu hồi vào PostgreSQL. API bảo vệ từ chối token đã thu hồi. FE Admin và Swagger gọi cùng API khi đăng xuất.
+- Bảng thu hồi chỉ giữ ID và hạn dùng. Các dòng đã hết hạn được dọn khi đăng xuất. Phải áp dụng [V20261122_05](../src/main/resources/db/manual/V20261122_05__revoke_access_tokens.sql) trên DB đích trước khi triển khai Java.
+- Java verify theo cấu hình CI đạt 261 bài, 121 bài theo điều kiện bị bỏ qua. Chạy riêng 37 bài xác thực và Admin, gồm PostgreSQL loopback với schema cô lập. Đã kiểm tra JWT cũ bị từ chối sau logout, đăng nhập lại cấp token mới, lưu thu hồi qua lần tạo lại dịch vụ và lỗi kho thu hồi trả HTTP 503. FE Admin build, 15 bài đơn vị và ba bộ Chromium dùng fixture đều đạt. Swagger đã được kiểm tra sự kiện gửi logout với phản hồi giả lập. Chưa áp dụng migration hay triển khai backend lên production.
+
 # 22/11/2026 — Hợp nhất nhánh vá PDF
 
 - PR #21 hợp nhất lịch sử nhánh vá PDF. Bản code hợp nhất giữ Spring Security và JWT, API kiểm tra dữ liệu thiếu `/api/admin/financial-data/gaps` và cấu hình deploy của `main`.

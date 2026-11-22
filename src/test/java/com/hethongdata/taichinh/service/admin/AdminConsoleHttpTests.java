@@ -1,5 +1,6 @@
 package com.hethongdata.taichinh.service.admin;
 
+import com.hethongdata.taichinh.repository.jpa.account.RevokedAccessTokenJpaRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.hethongdata.taichinh.controller.AuthController;
@@ -46,6 +47,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(classes = AdminConsoleHttpTests.Config.class, properties = TestJwt.PROPERTY)
 @AutoConfigureMockMvc
 class AdminConsoleHttpTests {
+    @MockitoBean RevokedAccessTokenJpaRepository revokedTokens;
+
     private static final String OPERATOR = "Bearer " + TestJwt.admin();
 
     @Configuration(proxyBeanMethods = false)
@@ -149,6 +152,49 @@ class AdminConsoleHttpTests {
                     {"reason":"Checked provider"}
                     """)).andExpect(status().isOk()).andExpect(jsonPath("$.validationStatusChanged").value(false));
         verify(reads).reviewIssue(id, "Checked provider", "operator");
+    }
+
+    @Test
+    void logoutRevokesOnlyThePresentedTokenAndNextLoginGetsANewDayLongToken() throws Exception {
+        fixture("operator", "ADMIN", "ACTIVE");
+        fixture("viewer", "USER", "ACTIVE");
+        var ids = new java.util.HashSet<UUID>();
+        when(revokedTokens.existsById(any())).thenAnswer(call -> ids.contains(call.<UUID>getArgument(0)));
+        org.mockito.Mockito.doAnswer(call -> {
+            ids.add(call.getArgument(0));
+            return null;
+        }).when(revokedTokens).revoke(any(), any());
+
+        var route = "/api/admin/console/session";
+        var logout = "/api/auth/logout";
+        var first = json.readTree(login("operator", "correct-password").andReturn().getResponse().getContentAsString());
+        var bearer = "Bearer " + first.path("accessToken").asText();
+        var jwt = com.nimbusds.jwt.SignedJWT.parse(first.path("accessToken").asText()).getJWTClaimsSet();
+        org.assertj.core.api.Assertions.assertThat(java.time.Duration.between(
+                jwt.getIssueTime().toInstant(), jwt.getExpirationTime().toInstant())).isEqualTo(java.time.Duration.ofDays(1));
+        org.assertj.core.api.Assertions.assertThat(Instant.parse(first.path("expiresAt").asText()))
+                .isEqualTo(jwt.getExpirationTime().toInstant());
+
+        mvc.perform(post(logout)).andExpect(status().isUnauthorized());
+        mvc.perform(get(route).header("Authorization", bearer)).andExpect(status().isOk());
+        mvc.perform(post(logout).header("Authorization", bearer)).andExpect(status().isNoContent());
+        mvc.perform(get(route).header("Authorization", bearer)).andExpect(status().isUnauthorized());
+        mvc.perform(post(logout).header("Authorization", bearer)).andExpect(status().isUnauthorized());
+
+        var second = json.readTree(login("operator", "correct-password").andReturn().getResponse().getContentAsString());
+        org.assertj.core.api.Assertions.assertThat(second.path("accessToken").asText()).isNotEqualTo(first.path("accessToken").asText());
+        mvc.perform(get(route).header("Authorization", "Bearer " + second.path("accessToken").asText()))
+                .andExpect(status().isOk());
+        var viewer = json.readTree(login("viewer", "correct-password").andReturn().getResponse().getContentAsString());
+        mvc.perform(post(logout).header("Authorization", "Bearer " + viewer.path("accessToken").asText()))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void authenticationFailsClosedWhenRevocationStorageIsUnavailable() throws Exception {
+        when(revokedTokens.existsById(any())).thenThrow(new org.springframework.dao.DataAccessResourceFailureException("fixture unavailable"));
+        mvc.perform(get("/api/admin/console/session").header("Authorization", OPERATOR))
+                .andExpect(status().isServiceUnavailable());
     }
 
     @Test

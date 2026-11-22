@@ -1,5 +1,6 @@
 package com.hethongdata.taichinh.service.financial;
-import com.hethongdata.taichinh.support.TestJwt;
+
+import com.hethongdata.taichinh.repository.jpa.account.RevokedAccessTokenJpaRepository;import com.hethongdata.taichinh.support.TestJwt;
 import com.hethongdata.taichinh.controller.admin.FinancialDataAdminController;
 import com.hethongdata.taichinh.security.SecurityConfiguration;
 import org.junit.jupiter.api.Test;
@@ -15,6 +16,8 @@ import static org.mockito.Mockito.*;
 @WebMvcTest(controllers=FinancialDataAdminController.class,properties=TestJwt.PROPERTY)
 @Import(SecurityConfiguration.class)
 class FinancialDataAdminAccessTests {
+    @MockitoBean RevokedAccessTokenJpaRepository revokedTokens;
+
  @Autowired MockMvc mvc;
  @MockitoBean FinancialDataQualityService service;
  @MockitoBean HistoricalFinancialMetricService metrics;

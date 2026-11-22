@@ -1,5 +1,6 @@
 package com.hethongdata.taichinh.service.admin;
 
+import com.hethongdata.taichinh.repository.jpa.account.RevokedAccessTokenJpaRepository;
 import com.hethongdata.taichinh.support.TestJwt;
 
 import static org.mockito.Mockito.*;
@@ -24,7 +25,11 @@ import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 /** Characterizes the existing ten URLs across the consolidated controllers. No DB/provider calls. */
 class AdminDataRoutesTests {
 
+
     @Configuration @EnableWebMvc @Import(SecurityConfiguration.class) static class Config {
+        @Bean RevokedAccessTokenJpaRepository revokedTokens() {
+            return org.mockito.Mockito.mock(RevokedAccessTokenJpaRepository.class);
+        }
         @Bean MarketDataReadService reads(){return mock(MarketDataReadService.class);}
         @Bean IndexJobProvisioningService indexJobs(){return mock(IndexJobProvisioningService.class);}
         @Bean MacroJobCatalogService macroJobs(){return mock(MacroJobCatalogService.class);}

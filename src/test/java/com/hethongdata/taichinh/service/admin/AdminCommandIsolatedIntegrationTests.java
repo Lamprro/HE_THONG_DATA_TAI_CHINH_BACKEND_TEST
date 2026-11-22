@@ -10,6 +10,7 @@ import com.hethongdata.taichinh.service.ingestion.*;
 import com.hethongdata.taichinh.service.validation.ValidationJobService;
 import com.hethongdata.taichinh.repository.jpa.admin.*;
 import com.hethongdata.taichinh.repository.jpa.account.AccountJpaRepository;
+import com.hethongdata.taichinh.repository.jpa.account.RevokedAccessTokenJpaRepository;
 import com.hethongdata.taichinh.security.AccountSecurityService;
 import com.hethongdata.taichinh.jwt.JwtService;
 import jakarta.persistence.EntityManagerFactory;
@@ -69,6 +70,7 @@ class AdminCommandIsolatedIntegrationTests {
     assertThat(db.queryForObject("select current_schema()",String.class)).isEqualTo(SCHEMA);
     db.execute(Files.readString(Path.of("src/main/resources/db/manual/V20261019_01__admin_commands.sql")));
     db.execute(Files.readString(Path.of("src/main/resources/db/manual/V20261020_01__admin_flow_controls.sql")));
+    db.execute(Files.readString(Path.of("src/main/resources/db/manual/V20261122_05__revoke_access_tokens.sql")));
     db.execute("drop table admin_operation_events, admin_schedule_policy");
     db.execute("create table ingestion_runs(id uuid primary key,ingestion_run_id uuid,status text,created_at timestamptz,payload jsonb,value numeric)");
     db.execute("create table securities(id uuid primary key,symbol text)");
@@ -299,7 +301,7 @@ class AdminCommandIsolatedIntegrationTests {
         UUID.randomUUID(), "fixture-operator", "fixture@example.test", passwords.encode("test-password"));
     var accounts = new AccountSecurityService(context.getBean(AccountJpaRepository.class), passwords);
     var auth = accounts.authenticate("fixture-operator", "test-password");
-    var tokens = new JwtService("");
+    var tokens = new JwtService("", context.getBean(RevokedAccessTokenJpaRepository.class));
     var jwt = tokens.decode(tokens.issue(auth, accounts.authenticatedEmail(auth)).getTokenValue());
     assertThat(jwt.getSubject()).isEqualTo("fixture-operator");
     assertThat(jwt.getClaimAsStringList("roles")).containsExactly("ROLE_ADMIN");
@@ -308,6 +310,29 @@ class AdminCommandIsolatedIntegrationTests {
     db.update("update accounts set status='LOCKED'");
     assertThatThrownBy(() -> accounts.authenticate("fixture-operator", "test-password"))
         .isInstanceOf(org.springframework.security.authentication.BadCredentialsException.class);
+  }
+
+  @Test void logoutPersistsRevocationAndOnlyExpiredEntriesAreDeleted() {
+    var repository = context.getBean(RevokedAccessTokenJpaRepository.class);
+    var signingKey = "fixture signing key for isolated JWT logout";
+    var tokens = new JwtService(signingKey, repository);
+    var account = org.springframework.security.authentication.UsernamePasswordAuthenticationToken.authenticated(
+        "fixture-operator", null, List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_ADMIN")));
+    var jwt = tokens.issue(account, null);
+    var fresh = tokens.issue(account, null);
+    var expiredId = UUID.randomUUID();
+    new TransactionTemplate(transactions).executeWithoutResult(tx -> {
+      repository.revoke(expiredId, java.time.Instant.now().minusSeconds(10));
+      tokens.revoke(jwt);
+      tokens.revoke(jwt);
+    });
+    var restarted = new JwtService(signingKey, repository);
+    assertThatThrownBy(() -> restarted.decode(jwt.getTokenValue()))
+        .isInstanceOf(org.springframework.security.oauth2.jwt.BadJwtException.class)
+        .hasMessageContaining("revoked");
+    assertThat(restarted.decode(fresh.getTokenValue()).getId()).isNotEqualTo(jwt.getId());
+    assertThat(repository.existsById(expiredId)).isFalse();
+    assertThat(repository.existsById(UUID.fromString(jwt.getId()))).isTrue();
   }
 
   @Test void summaryCountsUseTheSameRowsAsTheSqlLedger() {

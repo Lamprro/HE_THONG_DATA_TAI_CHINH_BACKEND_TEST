@@ -21,6 +21,7 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
@@ -45,6 +46,7 @@ public class SecurityConfiguration {
         var paths = PathPatternRequestMatcher.withDefaults();
         var api = paths.matcher("/api/**");
         var login = paths.matcher(HttpMethod.POST, "/api/auth/login");
+        var logout = paths.matcher(HttpMethod.POST, "/api/auth/logout");
         var health = paths.matcher("/api/health/**");
         var user = paths.matcher("/api/v1/**");
         var docs = paths.matcher("/v3/api-docs/**");
@@ -54,13 +56,17 @@ public class SecurityConfiguration {
         roles.setAuthorityPrefix("");
         var authentication = new JwtAuthenticationConverter();
         authentication.setJwtGrantedAuthoritiesConverter(roles);
-        AuthenticationEntryPoint denied = (request, response, error) -> securityError(response, json, 401);
+        AuthenticationEntryPoint denied = (request, response, error) ->
+                securityError(response, json, error instanceof OAuth2AuthenticationException oauth
+                        && "temporarily_unavailable".equals(oauth.getError().getErrorCode()) ? 503 : 401);
         return http.cors(c -> c.configurationSource(cors))
                 .csrf(AbstractHttpConfigurer::disable)
+                .logout(AbstractHttpConfigurer::disable)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .requestCache(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(a -> a
                         .requestMatchers(login, health, user).permitAll()
+                        .requestMatchers(logout).authenticated()
                         .requestMatchers(api, docs).hasRole("ADMIN")
                         .requestMatchers(paths.matcher("/webjars/swagger-ui/**"), paths.matcher("/admin-api-docs/**")).permitAll()
                         .anyRequest().denyAll())
@@ -101,8 +107,9 @@ public class SecurityConfiguration {
         if (status == 401) response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
         response.setContentType("application/json");
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
-        json.writeValue(response.getOutputStream(), new ApiErrorResponse(Instant.now(),
-                status == 401 ? "UNAUTHENTICATED" : "ADMIN_ACCESS_DENIED", null, null,
-                status == 401 ? "A valid access token is required" : "Admin role required"));
+        String code = status == 503 ? "AUTH_UNAVAILABLE" : status == 401 ? "UNAUTHENTICATED" : "ADMIN_ACCESS_DENIED";
+        String message = status == 503 ? "Authentication is temporarily unavailable"
+                : status == 401 ? "A valid access token is required" : "Admin role required";
+        json.writeValue(response.getOutputStream(), new ApiErrorResponse(Instant.now(), code, null, null, message));
     }
 }

@@ -23,8 +23,8 @@ Không commit `application-local.properties`, khóa API, backup DB hoặc output
 
 ## Đăng nhập Admin
 
-1. Kiểm tra tài khoản trên PostgreSQL. `accounts` cần có `user_id` trỏ đến hồ sơ `users`, `role_id` trỏ đến vai trò `ADMIN` trong `roles`, `username` duy nhất, `email`, `status=ACTIVE` và `password_hash` kiểu BCrypt. Nếu chưa có tài khoản, người vận hành cấp hồ sơ và tài khoản theo quy trình DB hiện tại. Dùng công cụ băm mật khẩu theo kiểu tương tác, ví dụ `htpasswd -nBC 12 <username>`, rồi lưu riêng phần hash.
-2. Tạo khóa ký bằng `openssl rand -base64 32` và lưu vào secret `FINANCIAL_JWT_SECRET` của server hoặc GitHub Actions. Khi chạy production, các instance Java dùng cùng một giá trị. Tạo tài khoản vận hành dành cho kiểm tra deploy và cấu hình `FINANCIAL_ADMIN_SMOKE_USERNAME` cùng `FINANCIAL_ADMIN_SMOKE_PASSWORD` trên GitHub Actions.
-3. Mở FE Admin và nhập tài khoản. API `POST /api/auth/login` trả `accessToken`, `tokenType` và `expiresAt` sau khi xác thực. Client gửi `Authorization: Bearer <accessToken>` cho API bảo vệ. Khi gọi Swagger, mở `/admin-api-docs/index.html` trên backend và đăng nhập ở đó.
+Admin và người dùng thường dùng chung bảng `accounts`. Tạo tài khoản với username, email và mật khẩu theo quy trình hiện tại. Lưu hash BCrypt vào `password_hash`. Tài khoản `ACTIVE` có `role_id` trỏ đến vai trò `ADMIN` hoặc `ROLE_ADMIN` sẽ đăng nhập được vào FE Admin và Swagger.
+
+Backend cấp JWT qua `POST /api/auth/login`. Trên production, các instance Java dùng chung `FINANCIAL_JWT_SECRET` để ký và xác minh JWT. Khi dùng GitHub Actions để deploy, bước kiểm tra đăng nhập nhận `FINANCIAL_ADMIN_SMOKE_USERNAME` và `FINANCIAL_ADMIN_SMOKE_PASSWORD` từ secrets. Hai giá trị này trỏ tới một tài khoản Admin đã có trong bảng `accounts`.
 
 Luồng macro Việt Nam: [MACRO_PIPELINE.md](docs/MACRO_PIPELINE.md).

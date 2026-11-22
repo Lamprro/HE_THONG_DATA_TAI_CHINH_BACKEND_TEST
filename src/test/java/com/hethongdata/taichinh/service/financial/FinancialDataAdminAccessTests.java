@@ -20,9 +20,9 @@ class FinancialDataAdminAccessTests {
  @MockitoBean HistoricalFinancialMetricService metrics;
  @MockitoBean com.hethongdata.taichinh.service.market.TrainingDataQualityService trainingQuality;
  @Test void missingCredentialCannotReadOrRecalculate()throws Exception {
-  mvc.perform(get("/api/admin/financial-data/status?symbol=FPT")).andExpect(status().isForbidden());verifyNoInteractions(service,metrics);
-  mvc.perform(post("/api/admin/financial-data/metrics/recalculate").contentType("application/json").content("{}")).andExpect(status().isForbidden());
-  mvc.perform(post("/api/admin/financial-data/metrics/recalculate").header("Authorization","Bearer wrong").contentType("application/json").content("{}")).andExpect(status().isForbidden());
+  mvc.perform(get("/api/admin/financial-data/status?symbol=FPT")).andExpect(status().isUnauthorized());verifyNoInteractions(service,metrics);
+  mvc.perform(post("/api/admin/financial-data/metrics/recalculate").contentType("application/json").content("{}")).andExpect(status().isUnauthorized());
+  mvc.perform(post("/api/admin/financial-data/metrics/recalculate").header("Authorization","Bearer wrong").contentType("application/json").content("{}")).andExpect(status().isUnauthorized());
   verifyNoInteractions(metrics);
  }
  @Test void authenticatedReadUsesService()throws Exception {
@@ -37,18 +37,6 @@ class FinancialDataAdminAccessTests {
  }
  @Test void retiredPdfRoutesReturnNotFound() throws Exception {
   String token = "Bearer " + TestJwt.admin();
-  for (String path : java.util.List.of("/disclosures", "/bindings", "/reconciliation")) {
-   mvc.perform(get("/api/admin/financial-data" + path).param("symbol", "FPT").header("Authorization", token))
-       .andExpect(status().isNotFound());
-  }
-  for (String path : java.util.List.of("/disclosures/refresh", "/bindings/reconcile")) {
-   mvc.perform(post("/api/admin/financial-data" + path).header("Authorization", token)
-       .contentType("application/json").content("{}"))
-       .andExpect(status().isNotFound());
-  }
- }
- @Test void retiredPdfRoutesReturnNotFound() throws Exception {
-  String token = "Bearer isolated-fixture-admin-token-long-enough";
   for (String path : java.util.List.of("/disclosures", "/bindings", "/reconciliation")) {
    mvc.perform(get("/api/admin/financial-data" + path).param("symbol", "FPT").header("Authorization", token))
        .andExpect(status().isNotFound());

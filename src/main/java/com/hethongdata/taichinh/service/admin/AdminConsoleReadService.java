@@ -20,9 +20,8 @@ public class AdminConsoleReadService {
       "financial_periods", "financial_metrics", "metric_definitions", "market_indices", "index_prices",
       "security_index_memberships", "macro_series", "macro_observations", "news_articles", "llm_runs",
       "llm_run_attempts", "llm_validation_rounds", "llm_results", "llm_prompt_templates",
-      "security_foreign_observations", "security_reference_observations", "predictions",
-      "prediction_outcomes", "admin_commands", "admin_operation_events",
-      "local_ai_packages", "local_ai_package_inputs", "local_ai_package_runs", "local_ai_package_predictions");
+      "security_foreign_observations", "security_reference_observations",
+      "admin_commands");
   private static final Set<String> OMIT = Set.of("body", "payload", "raw_text", "payload_json", "request_headers", "response_headers",
       "response_snapshot", "response_text", "request_body");
   private static final Set<String> EXACT = Set.of("id","raw_payload_id","data_version_id","validation_target","llm_run_id",

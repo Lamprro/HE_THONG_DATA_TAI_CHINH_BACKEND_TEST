@@ -9,8 +9,8 @@ concurrency:
 
 jobs:
   deploy:
-    # This one-off branch patches the deployed release and preserves its Local AI routes.
-    if: github.ref == 'refs/heads/remove-pdf-production'
+    # Merging code must not deploy an unreviewed runtime or run manual DB migrations.
+    if: github.ref == 'refs/heads/main'
     runs-on: self-hosted
     timeout-minutes: 20
 
@@ -57,18 +57,6 @@ jobs:
             echo "Unexpected login or Admin access status."
             exit 1
           fi
-
-          for path in '/status?symbol=FPT' '/coverage'; do
-            curl --fail --silent --show-error --max-time 15 --output /dev/null \
-              --header "Authorization: Bearer ${FINANCIAL_ADMIN_API_TOKEN}" \
-              "http://127.0.0.1:8080/api/admin/financial-data${path}"
-          done
-          pdf_status=$(curl --silent --show-error --max-time 15 --output /dev/null --write-out '%{http_code}' \
-            --header "Authorization: Bearer ${FINANCIAL_ADMIN_API_TOKEN}" \
-            'http://127.0.0.1:8080/api/admin/financial-data/disclosures?symbol=FPT')
-          test "$pdf_status" = 404
-          curl --fail --silent --show-error --max-time 15 --output /dev/null http://127.0.0.1:8080/api/v1/local-ai/models
-          curl --fail --silent --show-error --max-time 15 --output /dev/null http://127.0.0.1:8080/api/v1/securities/FPT/local-ai
 
           # Remove only dangling layers; keep tagged images for rollback.
           docker image prune --force

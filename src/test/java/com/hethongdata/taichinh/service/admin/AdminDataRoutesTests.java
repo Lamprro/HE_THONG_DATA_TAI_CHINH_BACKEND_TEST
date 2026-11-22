@@ -34,7 +34,7 @@ class AdminDataRoutesTests {
         @Bean MarketDataAdminController market(MarketDataReadService r,IndexJobProvisioningService j,MacroJobCatalogService m,com.hethongdata.taichinh.service.macro.MacroCoverageService c){return new MarketDataAdminController(r,j,m,c);}
         @Bean FinancialDataAdminController financial(HistoricalFinancialMetricService m,TrainingDataQualityService q){
             return new FinancialDataAdminController(m,q,mock(com.hethongdata.taichinh.service.financial.FinancialDataQualityService.class));}
-        @Bean AdminAccessConfiguration access(){return new AdminAccessConfiguration(TOKEN,new ObjectMapper().findAndRegisterModules());}
+        @Bean ObjectMapper securityJson() { return new ObjectMapper().findAndRegisterModules(); }
     }
     @Test void originalRoutesKeepAuthPagingStatusAndNativeDispatch() throws Exception {
         try(var context=new AnnotationConfigWebApplicationContext()) {

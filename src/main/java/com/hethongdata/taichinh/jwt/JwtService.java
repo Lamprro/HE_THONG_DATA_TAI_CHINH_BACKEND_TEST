@@ -4,7 +4,7 @@ import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Base64;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
 import javax.crypto.spec.SecretKeySpec;
@@ -30,12 +30,8 @@ public class JwtService implements JwtDecoder {
         persistentKey = !configuredKey.isBlank();
         byte[] keyBytes;
         if (persistentKey) {
-            try {
-                keyBytes = Base64.getDecoder().decode(configuredKey);
-            } catch (IllegalArgumentException invalid) {
-                throw new IllegalArgumentException("FINANCIAL_JWT_SECRET must be Base64");
-            }
-            if (keyBytes.length < 32) throw new IllegalArgumentException("FINANCIAL_JWT_SECRET needs at least 32 decoded bytes");
+            keyBytes = configuredKey.getBytes(StandardCharsets.UTF_8);
+            if (keyBytes.length < 32) throw new IllegalArgumentException("FINANCIAL_JWT_SECRET needs at least 32 UTF-8 bytes");
         } else {
             keyBytes = new byte[32];
             new SecureRandom().nextBytes(keyBytes);

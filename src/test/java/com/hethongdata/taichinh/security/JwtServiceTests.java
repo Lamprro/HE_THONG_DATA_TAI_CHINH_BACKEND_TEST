@@ -3,7 +3,7 @@ package com.hethongdata.taichinh.security;
 import com.hethongdata.taichinh.jwt.JwtService;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import java.time.Instant;
-import java.util.Base64;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import javax.crypto.spec.SecretKeySpec;
 import org.junit.jupiter.api.Test;
@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class JwtServiceTests {
     private static final byte[] FIXTURE_KEY = "fake-local-jwt-expiry-fixture-1234567890".getBytes(java.nio.charset.StandardCharsets.UTF_8);
-    private final JwtService service = new JwtService(Base64.getEncoder().encodeToString(FIXTURE_KEY));
+    private final JwtService service = new JwtService(new String(FIXTURE_KEY, StandardCharsets.UTF_8));
 
     @Test
     void verifiesSignatureAudienceAndExpiry() {
@@ -30,6 +30,12 @@ class JwtServiceTests {
         String altered = valid.substring(0, signature) + (valid.charAt(signature) == 'A' ? 'B' : 'A')
                 + valid.substring(signature + 1);
         assertThatThrownBy(() -> service.decode(altered)).isInstanceOf(JwtException.class);
+    }
+
+    @Test
+    void rejectsShortConfiguredTextKeys() {
+        assertThatThrownBy(() -> new JwtService("short"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("32 UTF-8 bytes");
     }
 
     private String signed(String audience, Instant expires) {

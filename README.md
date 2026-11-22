@@ -23,8 +23,10 @@ Không commit `application-local.properties`, khóa API, backup DB hoặc output
 
 ## Đăng nhập Admin
 
-Admin và người dùng thường dùng chung bảng `accounts`. Tạo tài khoản với username, email và mật khẩu theo quy trình hiện tại. Lưu hash BCrypt vào `password_hash`. Tài khoản `ACTIVE` có `role_id` trỏ đến vai trò `ADMIN` hoặc `ROLE_ADMIN` sẽ đăng nhập được vào FE Admin và Swagger.
+Admin và người dùng thường đăng nhập bằng username và mật khẩu qua `POST /api/auth/login`. Spring Security đọc tài khoản `ACTIVE` trong `accounts`, kiểm tra `password_hash` và cấp JWT. Vai trò `ADMIN` mở các API quản trị.
 
-Backend cấp JWT qua `POST /api/auth/login`. Trên production, các instance Java dùng chung `FINANCIAL_JWT_SECRET` để ký và xác minh JWT. Khi dùng GitHub Actions để deploy, bước kiểm tra đăng nhập nhận `FINANCIAL_ADMIN_SMOKE_USERNAME` và `FINANCIAL_ADMIN_SMOKE_PASSWORD` từ secrets. Hai giá trị này trỏ tới một tài khoản Admin đã có trong bảng `accounts`.
+Ở production, đặt một chuỗi bí mật ổn định vào `FINANCIAL_JWT_SECRET` trong GitHub Actions. Dùng chuỗi thường có ít nhất 32 byte UTF-8. Backend dùng chuỗi này để ký JWT và dẫn xuất khóa riêng để băm mật khẩu trước BCrypt. Tài khoản BCrypt cũ tự cập nhật `password_hash` sau lần đăng nhập đúng đầu tiên. Dùng cùng một chuỗi cho mọi instance kết nối cùng DB. Khi thay chuỗi, các tài khoản đã cập nhật hash cần được đặt lại mật khẩu. Local có thể để trống để dùng BCrypt thông thường và khóa JWT ngẫu nhiên theo tiến trình.
+
+Deploy kiểm tra health và quyền truy cập HTTP. CI kiểm thử đăng nhập thành công bằng tài khoản mẫu.
 
 Luồng macro Việt Nam: [MACRO_PIPELINE.md](docs/MACRO_PIPELINE.md).

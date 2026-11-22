@@ -1,3 +1,11 @@
+# 22/11/2026 — Đơn giản hóa cấu hình đăng nhập
+
+- Spring Security dùng `AccountPasswordEncoder` để kiểm tra mật khẩu trong `accounts`. Khi có chuỗi cấu hình, backend dẫn xuất khóa băm riêng và dùng HMAC-SHA256 trước BCrypt. Tài khoản cũ chỉ cập nhật hash sau khi kiểm tra đúng mật khẩu. Hàm ghi kiểm tra hash cũ và trạng thái tài khoản để tránh ghi đè một lần đổi mật khẩu đồng thời.
+- Giữ `FINANCIAL_JWT_SECRET` là chuỗi text duy nhất ở production. Khi để trống trong môi trường local, backend dùng BCrypt thường và tự tạo khóa JWT theo tiến trình. Tài khoản đã nâng cấp hash cần cùng chuỗi cấu hình để đăng nhập.
+- Deploy kiểm tra health, một request login thiếu thông tin trả 400 và API Admin thiếu JWT trả 401. CI giữ bài đăng nhập và cấp token thành công bằng tài khoản mẫu. Workflow deploy đã bỏ các biến username và password kiểm tra riêng.
+
+- Java đóng gói thành công với 269 bài đạt. Kiểm thử JAR qua HTTP với PostgreSQL loopback xác nhận đăng nhập sai giữ hash cũ, đăng nhập đúng nâng cấp hash đúng một lần và JWT mở được API Admin. Workflow được kiểm tra cú pháp và chạy với Docker/HTTP giả lập. DB dùng chung giữ nguyên.
+
 # 22/11/2026 — Dọn bảng và duyệt lệch nguồn
 
 - DB dùng chung đã áp dụng `V20261122_01`. `roles` chỉ còn `ADMIN` và `USER`, tài khoản Admin hiện có vẫn đăng nhập bằng JWT. Đã bỏ `audit_logs` (0), `system_settings` (4), `data_lineage_events` (0), `news_crawl_controls` (1) và `data_correction_audit` (6.920). Hai trigger ghi bảng correction được gỡ trước khi bỏ bảng. Cấu hình mặc định đã nằm trong Java và cấu hình job. Bản sao cục bộ được kiểm tra danh mục trước khi xóa, ở `.local-handover/schema-clean-legacy-20261122.dump` và bị Git bỏ qua.
@@ -12,7 +20,7 @@
 - `POST /api/auth/login` nhận `username` và `password`. `AccountSecurityService` đọc `accounts` và `roles` qua JPA, xác thực hash BCrypt bằng Spring Security. Chỉ tài khoản `ACTIVE` có username duy nhất được đăng nhập. `ADMIN` hoặc `ROLE_ADMIN` trong DB cho quyền Admin.
 - `JwtService` phát JWT 15 phút. `security/SecurityConfiguration` xác minh chữ ký, issuer, audience và hạn dùng ở API bảo vệ. Token tĩnh cũ bị từ chối. API dữ liệu công khai dưới `/api/v1/**` vẫn dùng được như trước. Audit Admin ghi username, worker nền ghi `SYSTEM_WORKER`.
 - FE Admin và Swagger đều đăng nhập bằng tài khoản. JWT của FE giữ trong bộ nhớ. Hết phiên thì đăng nhập lại. Thay đổi vai trò hoặc trạng thái tài khoản áp dụng cho lần đăng nhập tiếp theo. JWT đã cấp có hiệu lực tối đa đến thời điểm hết hạn.
-- Trước khi deploy đồng bộ BE và FE Admin, kiểm tra tài khoản trong DB theo mục đăng nhập ở [README](../README.md). Workflow deploy dùng `FINANCIAL_JWT_SECRET` để ký JWT và kiểm tra đăng nhập bằng thông tin của một tài khoản Admin có sẵn trong bảng `accounts`. Đặt username và mật khẩu của tài khoản đó vào hai secrets `FINANCIAL_ADMIN_SMOKE_USERNAME` và `FINANCIAL_ADMIN_SMOKE_PASSWORD`. Bản local tự tạo khóa theo tiến trình nếu bỏ trống, production yêu cầu khóa cố định. Tính năng dùng bảng sẵn có.
+- Production cấu hình một chuỗi bí mật `FINANCIAL_JWT_SECRET` dạng text. Spring Security dùng tài khoản và vai trò hiện có. GitHub Actions kiểm tra health và phản hồi từ chối trên API bảo vệ. Bài đăng nhập thành công dùng tài khoản fixture trong CI.
 - Java đóng gói thành công, 260 test đạt trong lần chạy chung. Có 122 test theo điều kiện bị bỏ qua ở lần này và hai suite dùng DB chung được loại khỏi lệnh chạy. Chạy riêng 17 test trên PostgreSQL 17.12 tạm. Java đóng gói gọi HTTP thành công qua login, session và OpenAPI bằng bản ghi tài khoản trong PostgreSQL loopback. Mật khẩu sai và token tĩnh bị từ chối, tài khoản USER nhận 403 tại API Admin. FE build thành công, 34 test đơn vị và ba bộ trình duyệt Admin đạt với fixture.
 
 # 21/11/2026 — Admin dùng JPA và DTO

@@ -1,3 +1,11 @@
+# 28/11/2026 — Thông báo khi gọi lại build đã hoàn tất
+
+- Giữ HTTP 400 và khóa job hiện có. Khi chọn đúng domain và version đã `ACTIVATED`, API báo “Phiên bản này đã được ghi vào bảng đích.” trước khi tạo lượt build mới. Các version sai domain hoặc chưa sẵn sàng vẫn bị từ chối.
+- 26 bài kiểm thử Java liên quan đã đạt. Chạy HTTP trên Java local với cấu hình job sao từ danh mục hiện có, nguồn Python Vercel thật và PostgreSQL trong schema cô lập. Redis dùng mock cho bài tích hợp này.
+- `VNSTOCK_FPT_OHLCV_DAILY` qua validation (6 đạt, 0 lỗi) và `MARKET_PRICE_BUILD` ghi 4 dòng canonical, tất cả có `currency=VND` và `price_unit=VND_PER_SHARE` trong `market_prices`.
+- `VNDIRECT_FPT_BALANCE_SHEET_WEEKLY` qua validation (6 đạt, 0 lỗi) và `FINANCIAL_STATEMENT_BUILD` ghi 81 báo cáo canonical, khớp đủ 81 kỳ nguồn từ 30/09/2006 tới 30/09/2026, với `currency=VND` và `unit_scale=1`.
+- Cả hai ca gọi lại cùng version đều trả 400 với thông báo mới. Kiểm tra DB xác nhận không tăng số lượt build, số dòng giá hoặc revision BCTC. Ca này dừng ở bảng đích, chưa chạy dự báo LLM hay triển khai Java lên server.
+
 # 28/11/2026 — Ngày đầu vào dự báo và đơn vị giá
 
 - Python trả metadata theo kỳ với period_end và published_at nếu nguồn cung cấp. Java giữ nguyên ngày công bố thật. Khi dựng bối cảnh từ các BCTC hiện có, mốc dùng là published_at, hoặc created_at cho kỳ kết thúc trong vòng 90 ngày tính tới ngày nhập, hoặc ngày cuối kỳ cho báo cáo cũ. Snapshot lưu forecastAvailabilitySource.

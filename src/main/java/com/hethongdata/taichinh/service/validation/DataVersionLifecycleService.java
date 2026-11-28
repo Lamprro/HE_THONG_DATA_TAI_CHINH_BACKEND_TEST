@@ -36,7 +36,11 @@ public class DataVersionLifecycleService {
     /** Choose a reviewed batch; the native writer still performs its locked, atomic validation. */
     public static DataVersionEntity requireActive(DataVersionJpaRepository versions, UUID id, String domain) {
         var v = versions.findById(id).orElseThrow(() -> new IllegalArgumentException("Data version not found"));
-        if (!domain.equals(v.getDataDomain()) || !"ACTIVE".equals(v.getStatus()))
+        if (!domain.equals(v.getDataDomain()))
+            throw new IllegalArgumentException("Requires an ACTIVE " + domain + " data version");
+        if ("ACTIVATED".equals(v.getStatus()))
+            throw new IllegalArgumentException("Phiên bản này đã được ghi vào bảng đích.");
+        if (!"ACTIVE".equals(v.getStatus()))
             throw new IllegalArgumentException("Requires an ACTIVE " + domain + " data version");
         return v;
     }

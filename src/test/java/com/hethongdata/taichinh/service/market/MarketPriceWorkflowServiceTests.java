@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
 class MarketPriceWorkflowServiceTests {
@@ -33,9 +34,15 @@ class MarketPriceWorkflowServiceTests {
         assertThat(service.executeVersion(job,version.getId(),"MANUAL").getRunId()).isEqualTo(run.getId());
         verify(writes).build(version.getId(),run);
         verify(versions,never()).findByDataDomainAndStatusOrderByCreatedAtAsc(anyString(),anyString());
+        version.markActivated();
+        assertThatThrownBy(() -> service.executeVersion(job, version.getId(), "MANUAL"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Phiên bản này đã được ghi vào bảng đích.");
         ReflectionTestUtils.setField(version,"status","REJECTED");
-        org.assertj.core.api.Assertions.assertThatThrownBy(()->service.executeVersion(job,version.getId(),"MANUAL"))
+        assertThatThrownBy(()->service.executeVersion(job,version.getId(),"MANUAL"))
                 .isInstanceOf(IllegalArgumentException.class);
+        verify(runs, times(1)).startInternalBatch(null, job, "MANUAL", MarketPriceWorkflowService.WORKFLOW);
+        verify(raws, times(1)).findByIngestionRunIdOrderByFetchedAtDesc(version.getIngestionRunId());
         verify(writes,times(1)).build(any(),any());
     }
     @Test

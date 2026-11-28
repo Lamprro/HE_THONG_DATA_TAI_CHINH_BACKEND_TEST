@@ -1,3 +1,10 @@
+# 28/11/2026 — Ngày đầu vào dự báo và đơn vị giá
+
+- Python trả metadata theo kỳ với period_end và published_at nếu nguồn cung cấp. Java giữ nguyên ngày công bố thật. Khi dựng bối cảnh từ các BCTC hiện có, mốc dùng là published_at, hoặc created_at cho kỳ kết thúc trong vòng 90 ngày tính tới ngày nhập, hoặc ngày cuối kỳ cho báo cáo cũ. Snapshot lưu forecastAvailabilitySource.
+- financial.forecast.statement.recent-days mặc định 90. Bật financial.forecast.statement.strict-publication để yêu cầu ngày công bố và giữ giới hạn thời điểm nhập báo cáo/chỉ tiêu. Chế độ mặc định không phải dữ liệu kiểm thử tại thời điểm lịch sử đã xác minh.
+- Java xác minh đơn vị từ normalization.price_unit, hỗ trợ payload cũ có price_unit ở cấp ngoài và từ chối giá trị mâu thuẫn. Migration V20261128_01 thêm currency và price_unit nullable vào market_prices. Chạy migration trên DB đích trước khi triển khai. Builder ghi đơn vị đã xác định cho lượt ghi mới. Migration không suy đoán đơn vị cho dữ liệu cũ.
+- Maven verify theo cấu hình CI và kiểm thử SQL PostgreSQL cô lập đã đạt. Chưa chạy migration trên DB dùng chung hay triển khai Java.
+
 # 22/11/2026 — Thu hồi JWT trong Redis
 
 - Đăng nhập vẫn dùng tài khoản PostgreSQL và cấp JWT mới 24 giờ. Đăng xuất chỉ ghi ID đã thu hồi vào Redis với thời hạn bằng phần hiệu lực còn lại của JWT. Redis tự xóa khóa. API bảo vệ trả 503 nếu không thể kiểm tra Redis.

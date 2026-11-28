@@ -180,6 +180,13 @@ public class MarketPricePayloadParser {
         return value == null ? null : value.multiply(multiplier);
     }
 
+    public static boolean hasVndUnit(JsonNode payload) {
+        String nested = payload.path("normalization").path("price_unit").asText("");
+        String root = payload.path("price_unit").asText("");
+        return ("VND".equals(nested) && (root.isEmpty() || "VND".equals(root)))
+                || (nested.isEmpty() && "VND".equals(root));
+    }
+
     private BigDecimal priceMultiplier(String provider, boolean quote, boolean normalizedContract) {
         if (normalizedContract) return BigDecimal.ONE;
         if ("cafef".equalsIgnoreCase(provider) || "vndirect".equalsIgnoreCase(provider)

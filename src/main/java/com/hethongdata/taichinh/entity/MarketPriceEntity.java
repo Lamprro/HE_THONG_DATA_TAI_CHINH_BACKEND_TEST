@@ -99,6 +99,17 @@ public class MarketPriceEntity {
     @Column(name = "price_metadata", columnDefinition = "jsonb")
     private com.fasterxml.jackson.databind.JsonNode priceMetadata = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
 
+    @Column(name = "currency", length = 3)
+    private String currency;
+
+    @Column(name = "price_unit", length = 24)
+    private String priceUnit;
+
+    public void recordNormalizedUnit(boolean verified) {
+        currency = verified ? "VND" : null;
+        priceUnit = verified ? "VND_PER_SHARE" : null;
+    }
+
     public static boolean hasUnadjustedClose(String provider, BigDecimal adjustedClose) {
         return ("vndirect".equalsIgnoreCase(provider) || "cafef".equalsIgnoreCase(provider))
                 && adjustedClose != null;

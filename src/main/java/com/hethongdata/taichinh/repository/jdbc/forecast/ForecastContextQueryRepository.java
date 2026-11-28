@@ -25,18 +25,28 @@ public class ForecastContextQueryRepository {
   }
 
   public List<Map<String, Object>> findStatementItemSourcePoints(
-      UUID companyId, UUID securityId, LocalDate start, LocalDate asOfDate, Timestamp cutoff, Timestamp cutoff2) {
+      UUID companyId, UUID securityId, LocalDate start, LocalDate asOfDate, Timestamp cutoff, int recentDays, boolean strict) {
     return db.queryForList(
         """
         SELECT i.id,s.statement_type,i.item_code,i.value*s.unit_scale AS amount,s.currency,p.start_date,p.end_date,
-            p.period_type,s.report_scope,coalesce(s.published_at,s.created_at)::text AS available_at,
+            p.period_type,s.report_scope,t.available_at::text AS available_at,t.availability_source,
             s.period_basis,s.metadata_provenance::text
         FROM financial_statement_items i JOIN financial_statements s ON s.id=i.financial_statement_id
         JOIN financial_periods p ON p.id=s.financial_period_id
+        CROSS JOIN (SELECT ?::int AS recent_days) cfg
+        CROSS JOIN LATERAL (
+          SELECT CASE WHEN s.published_at IS NOT NULL THEN s.published_at
+                      WHEN (s.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date - p.end_date <= cfg.recent_days THEN s.created_at
+                      ELSE p.end_date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' END AS available_at,
+                 CASE WHEN s.published_at IS NOT NULL THEN 'PUBLISHED_AT'
+                      WHEN (s.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date - p.end_date <= cfg.recent_days THEN 'CREATED_AT'
+                      ELSE 'PERIOD_END' END AS availability_source
+        ) t
         WHERE s.company_id=? AND s.security_id=? AND s.is_current AND s.is_canonical
             AND s.currency='VND' AND s.unit_scale>0 AND i.unit='VND' AND i.value IS NOT NULL
-            AND p.end_date BETWEEN ? AND ? AND coalesce(s.published_at,s.created_at)<?
-            AND i.created_at<? AND p.period_type IN ('Q1','Q2','Q3','Q4')
+            AND p.end_date BETWEEN ? AND ? AND t.available_at<?
+            AND (NOT ? OR (s.published_at IS NOT NULL AND s.created_at<? AND i.created_at<?))
+            AND p.period_type IN ('Q1','Q2','Q3','Q4')
             AND ((s.statement_type='INCOME_STATEMENT' AND i.item_code IN ('NET_PROFIT_AFTER_TAX','PRETAX_PROFIT'))
                 OR (s.statement_type='BALANCE_SHEET' AND i.item_code IN ('TOTAL_ASSETS','OWNERS_EQUITY',
                     'LIABILITIES','CURRENT_ASSETS','SHORT_TERM_LIABILITIES','CASH_AND_CASH_EQUIVALENTS'))
@@ -44,7 +54,7 @@ public class ForecastContextQueryRepository {
                     'NET_CASHFLOW_FROM_INVESTING_ACTIVITIES','NET_CASHFLOW_FROM_FINANCING_ACTIVITIES')))
         ORDER BY p.end_date,s.statement_type,i.item_code,i.id
         """,
-        companyId, securityId, start, asOfDate, cutoff, cutoff2);
+        recentDays, companyId, securityId, start, asOfDate, cutoff, strict, cutoff, cutoff);
   }
 
   public List<Map<String, Object>> findMarketPriceSourcePoints(UUID securityId, Timestamp cutoff) {

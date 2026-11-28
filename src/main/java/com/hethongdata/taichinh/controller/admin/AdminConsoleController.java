@@ -51,6 +51,12 @@ public class AdminConsoleController {
   @PostMapping("/commands") public ResponseEntity<Command> submit(@RequestBody CommandRequest body) {
     return ResponseEntity.accepted().body(commands.submit(body));
   }
+  @GetMapping("/commands/ai")
+  public HistoryPage<AiCommandSummary> aiCommands(@RequestParam(defaultValue="0") int page,
+      @RequestParam(defaultValue="10") int size) {
+    if (page < 0 || size < 1 || size > 500) throw new IllegalArgumentException("Invalid AI history page");
+    return commands.aiHistory(page, size);
+  }
   @GetMapping("/commands/{id}") public Command command(@PathVariable UUID id) { return commands.find(id); }
   @PostMapping("/commands/{id}/acknowledge") public Command acknowledge(@PathVariable UUID id,@RequestBody ReasonRequest body) {
     return commands.acknowledge(id,body.reason());

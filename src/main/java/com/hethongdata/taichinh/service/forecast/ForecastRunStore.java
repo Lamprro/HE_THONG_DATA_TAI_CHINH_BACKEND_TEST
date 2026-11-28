@@ -294,12 +294,17 @@ public class ForecastRunStore {
         (Integer) r.get("latency_ms"),
         Objects.toString(r.get("error_message"), null),
         ((java.sql.Timestamp) r.get("created_at")).toInstant(),
-        json.read(r.get("request_payload").toString()),
+        r.get("request_payload") == null ? null : json.read(r.get("request_payload").toString()),
         r.get("response_payload") == null ? null : json.read(r.get("response_payload").toString()),
         attempts,
         audit,
         errors,
         (UUID) r.get("validation_round_id"));
+  }
+
+  public JsonNode retryRequest(UUID run) {
+    return repo.findRetryRequest(run, ForecastPromptService.TASK).map(json::read)
+        .orElseThrow(() -> new IllegalArgumentException("Lượt dự báo này không còn đủ điều kiện chạy lại."));
   }
 
   public List<Result> results(UUID security, int limit) {

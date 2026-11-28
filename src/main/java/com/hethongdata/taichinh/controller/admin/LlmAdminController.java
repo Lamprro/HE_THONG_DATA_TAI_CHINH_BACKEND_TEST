@@ -1,6 +1,8 @@
 package com.hethongdata.taichinh.controller.admin;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.HistoryPage;
+import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.LlmRunSummary;
 import com.hethongdata.taichinh.service.llm.*;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
@@ -50,6 +52,14 @@ public class LlmAdminController {
     public LlmRunStore.Outcome executeTask(@PathVariable UUID articleId,@PathVariable String task) {return service.execute(articleId,task);}
     @GetMapping("/api/admin/llm/news/{articleId}/results")
     public List<JsonNode> results(@PathVariable UUID articleId) {return store.results(articleId);}
+    @GetMapping("/api/admin/llm/runs")
+    public HistoryPage<LlmRunSummary> runs(@RequestParam(defaultValue="") String task,
+            @RequestParam(defaultValue="") String status, @RequestParam(defaultValue="") String search,
+            @RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="10") int size) {
+        if (page < 0 || size < 1 || size > 500 || search.length() > 160)
+            throw new IllegalArgumentException("Invalid LLM history filters");
+        return store.history(task.trim(), status.trim(), search.trim(), page, size);
+    }
     @GetMapping("/api/admin/llm/runs/{runId}")
     public JsonNode run(@PathVariable UUID runId) {return store.run(runId);}
     @PostMapping("/api/admin/llm/runs/{runId}/revalidate")

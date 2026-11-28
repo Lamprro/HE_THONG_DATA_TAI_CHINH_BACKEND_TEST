@@ -1,6 +1,8 @@
 package com.hethongdata.taichinh.repository.jdbc.llm;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.HistoryPage;
+import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.LlmRunSummary;
 import com.hethongdata.taichinh.service.llm.LlmGateway;
 import com.hethongdata.taichinh.service.llm.LlmJson;
 import com.hethongdata.taichinh.service.llm.LlmPromptCatalog;
@@ -14,6 +16,33 @@ public class LlmRunJdbcRepository {
 
   public LlmRunJdbcRepository(JdbcTemplate db) {
     this.db = db;
+  }
+
+  public HistoryPage<LlmRunSummary> history(String task, String status, String search, int page, int size) {
+    String from = """
+        FROM llm_runs r LEFT JOIN securities s ON s.id=r.security_id
+        LEFT JOIN news_articles a ON a.id=r.news_article_id
+        WHERE r.task_code IS NOT NULL AND (?='' OR r.task_code=?) AND (?='' OR r.status=?)
+          AND (?='' OR strpos(lower(concat_ws(' ', r.id::text, s.symbol, a.title)), lower(?))>0)
+        """;
+    var total = db.queryForObject("SELECT count(*) " + from, Long.class, task, task, status, status, search, search);
+    var rows = db.query("""
+        SELECT r.id,r.task_code,r.status,s.symbol,r.news_article_id,a.title,r.provider,r.model_name,
+               r.prompt_version,r.http_status,r.error_message,r.created_at,r.finished_at,
+               coalesce(jsonb_array_length(r.attempts),0) AS attempt_count,
+               r.status IN ('FAILED','REJECTED') AND (
+                 (r.task_code='FINANCIAL_SCENARIOS' AND coalesce(jsonb_typeof(r.request_metadata->'forecast_request')='object',false))
+                 OR (r.task_code IN ('NEWS_SUMMARY','NEWS_DETAIL','NEWS_FINANCIAL_FACTS') AND r.news_article_id IS NOT NULL)
+               ) AS retryable
+        """ + from + " ORDER BY r.created_at DESC,r.id DESC LIMIT ? OFFSET ?", (rs, row) ->
+        new LlmRunSummary(rs.getObject("id", UUID.class), rs.getString("task_code"), rs.getString("status"),
+            rs.getString("symbol"), rs.getObject("news_article_id", UUID.class), rs.getString("title"),
+            rs.getString("provider"), rs.getString("model_name"), rs.getString("prompt_version"),
+            rs.getObject("http_status", Integer.class), rs.getInt("attempt_count"), rs.getString("error_message"),
+            rs.getTimestamp("created_at").toInstant(),
+            Optional.ofNullable(rs.getTimestamp("finished_at")).map(java.sql.Timestamp::toInstant).orElse(null),
+            rs.getBoolean("retryable")), task, task, status, status, search, search, size, (long) page * size);
+    return new HistoryPage<>(rows, total == null ? 0 : total);
   }
 
   public void lock(UUID article, String task) {

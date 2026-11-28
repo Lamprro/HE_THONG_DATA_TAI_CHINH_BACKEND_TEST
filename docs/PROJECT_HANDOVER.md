@@ -1,3 +1,9 @@
+# 28/11/2026 — Lịch sử vận hành LLM
+
+- `GET /api/admin/llm/runs` phân trang lượt mô hình, lọc theo tác vụ, trạng thái và tìm theo mã, tiêu đề hoặc ID. Chi tiết dùng API lượt chạy có sẵn, gồm attempts và validation. `GET /api/admin/console/commands/ai` liệt kê lệnh AI, kể cả preview và lệnh dừng trước khi tạo lượt mô hình. Hai API yêu cầu quyền Admin và dùng schema sẵn có.
+- `FORECAST_RETRY` đọc lại yêu cầu của lượt dự báo thất bại hoặc bị từ chối, đi qua hàng đợi, khóa và kiểm tra thông thường. Kiểm tra lại phản hồi dùng validation của lượt cũ. Preview đủ điều kiện có thể mở lại biểu mẫu để xác nhận chạy.
+- Kiểm tra chỉ đọc trên DB nghiệp vụ xác nhận preview dự báo gần nhất có `eligible=true` và không có `runId`. Bộ kiểm thử Java chuẩn CI và ca PostgreSQL cô lập kiểm tra lịch sử, phân trang, đếm attempts và điều kiện chạy lại. Ca UI dùng API giả lập. Chưa gửi yêu cầu mới tới Gemini.
+
 # 28/11/2026 — Thông báo khi gọi lại build đã hoàn tất
 
 - Giữ HTTP 400 và khóa job hiện có. Khi chọn đúng domain và version đã `ACTIVATED`, API báo “Phiên bản này đã được ghi vào bảng đích.” trước khi tạo lượt build mới. Các version sai domain hoặc chưa sẵn sàng vẫn bị từ chối.

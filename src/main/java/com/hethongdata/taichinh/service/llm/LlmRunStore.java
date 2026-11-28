@@ -1,6 +1,8 @@
 package com.hethongdata.taichinh.service.llm;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.HistoryPage;
+import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.LlmRunSummary;
 import com.hethongdata.taichinh.repository.jdbc.llm.LlmRunJdbcRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -177,6 +179,10 @@ public class LlmRunStore {
         lock(article,"NEWS_FINANCIAL_FACTS");
         repo.retireResults(article,"NEWS_FINANCIAL_FACTS");
     }
+    public HistoryPage<LlmRunSummary> history(String task, String status, String search, int page, int size) {
+        return repo.history(task, status, search, page, size);
+    }
+
     public JsonNode run(UUID run) {
         var raw=repo.findRunJson(run).orElseThrow(()->new IllegalArgumentException("Run not found"));
         var result=json.read(raw);

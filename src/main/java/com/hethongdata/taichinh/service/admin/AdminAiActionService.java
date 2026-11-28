@@ -15,7 +15,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class AdminAiActionService {
   public static final Set<String> ACTIONS=Set.of("NEWS_EXECUTE","NEWS_REVALIDATE","NEWS_VALIDATE_PENDING",
-      "FORECAST_PREVIEW","FORECAST_EXECUTE","FORECAST_METRICS","FORECAST_REVALIDATE","FORECAST_VALIDATE_PENDING",
+      "FORECAST_PREVIEW","FORECAST_EXECUTE","FORECAST_METRICS","FORECAST_RETRY","FORECAST_REVALIDATE","FORECAST_VALIDATE_PENDING",
       "RECOVERY_EXECUTE","RECOVERY_APPROVE","RECOVERY_REJECT","RECOVERY_ANALYZE","HISTORICAL_METRICS");
   private final NewsLlmService news; private final LlmRunStore newsRuns;
   private final FinancialForecastService forecast; private final ForecastContextService forecastContexts; private final ForecastRunStore forecastRuns;
@@ -35,7 +35,8 @@ public class AdminAiActionService {
   }
   public String resource(String action,JsonNode in) {
     if(!ACTIONS.contains(action)) throw new IllegalArgumentException("Unsupported AI/admin action");
-    if(action.startsWith("FORECAST_") && !action.endsWith("REVALIDATE") && !action.endsWith("PENDING")) {
+    if(Set.of("FORECAST_PREVIEW","FORECAST_EXECUTE","FORECAST_METRICS","FORECAST_RETRY").contains(action)) {
+      if ("FORECAST_RETRY".equals(action)) in = forecastRuns.retryRequest(id(in,"runId"));
       var request=body(in,ForecastRequest.class);return "forecast:"+request.securityId();
     }
     if(action.equals("HISTORICAL_METRICS")) { var request=body(in,HistoricalFinancialMetricService.Request.class);
@@ -57,6 +58,7 @@ public class AdminAiActionService {
       case "NEWS_VALIDATE_PENDING" -> news.validatePending(in.path("limit").asInt(5));
       case "FORECAST_PREVIEW" -> forecast.preview(body(in,ForecastRequest.class));
       case "FORECAST_EXECUTE" -> forecast.execute(body(in,ForecastRequest.class));
+      case "FORECAST_RETRY" -> forecast.execute(body(forecastRuns.retryRequest(id(in,"runId")), ForecastRequest.class));
       case "FORECAST_METRICS" -> forecastContexts.recalculate(body(in,ForecastRequest.class));
       case "FORECAST_REVALIDATE" -> forecastRuns.validate(id(in,"runId"));
       case "FORECAST_VALIDATE_PENDING" -> forecast.pending(in.path("limit").asInt(5));

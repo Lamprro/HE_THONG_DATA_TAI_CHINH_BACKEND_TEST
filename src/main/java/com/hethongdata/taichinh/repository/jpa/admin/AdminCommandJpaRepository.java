@@ -4,6 +4,9 @@ import com.hethongdata.taichinh.entity.admin.AdminCommandEntity;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.time.Instant;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -11,6 +14,29 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 public interface AdminCommandJpaRepository extends JpaRepository<AdminCommandEntity, UUID> {
+    interface AiHistoryRow {
+        UUID getId();
+        String getAction();
+        String getResourceKey();
+        String getStatus();
+        String getOutcome();
+        String getErrorMessage();
+        Instant getCreatedAt();
+    }
+
+    @Query(value = """
+        SELECT id,action,resource_key AS "resourceKey",status,error_message AS "errorMessage",
+               created_at AS "createdAt",
+               CASE result_json->>'eligible'
+                 WHEN 'true' THEN 'READY_FOR_EXECUTION'
+                 WHEN 'false' THEN 'INPUT_NOT_ELIGIBLE'
+                 ELSE result_json->>'status'
+               END AS outcome
+        FROM admin_commands WHERE action IN (:actions)
+        ORDER BY created_at DESC,id DESC
+        """, countQuery = "SELECT count(*) FROM admin_commands WHERE action IN (:actions)", nativeQuery = true)
+    Page<AiHistoryRow> findAiHistory(Set<String> actions, Pageable pageable);
+
     interface PreviousCommand {
         UUID getId();
         UUID getParentCommandId();

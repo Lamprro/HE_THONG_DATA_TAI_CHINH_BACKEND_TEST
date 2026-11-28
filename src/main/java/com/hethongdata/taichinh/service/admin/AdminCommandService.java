@@ -3,8 +3,10 @@ package com.hethongdata.taichinh.service.admin;
 import static com.hethongdata.taichinh.security.SecurityConfiguration.currentActor;
 
 import com.fasterxml.jackson.databind.*;
+import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.AiCommandSummary;
 import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.Command;
 import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.CommandRequest;
+import com.hethongdata.taichinh.dto.admin.AdminConsoleDtos.HistoryPage;
 import com.hethongdata.taichinh.dto.ingestion.ManualIngestionRequest;
 import com.hethongdata.taichinh.repository.jpa.admin.AdminCommandJpaRepository;
 import com.hethongdata.taichinh.service.ingestion.*;
@@ -16,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.*;
 import java.util.concurrent.*;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -165,6 +168,14 @@ public class AdminCommandService {
     if (text == null) return null;
     try { return AdminConsoleReadService.safe(json.readTree(text)); }
     catch (Exception e) { return json.getNodeFactory().textNode("Invalid stored JSON"); }
+  }
+
+  public HistoryPage<AiCommandSummary> aiHistory(int page, int size) {
+    var records = repository.findAiHistory(AdminAiActionService.ACTIONS, PageRequest.of(page, size));
+    return new HistoryPage<>(records.map(row ->
+        new AiCommandSummary(row.getId(), row.getAction(),
+            row.getResourceKey(), row.getStatus(), row.getOutcome(), row.getErrorMessage(), row.getCreatedAt())).getContent(),
+        records.getTotalElements());
   }
 
   public Command acknowledge(UUID id,String note) {

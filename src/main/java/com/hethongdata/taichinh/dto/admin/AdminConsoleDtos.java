@@ -21,6 +21,15 @@ public final class AdminConsoleDtos {
 
     public record CommandRequest(UUID idempotencyKey, String action, String reason, JsonNode input) {}
 
+    public record HistoryPage<T>(List<T> content, long totalElements) {}
+
+    public record LlmRunSummary(UUID id, String taskCode, String status, String symbol, UUID newsArticleId,
+            String articleTitle, String provider, String modelName, String promptVersion, Integer httpStatus,
+            int attemptCount, String errorMessage, Instant createdAt, Instant finishedAt, boolean retryable) {}
+
+    public record AiCommandSummary(UUID id, String action, String resourceKey, String status,
+            String outcome, String errorMessage, Instant createdAt) {}
+
     public record ReasonRequest(String reason) {}
 
     public record RetryRequest(UUID idempotencyKey, String reason, boolean reviewed) {}

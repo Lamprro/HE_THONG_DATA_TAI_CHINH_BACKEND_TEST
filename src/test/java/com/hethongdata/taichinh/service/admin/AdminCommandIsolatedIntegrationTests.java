@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hethongdata.taichinh.dto.ingestion.IngestionExecutionResponse;
+import com.hethongdata.taichinh.repository.jdbc.forecast.ForecastRunJdbcRepository;
+import com.hethongdata.taichinh.repository.jdbc.llm.LlmRunJdbcRepository;
 import com.hethongdata.taichinh.service.ingestion.*;
 import com.hethongdata.taichinh.service.validation.ValidationJobService;
 import com.hethongdata.taichinh.repository.jpa.admin.*;
@@ -109,6 +111,59 @@ class AdminCommandIsolatedIntegrationTests {
         Validation.buildDefaultValidatorFactory().getValidator(),transactions,mock(AdminPipelineService.class),mock(AdminAiActionService.class));
   }
   @AfterEach void stop() { if (service != null) service.stop(); }
+
+  @Test void aiHistoryKeepsPreviewsSeparateFromModelRuns() {
+    var preview = UUID.randomUUID();
+    var ingestion = UUID.randomUUID();
+    db.update("""
+        INSERT INTO admin_commands(id,idempotency_key,request_hash,action,resource_key,reason,status,request_json,result_json,principal)
+        VALUES (?,?,'history-preview','FORECAST_PREVIEW','forecast:FPT','test','SUCCEEDED','{}','{"eligible":true}','test'),
+               (?,?,'history-ingestion','RUN_JOB','job:FPT','test','SUCCEEDED','{}','{}','test')
+        """, preview, preview, ingestion, ingestion);
+    var history = service.aiHistory(0, 10);
+    assertThat(history.totalElements()).isEqualTo(1);
+    assertThat(history.content()).singleElement().satisfies(row -> {
+      assertThat(row.id()).isEqualTo(preview);
+      assertThat(row.outcome()).isEqualTo("READY_FOR_EXECUTION");
+      assertThat(row.createdAt()).isNotNull();
+    });
+    assertThat(service.aiHistory(1, 10).content()).isEmpty();
+  }
+
+  @Test void modelHistoryFiltersAndCountsAttemptsWithoutReadingPayloads() {
+    db.execute("""
+        CREATE TABLE llm_runs(id uuid PRIMARY KEY, task_code text, status text, security_id uuid,
+            news_article_id uuid, provider text, model_name text, prompt_version text, http_status integer,
+            error_message text, created_at timestamptz, finished_at timestamptz, attempts jsonb, request_metadata jsonb)
+        """);
+    try {
+      var security = UUID.randomUUID();
+      var run = UUID.randomUUID();
+      db.update("INSERT INTO securities VALUES (?,'FPT')", security);
+      db.update("""
+          INSERT INTO llm_runs (id,task_code,status,security_id,created_at,attempts,request_metadata)
+          VALUES (?,'FINANCIAL_SCENARIOS','FAILED',?,now(),'[{},{}]','{"forecast_request":{}}'),
+                 (?,'NEWS_SUMMARY','SUCCESS',NULL,now(),'[]','{}')
+          """, run, security, UUID.randomUUID());
+      var repository = new LlmRunJdbcRepository(db);
+      var history = repository.history("FINANCIAL_SCENARIOS", "FAILED", "fpt", 0, 10);
+      assertThat(history.totalElements()).isEqualTo(1);
+      assertThat(history.content()).singleElement().satisfies(row -> {
+        assertThat(row.id()).isEqualTo(run);
+        assertThat(row.attemptCount()).isEqualTo(2);
+        assertThat(row.retryable()).isTrue();
+      });
+      assertThat(repository.history("", "", "", 0, 1).totalElements()).isEqualTo(2);
+      var forecasts = new ForecastRunJdbcRepository(db);
+      assertThat(forecasts.findRetryRequest(run, "FINANCIAL_SCENARIOS")).contains("{}");
+      assertThat(forecasts.findRetryRequest(run, "NEWS_SUMMARY")).isEmpty();
+      db.update("UPDATE llm_runs SET status='SUCCESS' WHERE id=?", run);
+      assertThat(forecasts.findRetryRequest(run, "FINANCIAL_SCENARIOS")).isEmpty();
+    } finally {
+      db.execute("DROP TABLE llm_runs");
+    }
+  }
+
   CommandRequest request(UUID key,UUID job,String reason) {
     return new CommandRequest(key,"RUN_JOB",reason,json.createObjectNode().put("jobId",job.toString()));
   }

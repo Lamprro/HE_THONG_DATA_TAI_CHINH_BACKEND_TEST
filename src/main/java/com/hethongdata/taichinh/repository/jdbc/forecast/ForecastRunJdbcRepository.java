@@ -344,6 +344,14 @@ public class ForecastRunJdbcRepository {
         "SELECT request_metadata::text FROM llm_runs WHERE id=?", String.class, run);
   }
 
+  public Optional<String> findRetryRequest(UUID run, String task) {
+    return db.query("""
+        SELECT (request_metadata->'forecast_request')::text FROM llm_runs
+        WHERE id=? AND task_code=? AND status IN ('FAILED','REJECTED')
+          AND jsonb_typeof(request_metadata->'forecast_request')='object'
+        """, (rs, row) -> rs.getString(1), run, task).stream().findFirst();
+  }
+
   public List<UUID> findPendingRuns(String task, int limit) {
     return db.queryForList(
         "SELECT id FROM llm_runs WHERE task_code=? AND status='PENDING_VALIDATION' ORDER BY"

@@ -49,6 +49,28 @@ public class LlmRunJdbcRepository {
     db.queryForList("SELECT pg_advisory_xact_lock(hashtextextended(?,0))", article + ":" + task);
   }
 
+  public List<String> findWrittenResults(UUID run) {
+    return db.query("""
+        SELECT row_to_json(result)::text FROM (
+          SELECT id, task_code, source_domain, quality_status, is_current, created_at, overview, result_json,
+                 to_jsonb(r)->'as_of_date' AS as_of_date, to_jsonb(r)->'forecast_period_start' AS forecast_period_start,
+                 to_jsonb(r)->'forecast_period_end' AS forecast_period_end, to_jsonb(r)->'target_scope' AS target_scope
+          FROM llm_results r WHERE llm_run_id=? ORDER BY created_at DESC,id DESC
+        ) result
+        """, (rs, row) -> rs.getString(1), run);
+  }
+
+  public Optional<String> findRecoveredArticle(UUID run) {
+    return db.query("""
+        SELECT row_to_json(article)::text FROM (
+          SELECT a.id, a.title, a.published_at, a.updated_at, a.content_text
+          FROM news_articles a JOIN llm_runs r ON r.news_article_id=a.id
+          WHERE r.id=? AND r.task_code='NEWS_CONTENT_RECOVERY' AND r.status='SUCCESS'
+            AND a.metadata->>'recovery_run_id'=r.id::text
+        ) article
+        """, (rs, row) -> rs.getString(1), run).stream().findFirst();
+  }
+
   public List<Map<String, Object>> findCachedResult(UUID article, String task, String inputHash) {
     return db.queryForList(
         "SELECT id,llm_run_id FROM llm_results WHERE news_article_id=? AND task_code=? AND input_hash=? AND is_current",

@@ -120,14 +120,14 @@ class AdminCommandIsolatedIntegrationTests {
         VALUES (?,?,'history-preview','FORECAST_PREVIEW','forecast:FPT','test','SUCCEEDED','{}','{"eligible":true}','test'),
                (?,?,'history-ingestion','RUN_JOB','job:FPT','test','SUCCEEDED','{}','{}','test')
         """, preview, preview, ingestion, ingestion);
-    var history = service.aiHistory(0, 10);
+    var history = service.aiHistory(0, 10, "FORECAST_PREVIEW", "SUCCEEDED", "fpt");
     assertThat(history.totalElements()).isEqualTo(1);
     assertThat(history.content()).singleElement().satisfies(row -> {
       assertThat(row.id()).isEqualTo(preview);
       assertThat(row.outcome()).isEqualTo("READY_FOR_EXECUTION");
       assertThat(row.createdAt()).isNotNull();
     });
-    assertThat(service.aiHistory(1, 10).content()).isEmpty();
+    assertThat(service.aiHistory(1, 10, "", "", "").content()).isEmpty();
   }
 
   @Test void modelHistoryFiltersAndCountsAttemptsWithoutReadingPayloads() {
@@ -154,6 +154,21 @@ class AdminCommandIsolatedIntegrationTests {
         assertThat(row.retryable()).isTrue();
       });
       assertThat(repository.history("", "", "", 0, 1).totalElements()).isEqualTo(2);
+      db.execute("""
+          CREATE TABLE llm_results(id uuid PRIMARY KEY, llm_run_id uuid, task_code text, source_domain text,
+            quality_status text, is_current boolean, created_at timestamptz, overview text, result_json jsonb)
+          """);
+      try {
+        var output = UUID.randomUUID();
+        db.update("INSERT INTO llm_results VALUES (?,?,'FINANCIAL_SCENARIOS','FINANCIAL','VALID',false,now(),'Saved forecast','{}')",
+            output, run);
+        assertThat(repository.findWrittenResults(run)).singleElement().satisfies(saved -> {
+          assertThat(saved).contains(output.toString(), "Saved forecast");
+        });
+        assertThat(repository.findWrittenResults(UUID.randomUUID())).isEmpty();
+      } finally {
+        db.execute("DROP TABLE llm_results");
+      }
       var forecasts = new ForecastRunJdbcRepository(db);
       assertThat(forecasts.findRetryRequest(run, "FINANCIAL_SCENARIOS")).contains("{}");
       assertThat(forecasts.findRetryRequest(run, "NEWS_SUMMARY")).isEmpty();

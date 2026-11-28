@@ -14,6 +14,11 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 public interface AdminCommandJpaRepository extends JpaRepository<AdminCommandEntity, UUID> {
+    String AI_HISTORY_FILTER = """
+        FROM admin_commands WHERE action IN (:actions)
+          AND (:action='' OR action=:action) AND (:status='' OR status=:status)
+          AND (:search='' OR strpos(lower(concat_ws(' ', id::text, resource_key, reason)), lower(:search))>0)
+        """;
     interface AiHistoryRow {
         UUID getId();
         String getAction();
@@ -32,10 +37,9 @@ public interface AdminCommandJpaRepository extends JpaRepository<AdminCommandEnt
                  WHEN 'false' THEN 'INPUT_NOT_ELIGIBLE'
                  ELSE result_json->>'status'
                END AS outcome
-        FROM admin_commands WHERE action IN (:actions)
-        ORDER BY created_at DESC,id DESC
-        """, countQuery = "SELECT count(*) FROM admin_commands WHERE action IN (:actions)", nativeQuery = true)
-    Page<AiHistoryRow> findAiHistory(Set<String> actions, Pageable pageable);
+        """ + AI_HISTORY_FILTER + "ORDER BY created_at DESC,id DESC",
+        countQuery = "SELECT count(*) " + AI_HISTORY_FILTER, nativeQuery = true)
+    Page<AiHistoryRow> findAiHistory(Set<String> actions, String action, String status, String search, Pageable pageable);
 
     interface PreviousCommand {
         UUID getId();

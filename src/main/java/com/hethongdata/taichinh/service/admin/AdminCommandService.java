@@ -170,8 +170,8 @@ public class AdminCommandService {
     catch (Exception e) { return json.getNodeFactory().textNode("Invalid stored JSON"); }
   }
 
-  public HistoryPage<AiCommandSummary> aiHistory(int page, int size) {
-    var records = repository.findAiHistory(AdminAiActionService.ACTIONS, PageRequest.of(page, size));
+  public HistoryPage<AiCommandSummary> aiHistory(int page, int size, String action, String status, String search) {
+    var records = repository.findAiHistory(AdminAiActionService.ACTIONS, action, status, search, PageRequest.of(page, size));
     return new HistoryPage<>(records.map(row ->
         new AiCommandSummary(row.getId(), row.getAction(),
             row.getResourceKey(), row.getStatus(), row.getOutcome(), row.getErrorMessage(), row.getCreatedAt())).getContent(),

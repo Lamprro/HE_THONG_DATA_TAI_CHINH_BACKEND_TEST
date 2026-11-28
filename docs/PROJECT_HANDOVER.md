@@ -1,3 +1,10 @@
+# 28/11/2026 — Dữ liệu đã ghi và hiển thị kịch bản
+
+- Chi tiết lượt LLM trả kết quả đã ghi trong `llm_results` theo `llm_run_id`, kể cả bản lịch sử. Lượt khôi phục chỉ đính kèm bài viết khi metadata của bài còn trỏ về đúng lượt đã duyệt. Danh sách lệnh AI lọc theo tác vụ, trạng thái và nội dung tìm kiếm. Không cần migration.
+- Admin hiển thị đầu vào và lần gọi, kết quả kiểm tra, dữ liệu đã ghi. Danh sách LLM và bảng Admin dùng chung có vùng cuộn, tiêu đề bảng cố định và tên dòng mở chi tiết. Link từ tác vụ nền AI trỏ về chi tiết LLM.
+- Đối chiếu PostgreSQL chỉ đọc cho FPT xác nhận `forecasts` và `calculated_values` có đủ sáu chỉ tiêu ở kết quả hiện hành mới nhất. FE User đọc đúng hai trường, trình bày từng cảnh báo và dùng kỳ từ API. `targetScope` ở dữ liệu hiện hành là tập chỉ tiêu, không phải phạm vi hợp nhất/riêng lẻ.
+- Đã qua hai ca PostgreSQL cô lập về lịch sử và bản ghi đầu ra, ba bộ kiểm thử giao diện Admin với API giả lập, build Admin/User và 20 bài kiểm thử User. Chưa gọi lại Gemini.
+
 # 28/11/2026 — Lịch sử vận hành LLM
 
 - `GET /api/admin/llm/runs` phân trang lượt mô hình, lọc theo tác vụ, trạng thái và tìm theo mã, tiêu đề hoặc ID. Chi tiết dùng API lượt chạy có sẵn, gồm attempts và validation. `GET /api/admin/console/commands/ai` liệt kê lệnh AI, kể cả preview và lệnh dừng trước khi tạo lượt mô hình. Hai API yêu cầu quyền Admin và dùng schema sẵn có.

@@ -191,6 +191,10 @@ public class LlmRunStore {
         var validationsList=new ArrayList<JsonNode>();
         for(String v:repo.findValidationResultsJson(run)) validationsList.add(json.read(v));
         ((com.fasterxml.jackson.databind.node.ObjectNode)result).set("validations",json.mapper().valueToTree(validationsList));
+        var detail = (com.fasterxml.jackson.databind.node.ObjectNode) result;
+        detail.set("written_results", json.mapper().valueToTree(repo.findWrittenResults(run).stream().map(json::read).toList()));
+        if ("NEWS_CONTENT_RECOVERY".equals(result.path("task_code").asText()))
+            repo.findRecoveredArticle(run).ifPresent(article -> detail.set("written_article", json.read(article)));
         return result;
     }
     @Transactional

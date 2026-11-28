@@ -61,11 +61,10 @@ public class UserNewsService {
     for (JsonNode result : newsResults.results(id)) {
       if (!Set.of("VALID", "WARNING").contains(result.path("quality_status").asText())) continue;
       var row = new LinkedHashMap<String,Object>();
-      row.put("id", result.path("id").asText());
       row.put("task", result.path("task_code").asText());
       row.put("qualityStatus", result.path("quality_status").asText());
       row.put("createdAt", result.path("created_at").asText());
-      row.put("data", read.publicJson(result.path("data")));
+      row.put("data", read.publicAiJson(result.path("data")));
       results.add(row);
     }
     return data(List.copyOf(results),
@@ -82,16 +81,14 @@ public class UserNewsService {
     for (var result : forecasts.results(id, limit)) {
       if (!Set.of("VALID", "WARNING").contains(result.qualityStatus())) continue;
       var row = new LinkedHashMap<String,Object>();
-      row.put("id", result.id());
       row.put("symbol", security.get("symbol"));
       row.put("exchange", security.get("exchange"));
-      row.put("securityId", id);
       row.put("asOfDate", result.asOfDate());
       row.put("forecastPeriodStart", result.forecastPeriodStart());
       row.put("forecastPeriodEnd", result.forecastPeriodEnd());
       row.put("targetScope", result.targetScope());
       row.put("qualityStatus", result.qualityStatus());
-      row.put("data", read.publicJson(result.data()));
+      row.put("data", read.publicAiJson(result.data()));
       results.add(row);
     }
     return data(List.copyOf(results),

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.*;
 import com.hethongdata.taichinh.repository.jdbc.user.UserReadJdbcRepository;
 import java.time.*;
 import java.util.*;
+import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
 /** Explicit public projections only. Never accepts a table, SQL fragment or sort from a caller. */
@@ -17,6 +18,12 @@ public class UserReadSupport {
     public Instant until() { return to.plusDays(1).atStartOfDay(ZONE).toInstant(); }
   }
   public static final ZoneId ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
+  private static final Pattern UUID_TEXT =
+      Pattern.compile("(?i)\\b(?:[a-z][a-z0-9_-]*:\\s*)?[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\\b");
+  private static final Pattern SOURCE_REFERENCE =
+      Pattern.compile("(?i)\\b(?:FSI|PRICE|METRIC|MACRO):\\s*\\d+\\b");
+  private static final Pattern ID_FIELD =
+      Pattern.compile("(?:^|_)(?:id|ids|uuid|uuids)$", Pattern.CASE_INSENSITIVE);
 
   private final UserReadJdbcRepository repo;
   private final ObjectMapper json;
@@ -91,16 +98,26 @@ public class UserReadSupport {
     return new Window(start, end);
   }
 
-  public JsonNode publicJson(JsonNode node) {
+  public JsonNode publicAiJson(JsonNode node) {
     if (node.isNumber()) return json.getNodeFactory().textNode(node.asText());
+    if (node.isTextual()) {
+      String value = UUID_TEXT.matcher(node.asText()).replaceAll("dữ liệu nguồn");
+      return json.getNodeFactory().textNode(SOURCE_REFERENCE.matcher(value).replaceAll("dữ liệu nguồn")
+          .replaceAll("dữ liệu nguồn(?:(?:,\\s*|\\s+(?:và|and)\\s+)dữ liệu nguồn)+", "dữ liệu nguồn"));
+    }
     if (node.isObject()) {
       var out = json.createObjectNode();
-      node.fields().forEachRemaining(e -> out.set(e.getKey(), publicJson(e.getValue())));
+      node.fields().forEachRemaining(e -> {
+        String field = e.getKey().replaceAll("([a-z0-9])([A-Z])", "$1_$2");
+        if (!ID_FIELD.matcher(field).find()
+            && !UUID_TEXT.matcher(e.getKey()).find() && !SOURCE_REFERENCE.matcher(e.getKey()).find())
+          out.set(e.getKey(), publicAiJson(e.getValue()));
+      });
       return out;
     }
     if (node.isArray()) {
       var out = json.createArrayNode();
-      node.forEach(n -> out.add(publicJson(n)));
+      node.forEach(n -> out.add(publicAiJson(n)));
       return out;
     }
     return node.deepCopy();

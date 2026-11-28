@@ -1,3 +1,10 @@
+# 28/11/2026 — Bỏ mã truy vết khỏi kết quả AI công khai
+
+- API kịch bản tài chính và phân tích tin bỏ ID kết quả, ID chứng khoán trong kịch bản và các trường ID lồng trong JSON AI. Tham chiếu UUID hoặc mã nguồn như `FSI:`, `PRICE:`, `METRIC:`, `MACRO:` trong văn bản được thay bằng mô tả chung. Số thập phân vẫn trả dưới dạng chuỗi.
+- Bộ kiểm tra nguồn, attempts, kết quả validation và mã truy vết Admin tiếp tục dùng dữ liệu đã lưu. Không cần migration. FE User cũng lọc tham chiếu từ phản hồi của các bản Java cũ.
+- FE User nhóm theo từng chỉ tiêu, đặt ba giá trị cạnh nhau trên màn hình rộng và xuống hàng trên điện thoại. Lý giải mở riêng bên dưới từng giá trị.
+- Build User và 21 bài kiểm thử FE đạt. Chín bài kiểm thử Java của API User đạt, gồm dữ liệu mẫu chứa UUID và mã nguồn trong lý giải, và kiểm tra số lớn giữ nguyên.
+
 # 28/11/2026 — Dữ liệu đã ghi và hiển thị kịch bản
 
 - Chi tiết lượt LLM trả kết quả đã ghi trong `llm_results` theo `llm_run_id`, kể cả bản lịch sử. Lượt khôi phục chỉ đính kèm bài viết khi metadata của bài còn trỏ về đúng lượt đã duyệt. Danh sách lệnh AI lọc theo tác vụ, trạng thái và nội dung tìm kiếm. Không cần migration.

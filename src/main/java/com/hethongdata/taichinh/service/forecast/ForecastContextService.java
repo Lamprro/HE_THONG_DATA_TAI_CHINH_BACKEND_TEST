@@ -44,6 +44,8 @@ public class ForecastContextService {
   private final FinancialRatioCalculator calculator;
   private final MarketPricePayloadParser priceParser;
   private final int yearlyMonths, quarterlyMonths, monthlyMonths, dailyDays;
+  private final int recentStatementDays;
+  private final boolean strictStatementDates;
 
   public ForecastContextService(
       ForecastContextQueryRepository repo,
@@ -54,7 +56,12 @@ public class ForecastContextService {
       @Value("${financial.forecast.macro.max-age.yearly-months:24}") int yearlyMonths,
       @Value("${financial.forecast.macro.max-age.quarterly-months:9}") int quarterlyMonths,
       @Value("${financial.forecast.macro.max-age.monthly-months:4}") int monthlyMonths,
-      @Value("${financial.forecast.macro.max-age.daily-days:15}") int dailyDays) {
+      @Value("${financial.forecast.macro.max-age.daily-days:15}") int dailyDays,
+      @Value("${financial.forecast.statement.recent-days:90}") int recentStatementDays,
+      @Value("${financial.forecast.statement.strict-publication:false}") boolean strictStatementDates) {
+    if (recentStatementDays < 1) throw new IllegalArgumentException("Statement recent-days must be positive");
+    this.recentStatementDays = recentStatementDays;
+    this.strictStatementDates = strictStatementDates;
     if (yearlyMonths < 1 || quarterlyMonths < 1 || monthlyMonths < 1 || dailyDays < 1)
       throw new IllegalArgumentException("Macro freshness thresholds must be positive");
     this.repo = repo;
@@ -89,7 +96,7 @@ public class ForecastContextService {
     LocalDate start = request.asOfDate().minusYears(5);
     LocalDate targetDate = resolveTargetDate(request.asOfDate(), request.horizonQuarters(), request.forecastPeriodEnd());
     var rawStatementItems = repo.findStatementItemSourcePoints(
-        company, request.securityId(), start, request.asOfDate(), cutoff, cutoff);
+        company, request.securityId(), start, request.asOfDate(), cutoff, recentStatementDays, strictStatementDates);
     var points = new ArrayList<SourcePoint>();
     for (var r : rawStatementItems) {
       String id = r.get("id").toString();
@@ -106,15 +113,19 @@ public class ForecastContextService {
       String availableAt = (String) r.get("available_at");
       String periodBasis = (String) r.get("period_basis");
       JsonNode metadataProvenance = r.get("metadata_provenance") == null ? null : json.read((String) r.get("metadata_provenance"));
+      var provenance = metadataProvenance != null && metadataProvenance.isObject()
+          ? (com.fasterxml.jackson.databind.node.ObjectNode) metadataProvenance.deepCopy()
+          : json.mapper().createObjectNode();
+      provenance.put("forecastAvailabilitySource", (String) r.get("availability_source"));
       points.add(new SourcePoint(
           "FSI:" + id, statementType, itemCode, amount, currency, startDate, endDate,
-          periodType, reportScope, availableAt, periodBasis, metadataProvenance));
+          periodType, reportScope, availableAt, periodBasis, provenance));
     }
     var limitations = new ArrayList<String>();
     var issues = new ArrayList<String>();
-    limitations.add(
-        "Published dates missing: ingestion time is used conservatively; this is not a verified"
-            + " point-in-time backtest dataset.");
+    if (!strictStatementDates) limitations.add(
+        "Statements use current canonical data. Missing publication dates use ingestion time for recent periods"
+            + " or fiscal period end for older periods; this is not a point-in-time backtest dataset.");
     if (points.stream().anyMatch(p -> "UNKNOWN".equals(p.scope())))
       limitations.add("Report scope UNKNOWN: consolidation cannot be assumed.");
     if (points.stream().filter(p->"INCOME_STATEMENT".equals(p.domain()))
@@ -466,7 +477,7 @@ public class ForecastContextService {
         || !provider.equals(body.path("provider").asText())
         || !"OHLCV".equals(row.get("entity_type"))) return null;
     if ("market_price.v1".equals(body.path("schema_version").asText())
-        && !"VND".equals(body.path("price_unit").asText())) return null;
+        && !MarketPricePayloadParser.hasVndUnit(body)) return null;
     Instant fetched = ((java.sql.Timestamp) row.get("fetched_at")).toInstant();
     var batch =
         priceParser.parse(body, "OHLCV", Objects.toString(row.get("source_symbol"), symbol), fetched);

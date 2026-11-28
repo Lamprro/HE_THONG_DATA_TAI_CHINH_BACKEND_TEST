@@ -106,7 +106,7 @@ public class MarketPriceWorkflowPersistenceService {
                             row.close(), row.adjustedClose(), row.referencePrice(),
                             row.ceilingPrice(), row.floorPrice(), row.volume(), row.tradingValue(),
                             row.foreignBuyVolume(), row.foreignSellVolume(), raw.getId(), versionId)) {
-                        existing.get().annotatePriceSource(raw.getPayload().path("provider").asText(), raw.getFetchedAt());
+                        annotateSource(existing.get(), raw);
                         prices.saveAndFlush(existing.get());
                         updated++;
                     } else {
@@ -119,7 +119,7 @@ public class MarketPriceWorkflowPersistenceService {
                             row.floorPrice(), row.volume(), row.tradingValue(),
                             row.foreignBuyVolume(), row.foreignSellVolume(),
                             raw.getDataSource().getId(), raw.getId(), versionId);
-                    created.annotatePriceSource(raw.getPayload().path("provider").asText(), raw.getFetchedAt());
+                    annotateSource(created, raw);
                     prices.saveAndFlush(created);
                     inserted++;
                 }
@@ -210,7 +210,7 @@ public class MarketPriceWorkflowPersistenceService {
                 var created=MarketPriceEntity.create(securityId,row.timestamp(),row.interval(),row.open(),row.high(),row.low(),
                         row.close(),row.adjustedClose(),row.referencePrice(),row.ceilingPrice(),row.floorPrice(),row.volume(),
                         row.tradingValue(),row.foreignBuyVolume(),row.foreignSellVolume(),raw.getDataSource().getId(),raw.getId(),versionId);
-                created.annotatePriceSource(raw.getPayload().path("provider").asText(), raw.getFetchedAt());
+                annotateSource(created, raw);
                 // A new empty bucket has no canonical row to displace; one INSERT is sufficient.
                 if (bucket.isEmpty()) created.setCanonical(true);
                 bucket.add(prices.saveAndFlush(created));inserted++;
@@ -222,7 +222,7 @@ public class MarketPriceWorkflowPersistenceService {
                 else if (existing.applyCorrection(row.open(),row.high(),row.low(),row.close(),row.adjustedClose(),
                         row.referencePrice(),row.ceilingPrice(),row.floorPrice(),row.volume(),row.tradingValue(),
                         row.foreignBuyVolume(),row.foreignSellVolume(),raw.getId(),versionId)) {
-                    existing.annotatePriceSource(raw.getPayload().path("provider").asText(), raw.getFetchedAt());
+                    annotateSource(existing, raw);
                     prices.saveAndFlush(existing);updated++;
                 } else skipped++;
             }
@@ -271,7 +271,7 @@ public class MarketPriceWorkflowPersistenceService {
                     row.low(), row.close(), row.adjustedClose(), row.referencePrice(), row.ceilingPrice(), row.floorPrice(),
                     row.volume(), row.tradingValue(), row.foreignBuyVolume(), row.foreignSellVolume(),
                     raw.getDataSource().getId(), raw.getId(), versionId);
-            price.annotatePriceSource(raw.getPayload().path("provider").asText(), raw.getFetchedAt());
+            annotateSource(price, raw);
             price.setCanonical(true);
             created.add(price);
         }
@@ -301,4 +301,14 @@ public class MarketPriceWorkflowPersistenceService {
     private boolean isMarketPriceType(String value) {
         return "QUOTE".equalsIgnoreCase(value) || "OHLCV".equalsIgnoreCase(value);
     }
+    private void annotateSource(MarketPriceEntity price, RawPayloadEntity raw) {
+        var payload = raw.getPayload();
+        String provider = payload.path("provider").asText();
+        price.annotatePriceSource(provider, raw.getFetchedAt());
+        boolean normalized = "market_price.v1".equals(payload.path("schema_version").asText());
+        price.recordNormalizedUnit(normalized
+                ? MarketPricePayloadParser.hasVndUnit(payload)
+                : java.util.Set.of("vnstock", "vndirect", "cafef").contains(provider.toLowerCase(java.util.Locale.ROOT)));
+    }
+
 }

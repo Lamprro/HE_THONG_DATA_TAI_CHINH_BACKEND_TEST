@@ -25,6 +25,8 @@ public record FinancialStatementMetadata(String reportScope, String periodBasis,
                 require("financial.metadata.v1".equals(perPeriod.path("schema_version").asText())
                         && root.path("provider").asText().equals(perPeriod.path("provider").asText()),
                         "Per-period metadata contract/provider mismatch");
+                require(!perPeriod.hasNonNull("period_end")
+                        || periodEnd.toString().equals(perPeriod.path("period_end").asText()), "Metadata fiscal period mismatch");
                 metadata = perPeriod;
             }
         } else metadata = root;

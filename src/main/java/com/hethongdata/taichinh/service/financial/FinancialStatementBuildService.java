@@ -227,7 +227,7 @@ public class FinancialStatementBuildService {
     }
 
     private Period period(JsonNode entry, JsonNode root) {
-        String raw = firstText(entry, "fiscalDate", "fiscal_date", "period", "period_key");
+        String raw = firstText(entry, "fiscalDate", "fiscal_date", "period_end", "period", "period_key");
         if (raw != null && raw.matches("\\d{4}-\\d{2}-\\d{2}")) {
             LocalDate end = LocalDate.parse(raw);
             String reportType = firstText(entry, "reportType", "report_type");

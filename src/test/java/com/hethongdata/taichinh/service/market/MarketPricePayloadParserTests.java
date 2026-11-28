@@ -137,4 +137,15 @@ class MarketPricePayloadParserTests {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Xung đột dữ liệu trùng thời điểm");
     }
+    @org.junit.jupiter.api.Test
+    void acceptsNestedVndAndRejectsConflictingUnits() throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        org.assertj.core.api.Assertions.assertThat(MarketPricePayloadParser.hasVndUnit(
+                mapper.readTree("{\"normalization\":{\"price_unit\":\"VND\"}}"))).isTrue();
+        org.assertj.core.api.Assertions.assertThat(MarketPricePayloadParser.hasVndUnit(
+                mapper.readTree("{\"price_unit\":\"VND\"}"))).isTrue();
+        org.assertj.core.api.Assertions.assertThat(MarketPricePayloadParser.hasVndUnit(
+                mapper.readTree("{\"price_unit\":\"USD\",\"normalization\":{\"price_unit\":\"VND\"}}"))).isFalse();
+        org.assertj.core.api.Assertions.assertThat(MarketPricePayloadParser.hasVndUnit(mapper.readTree("{}"))).isFalse();
+    }
 }

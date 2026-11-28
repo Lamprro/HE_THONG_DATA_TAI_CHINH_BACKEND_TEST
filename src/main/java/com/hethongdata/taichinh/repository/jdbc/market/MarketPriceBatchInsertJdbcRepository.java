@@ -19,8 +19,8 @@ public class MarketPriceBatchInsertJdbcRepository {
         INSERT INTO market_prices (security_id,price_timestamp,interval_code,open_price,high_price,low_price,
             close_price,adjusted_close,reference_price,ceiling_price,floor_price,volume,trading_value,
             foreign_buy_volume,foreign_sell_volume,data_source_id,raw_payload_id,data_version_id,
-            is_canonical,created_at,updated_at,price_basis,first_seen_at,price_metadata)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CAST(? AS jsonb))
+            is_canonical,created_at,updated_at,price_basis,first_seen_at,price_metadata,currency,price_unit)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CAST(? AS jsonb),?,?)
         """,
         created,
         100,
@@ -49,6 +49,8 @@ public class MarketPriceBatchInsertJdbcRepository {
           statement.setObject(22, p.getPriceBasis());
           statement.setObject(23, java.sql.Timestamp.from(p.getFirstSeenAt()));
           statement.setObject(24, p.getPriceMetadata().toString());
+          statement.setString(25, p.getCurrency());
+          statement.setString(26, p.getPriceUnit());
         });
     return created.size();
   }
